@@ -1,0 +1,198 @@
+# Dataset registry for reproducible downloads + preprocessing
+#
+# Notes:
+# - `record_id` is the Zenodo record ID (preferred) OR a DOI string. If you only
+#   have a DOI, populate `doi` and provide direct file URLs under `files`.
+# - `files[].url` should be a direct download URL (Zenodo provides these).
+# - Column mappings must match the metadata columns in the raw Seurat object.
+#
+# The repository does not ship datasets. Place downloaded files in:
+#   zenodo/raw/<filename>
+
+zenodo:
+  # TODO: fill with the public record DOI for the paper datasets
+  doi: "10.5281/zenodo.18921437"
+
+datasets:
+  - id: Stephenson_2021_33879890
+    reference: "Stephenson et al., 2021"
+    raw_filename: "Stephenson_2021_33879890.rds"
+    # Specs mapping
+    batch_col: "Site"
+    condition_col: "Status"
+    sample_col: "Sample"
+    # Cell type label columns exist in metadata; selected via specs_datasets.csv
+    files:
+      - filename: "Stephenson_2021_33879890.rds"
+        url: "TODO"
+
+  - id: Joanito_2022_35773407
+    reference: "Joanito et al., 2022"
+    raw_filename: "Joanito_2022_35773407.rds"
+    batch_col: "dataset"
+    condition_col: "sample.origin"
+    sample_col: "sample.ID"
+    files:
+      - filename: "Joanito_2022_35773407.rds"
+        url: "TODO"
+
+  - id: Joanito_2022_35773407
+    reference: "Lee et al., 2020"
+    raw_filename: "Joanito_2022_35773407.rds"
+    batch_col: "dataset"
+    condition_col: "sample.origin"
+    sample_col: "sample.ID"
+    files:
+      - filename: "Joanito_2022_35773407.rds"
+        url: "TODO"
+
+  # Multiple studies in a single standardized object (Gondal et al., 2025 collection)
+  - id: Gondal_2025_36095221
+    reference: "Alvarez-Breckenridge et al., 2022"
+    raw_filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+    batch_col: "Study_name"
+    condition_col: "pre_post"
+    sample_col: "Sample"
+    files:
+      - filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+        url: "TODO"
+
+  - id: Gondal_2025_36095221
+    reference: "Bassez et al., 2021"
+    raw_filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+    batch_col: "Study_name"
+    condition_col: "pre_post"
+    sample_col: "Sample"
+    files:
+      - filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+        url: "TODO"
+
+  - id: Gondal_2025_36095221
+    reference: "Jerby-Arnon et al., 2018"
+    raw_filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+    batch_col: "Study_name"
+    condition_col: "pre_post"
+    sample_col: "Sample"
+    files:
+      - filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+        url: "TODO"
+
+  - id: Gondal_2025_36095221
+    reference: "Tirosh et al., 2016"
+    raw_filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+    batch_col: "Study_name"
+    condition_col: "pre_post"
+    sample_col: "Sample"
+    files:
+      - filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+        url: "TODO"
+
+  - id: Gondal_2025_36095221
+    reference: "Yost et al., 2019"
+    raw_filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+    batch_col: "Study_name"
+    condition_col: "pre_post"
+    sample_col: "Sample"
+    files:
+      - filename: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Sikkema et al., 2023"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Habermann et al., 2020"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Deprez et al., 2020"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Madissoon et al., 2019"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Bharat et al., 2020"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Reyfman et al., 2019"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Vieira-Braga et al., 2019"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Sikkema_2023_37291214
+    reference: "Goldfarbmuren et al., 2020"
+    raw_filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    batch_col: "dataset"
+    condition_col: "tissue"
+    sample_col: "sample"
+    files:
+      - filename: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+        url: "TODO"
+
+  - id: Yerly_2022_35986012
+    reference: "Yerly et al., 2022"
+    raw_filename: "Yerly_2022_35986012.rds"
+    batch_col: "dataset"
+    condition_col: "condition"
+    sample_col: "sample"
+    files:
+      - filename: "Yerly_2022_35986012.rds"
+        url: "TODO"
+
+  - id: Ganier_2024_38165934
+    reference: "Ganier et al., 2024"
+    raw_filename: "Ganier_2024_38165934.rds"
+    batch_col: "dataset"
+    condition_col: "condition"
+    sample_col: "sample"
+    files:
+      - filename: "Ganier_2024_38165934.rds"
+        url: "TODO"

@@ -1,0 +1,33 @@
+# common params
+common:
+  reduction: true
+  sample: sample
+  ndim: 30
+  black.list: null
+  gene.list: null
+  normalization.method: Log1p
+  dissimilarity.method:
+    - WasserStein
+    - Pseudobulk:Euclidean
+    - Pseudobulk:Cosine
+    - Pseudobulk:Pearson
+    - BestHit:Match
+    - BestHit:Score
+  min.samples: 5
+  min.cells: 10
+  bparam: null
+  progressbar: false
+  verbose: true
+ 
+consistency:
+  Consistency.metric:
+    - silhouette
+    - 2label.silhouette
+    - NeighborhoodPurity
+    - ward.PropMatch
+    - Orbital.medoid
+    - Average.similarity
+  KNNGraph_k: 5
+  hclust.method: ward.D2
+  normalize: false
+  verbose: true

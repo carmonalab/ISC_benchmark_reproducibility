@@ -1,0 +1,23 @@
+*.code*
+*.DS_Store
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Python
+__pycache__/
+*.pyc
+
+# Data (not versioned)
+zenodo/
+data/raw/
+data/processed/
+
+# Results / figures (re-generated)
+results/
+
+# Optional reproducibility environments
+renv/library/
+renv/staging/

@@ -1,0 +1,1364 @@
+---
+title: "Figure 3: ISC benchmarking results"
+author: "Josep Garnica <josep.garnicacaparros@unil.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    code_folding: hide
+---
+
+# Overview
+
+This document generates the benchmarking results figure showing:
+
+1. **Dot plot visualization**: Dot size represents scaled scores (0-100%), color represents ranking
+2. **Overall score**: Weighted scores across all tasks
+3. **Comprehensive table**: Scores for each method across all tasks and resources
+
+**Tasks evaluated (in order):**
+
+1. Signal degradation (sensitivity to cell type signal disruption)
+2. Over-partitioning (sensitivity to artificial cell population splitting)
+3. Granularity (robustness to annotation granularity)
+4. Complexity (robustness to cellular complexity)
+5. Number of samples (robustness to dataset size - samples)
+6. Number of cells (robustness to dataset size - cells)
+7. Batch effects (robustness to technical differences)
+8. Perturbation effects (robustness to biological perturbations)
+
+**Note:** Pseudobulk:Pearson and average.similarity are excluded from plots (but included in tables).
+
+# Setup
+
+```{r setup, warning=FALSE, message=FALSE}
+# Load packages
+library(dplyr)
+library(tibble)
+library(BiocParallel)
+library(tidyr)
+library(ggplot2)
+library(stringr)
+library(purrr)
+library(data.table)
+library(openxlsx)
+library(patchwork)
+library(funkyheatmap)
+library(scTypeEval)
+
+# Working directory
+# Render from the repository root so all paths are relative and reproducible.
+wd <- normalizePath(getwd(), winslash = "/", mustWork = TRUE)
+knitr::opts_knit$set(root.dir = wd)
+
+# Configuration
+CONFIG <- list(
+  group = "celltype",  # Options: "celltype" or "ident"
+  onlyCell = TRUE,  # For Ncells task, keep only perturbed cell types
+  benchmarking_scores = TRUE,
+  n_workers = 7
+)
+```
+
+Benchmarking utils
+```{r, eval = T}
+source(system.file("benchmarking", "assays_utils.R", package = "scTypeEval"))
+source(system.file("benchmarking", "Metrics_benchmarking.R", package = "scTypeEval"))
+```
+
+
+# Helper Functions
+
+```{r helper-functions}
+#' Min-Max scaling to [0, 1]
+#' @param x Numeric vector
+#' @return Scaled vector
+minmax_scale <- function(x) {
+  x <- as.numeric(x)
+  if (all(is.na(x))) return(x)
+  rng <- range(x, na.rm = TRUE)
+  if (diff(rng) == 0) return(rep(0.5, length(x)))
+  (x - rng[1]) / diff(rng)
+}
+
+#' Calculate ratio between single and multi-batch consistency
+#' @param mb Multi-batch identifier
+#' @param df Data frame with consistency measures
+#' @return Data frame with consistency ratios
+calculate_batch_ratio <- function(mb, df) {
+  singles <- str_split(mb, "-", simplify = TRUE) %>% as.vector()
+  
+  r <- df %>%
+    filter(batch %in% c(mb, singles)) %>%
+    group_by(dissimilarity_method, consistency.metric,
+             celltype, dataset, ident) %>%
+    summarise(
+      multi_measure = measure[batch == mb],
+      single_mean   = mean(measure[batch %in% singles], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    filter(!is.na(multi_measure), !is.na(single_mean)) %>%
+    mutate(
+      batch = mb,
+      drop = single_mean - multi_measure,
+      score_celltype = if_else(drop < 0, 0, drop),
+      score_celltype = 1 - score_celltype
+    )
+  return(r)
+}
+
+#' Standardize method names
+#' @param df Data frame
+#' @return Data frame with standardized method names
+standardize_methods <- function(df) {
+  # Handle both dissimilarity_method and dissimilarity.method column names
+  if ("dissimilarity.method" %in% colnames(df) &&
+      !"dissimilarity_method" %in% colnames(df)) {
+    df <- df %>% rename(dissimilarity_method = dissimilarity.method)
+  }
+  
+    if (!"consistency.metric" %in% colnames(df)) {
+    df <- df %>% rename(consistency.metric = method)
+  }
+  
+  df %>%
+    mutate(
+      consistency.metric = gsub("Orbital\\.medoid", "Nearest.medoid", consistency.metric),
+      consistency.metric = gsub("ward\\.PropMatch", "Clustering.agreement", consistency.metric),
+      dissimilarity_method = gsub("BestHit", "RecipClassif", dissimilarity_method),
+      method_type = paste(consistency.metric, dissimilarity_method, sep = " | ")
+    )
+}
+
+#' Filter metrics for visualization
+#' @param df Data frame
+#' @param for_plot Logical, if TRUE removes correlated metrics
+#' @return Filtered data frame
+filter_metrics <- function(df, for_plot = FALSE) {
+  if (for_plot) {
+    df <- df %>%
+      filter(
+        !grepl("Pseudobulk.*Pearson", method_type),
+        !grepl("Average.similarity", method_type)
+      )
+  }
+  return(df)
+}
+
+#' Compute residual (main) effects for consistency metrics and dissimilarity methods
+#'
+#' For each task (assay), computes the marginal mean score for each consistency metric
+#' and dissimilarity method across all observed metric|dissimilarity combinations,
+#' then subtracts the assay grand mean to obtain a centered residual effect.
+#'
+#' @param task_summary_df Output of the `prepare-viz-data` chunk (must include: method_type, assay, mean_score)
+#' @param for_plot If TRUE, applies `filter_metrics(..., for_plot=TRUE)` before computing residuals
+#' @return Tibble with per-assay residual effects and ranks
+compute_residual_effects <- function(task_summary_df, for_plot = FALSE) {
+  df <- task_summary_df
+  if (for_plot) {
+    df <- filter_metrics(df, for_plot = TRUE)
+  }
+
+  df <- df %>%
+    mutate(method_type = as.character(method_type)) %>%
+    tidyr::separate(
+      method_type,
+      into = c("consistency_metric", "dissimilarity_method"),
+      sep = "[|]",
+      remove = FALSE,
+      fill = "right"
+    )
+
+  assay_grand_mean <- df %>%
+    group_by(assay) %>%
+    summarise(grand_mean = mean(mean_score, na.rm = TRUE), .groups = "drop")
+
+  metric_effects <- df %>%
+    group_by(assay, consistency_metric) %>%
+    summarise(
+      mean_score = mean(mean_score, na.rm = TRUE),
+      n_combos = dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    left_join(assay_grand_mean, by = "assay") %>%
+    mutate(
+      component = "Consistency metric",
+      level = consistency_metric,
+      residual_effect = mean_score - grand_mean
+    ) %>%
+    select(assay, component, level, mean_score, residual_effect, n_combos)
+
+  dissim_effects <- df %>%
+    group_by(assay, dissimilarity_method) %>%
+    summarise(
+      mean_score = mean(mean_score, na.rm = TRUE),
+      n_combos = dplyr::n(),
+      .groups = "drop"
+    ) %>%
+    left_join(assay_grand_mean, by = "assay") %>%
+    mutate(
+      component = "Dissimilarity method",
+      level = dissimilarity_method,
+      residual_effect = mean_score - grand_mean
+    ) %>%
+    select(assay, component, level, mean_score, residual_effect, n_combos)
+
+  bind_rows(metric_effects, dissim_effects) %>%
+    group_by(assay, component) %>%
+    mutate(
+      rank_residual = rank(-residual_effect, ties.method = "average"),
+      rank_mean = rank(-mean_score, ties.method = "average")
+    ) %>%
+    ungroup()
+}
+```
+
+# Data Loading
+
+## 1. Resources Data
+
+```{r load-resources}
+message("Loading resources data...")
+
+li.fi <- list.files(file.path(wd, "results/isc/resources/output"),
+                    recursive = TRUE,
+                    pattern = "[.]rds",
+                    full.names = TRUE)
+
+resources_data <- lapply(li.fi, readRDS) %>%
+  data.table::rbindlist() %>%
+  standardize_methods() %>%
+  mutate(
+    `Duration (ms)` = duration * 1e3,
+    `Peak memory (MB)` = memory_usage_MB
+  )
+
+message("✓ Resources data loaded: ", nrow(resources_data), " rows")
+```
+
+## 2. Benchmarking Tasks Data
+
+```{r load-benchmarking, warning=F}
+message("Loading benchmarking tasks data...")
+
+li.fi <- list.files(file.path(wd, "results/isc/tasks/output"),
+                    pattern = "rds$",
+                    recursive = TRUE,
+                    full.names = TRUE) %>%
+  grep("summary", ., value = TRUE, invert = TRUE)
+
+tasks_data <- bplapply(
+  li.fi,
+  BPPARAM = MulticoreParam(workers = CONFIG$n_workers, progressbar = TRUE),
+  function(fi) {
+    df0 <- readRDS(fi)
+    if (is.null(df0)) {
+      message("⚠️ Empty file: ", fi)
+      return(NULL)
+    }
+    
+    if (length(unique(df0$rate)) < 2) return(NULL)
+    
+    dataset <- str_remove(strsplit(fi, "/")[[1]][9], "_\\d+_\\d+$")
+    
+    # Infer assay type from filename
+    assay_type <- case_when(
+      grepl("Missclassific", fi, ignore.case = TRUE) ~ "Signal-degradation",
+      grepl("NSamples", fi, ignore.case = TRUE) ~ "Number-samples",
+      grepl("NCell", fi, ignore.case = TRUE) ~ "Number-cells",
+      grepl("Nct", fi, ignore.case = TRUE) ~ "Complexity",
+      grepl("mergeCT", fi, ignore.case = TRUE) ~ "Granularity",
+      grepl("SplitCelltype", fi, ignore.case = TRUE) ~ "Overpartitioning",
+      TRUE ~ "Unknown"
+    )
+    
+    # Filter for specific cell types if needed
+    if (assay_type %in% c("Number-cells", "Overpartitioning") && CONFIG$onlyCell) {
+      fname <- basename(fi)
+      cell_type_raw <- strsplit(fname, split = "_")[[1]][2]
+      cell_type <- scTypeEval:::purge_label(cell_type_raw)
+      
+      if ("celltype" %in% colnames(df0)) {
+        df0 <- df0 %>% filter(celltype == cell_type)
+      }
+    }
+    
+    if (nrow(df0) < 1) return(NULL)
+    
+    ident <- unique(df0$original.ident)
+    
+    # Standardize rates
+    if (assay_type == "Number-samples") {
+      unique_rates <- sort(unique(as.numeric(df0$rate)), decreasing = TRUE)
+      target_values <- c(1, 0.9, 0.7, 0.5)[seq_along(unique_rates)]
+      df0$rate <- target_values[match(df0$rate, unique_rates)]
+    } else if (!assay_type %in% c("Signal-degradation", "Number-cells", "Overpartitioning")) {
+      df0$rate <- case_when(
+        assay_type == "Complexity" ~ str_count(as.character(df0$rate), "-") + 1,
+        assay_type == "Granularity" ~ as.numeric(df0$rate),
+        TRUE ~ as.numeric(df0$rate)
+      )
+      df0$rate <- minmax_scale(df0$rate)
+    }
+    
+    # Calculate benchmarking scores
+    if (CONFIG$benchmarking_scores) {
+      summ_type <- case_when(
+        grepl("Missclassific", fi, ignore.case = TRUE) ~ "Monotonic",
+        grepl("NSamples", fi, ignore.case = TRUE) ~ "Constant",
+        grepl("NCell", fi, ignore.case = TRUE) ~ "Constant",
+        grepl("Nct", fi, ignore.case = TRUE) ~ "Constant",
+        grepl("mergeCT", fi, ignore.case = TRUE) ~ "Constant",
+        grepl("SplitCelltype", fi, ignore.case = TRUE) ~ "drop",
+        TRUE ~ "Unknown"
+      )
+      
+      g <- if (assay_type == "Granularity") "ident" else CONFIG$group
+      
+      df0 <- wr.assayPlot(df0,
+                          type = summ_type,
+                          return.df = TRUE,
+                          group = g)
+    }
+    
+    df0$assay <- assay_type
+    df0$dataset <- dataset
+    df0$ident <- ident
+    
+    return(df0)
+  }
+  
+) %>%
+  rbindlist(use.names = TRUE, fill = TRUE) %>%
+  standardize_methods()
+
+message("✓ Tasks data loaded: ", nrow(tasks_data), " rows")
+
+```
+
+
+## 3. Batch Effect Data
+
+```{r load-batch-effect}
+message("Loading batch effect data...")
+
+li.fi <- list.files(file.path(wd, "BatchEffect_singleRun/output"),
+                    recursive = TRUE,
+                    full.names = TRUE) %>%
+  grep("output_281025", ., invert = TRUE, value = TRUE)
+
+mult_dataset <- bplapply(
+  li.fi,
+  BPPARAM = MulticoreParam(workers = CONFIG$n_workers, progressbar = TRUE),
+  function(fi) {
+    df <- readRDS(fi)
+    if (is.null(df$Consistency)) return(NULL)
+    
+    df$Consistency %>%
+      mutate(rate = stringr::str_count(as.character(batch), "-") + 1)
+  }
+) %>%
+  data.table::rbindlist() 
+
+batch_data <- mult_dataset %>%
+  filter(
+    !grepl("Healthy|Normal|Tirosh|Jerby|Bassez|Alvarez|nose|airway", batch) &
+      rate < 3
+  )
+
+message("✓ Batch effect data loaded: ", nrow(batch_data), " rows")
+```
+
+## 4. Process Batch Effect Scores
+
+```{r process-batch-effect}
+# Identify multi-batches
+multi_batches <- unique(batch_data$batch[str_detect(batch_data$batch, "-")])
+
+batch_scores <- lapply(multi_batches, function(x) {
+  calculate_batch_ratio(mb = x, df = batch_data)
+}) %>%
+  data.table::rbindlist() %>%
+  standardize_methods() %>%
+  mutate(assay = "Batch-effect",
+         dataset = batch)
+
+message("✓ Batch effect scores calculated: ", nrow(batch_scores), " rows")
+```
+
+## 5. Perturbation Effect Data
+
+```{r process-perturbation}
+message("Processing perturbation effect data...")
+
+# Identify perturbation conditions
+multi_condition <- mult_dataset %>%
+  filter(rate < 3) %>%
+  separate(batch, sep = "-", into = c("d1", "d2"), remove = FALSE) %>%
+  separate(d1, sep = "_", into = c("source1", "condition1")) %>%
+  separate(d2, sep = "_", into = c("source2", "condition2")) %>%
+  filter(source1 == source2) %>%
+  pull(batch) %>%
+  unique() %>%
+  .[str_detect(., "-")]
+
+perturbation_scores <- lapply(multi_condition, function(x) {
+  calculate_batch_ratio(mb = x, df = mult_dataset)
+}) %>%
+  data.table::rbindlist() %>%
+  standardize_methods() %>%
+  mutate(assay = "Perturbation-effect",
+         dataset = batch)
+
+message("✓ Perturbation scores calculated: ", nrow(perturbation_scores), " rows")
+```
+
+
+
+# Data Processing
+
+## Combine All Tasks
+
+```{r combine-tasks}
+# Combine all task data
+all_tasks <- list(tasks_data, batch_scores, perturbation_scores) %>%
+  data.table::rbindlist(use.names = TRUE, fill = TRUE)
+
+# Aggregate by group
+all_tasks_agg <- all_tasks %>%
+  group_by(dissimilarity_method, consistency.metric, method_type,
+           assay, dataset, ident) %>%
+  summarise(score = mean(score_celltype, na.rm = TRUE), .groups = "drop")
+
+
+message("✓ All tasks combined: ", nrow(all_tasks_agg), " rows")
+```
+Up to here, compared with previous script and results are identical.
+
+## Calculate Overall Scores
+
+```{r calculate-overall-scores}
+# Define weight vector for tasks
+weight_vector <- c(
+  "Signal-degradation" = 0.20,
+  "Overpartitioning" = 0.20,
+  "Granularity" = 0.10,
+  "Complexity" = 0.10,
+  "Number-samples" = 0.10,
+  "Number-cells" = 0.10,
+  "Batch-effect" = 0.10,
+  "Perturbation-effect" = 0.10
+)
+
+# Verify weights sum to 1
+stopifnot(abs(sum(weight_vector) - 1.0) < 0.001)
+
+# Calculate weighted overall scores
+overall_scores <- all_tasks_agg %>%
+  group_by(method_type, assay) %>%
+  summarise(score = mean(score, na.rm = TRUE), .groups = "drop") %>%
+  group_by(method_type) %>%
+  summarise(
+    overall_score = weighted.mean(score, w = weight_vector[assay], na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  arrange(overall_score)
+
+message("✓ Overall scores calculated for ", nrow(overall_scores), " methods")
+```
+
+## Prepare Data for Visualization
+
+```{r prepare-viz-data}
+# Create summary statistics for each method-task combination
+task_summary <- all_tasks_agg %>%
+  group_by(method_type, assay) %>%
+  summarise(
+    mean_score = mean(score, na.rm = TRUE),
+    median_score = median(score, na.rm = TRUE),
+    sd_score = sd(score, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  ) %>%
+  group_by(assay) %>% 
+  mutate(scaled_mean = minmax_scale(mean_score)) %>% 
+  left_join(
+    overall_scores %>%
+      select(method_type, overall_score) %>% 
+      mutate(overall_rank = rank(-overall_score, ties.method = "average")
+  ),
+    by = "method_type"
+  )
+
+# Add ranking information
+task_summary <- task_summary %>%
+  group_by(assay) %>%
+  mutate(
+    rank_in_task = rank(-mean_score, ties.method = "average"),
+    percentile = rank_in_task / n() * 100
+  ) %>%
+  ungroup()
+ 
+
+# Standardize assay names and order
+task_summary <- task_summary %>%
+  mutate(
+    assay = factor(
+      assay,
+      levels = c(
+        "Signal-degradation",
+        "Overpartitioning",
+        "Granularity",
+        "Complexity",
+        "Number-samples",
+        "Number-cells",
+        "Batch-effect",
+        "Perturbation-effect"
+      ),
+      labels = c(
+        "Signal degradation",
+        "Over-partitioning",
+        "Granularity",
+        "Complexity",
+        "Num. samples",
+        "Num. cells",
+        "Batch effect",
+        "Perturbation effect"
+      )
+    )
+  )
+
+# Order methods by overall score (best to worst)
+method_order <- overall_scores %>%
+  arrange(desc(overall_score)) %>%
+  pull(method_type)
+
+task_summary <- task_summary %>%
+  mutate(method_type = factor(method_type, levels = method_order))
+
+message("✓ Visualization data prepared")
+```
+
+## Residual Effects for ICS Metric and Dissimilarity
+
+```{r residual-effects}
+# Residual effects computed per task (assay): component marginal mean minus assay grand mean.
+# - `residual_effects_all` is computed on all methods (including metrics excluded from plots).
+# - `residual_effects_plot` matches the plot universe (excludes Pseudobulk:Pearson and Average.similarity).
+
+residual_effects_all <- compute_residual_effects(task_summary, for_plot = FALSE)
+residual_effects_plot <- compute_residual_effects(task_summary, for_plot = TRUE)
+
+message("✓ Residual effects computed: ", nrow(residual_effects_all), " rows (all); ",
+  nrow(residual_effects_plot), " rows (plot universe)")
+```
+
+# Visualization
+
+## Funkyheatmap: Benchmarking Results
+
+```{r funkyheatmap-plot, fig.width=18, fig.height=10}
+# Task scores (wide) - keep absolute values for sizing
+plot_data <- task_summary %>%
+  filter_metrics(for_plot = TRUE) %>%
+  select(method_type, assay, median_score)
+
+task_wide <- plot_data %>%
+  tidyr::pivot_wider(names_from = assay, values_from = median_score)
+
+# Extract task columns and reorder to match specification
+task_cols <- setdiff(colnames(task_wide), "method_type")
+
+# Define correct task order
+task_order <- c(
+  "Signal degradation",
+  "Over-partitioning",
+  "Granularity",
+  "Complexity",
+  "Num. samples",
+  "Num. cells",
+  "Batch effect",
+  "Perturbation effect"
+)
+
+# Reorder task_wide columns to match specification
+task_cols_ordered <- task_order[task_order %in% task_cols]
+task_wide <- task_wide %>%
+  dplyr::select(method_type, all_of(task_cols_ordered))
+
+task_cols <- task_cols_ordered
+
+# Overall scores with absolute values and rank-normalized coloring
+overall_plot_data <- overall_scores %>%
+  filter_metrics(for_plot = TRUE) %>%
+  arrange(desc(overall_score)) %>%
+  mutate(
+    rank = rank(-overall_score, ties.method = "average"),
+    overall_score_color = (rank - 1) / (n() - 1),
+    overall_score_display = round(overall_score, 2)
+  ) %>%
+  select(method_type, overall_score,
+         overall_score_color, overall_score_display)
+
+# Resources with rank-normalized colors (no log scale)
+resources_summary <- resources_data %>%
+  filter_metrics(for_plot = TRUE) %>%
+  group_by(method_type) %>%
+  summarise(
+    median_duration_ms = median(`Duration (ms)`, na.rm = TRUE),
+    median_memory_mb = median(`Peak memory (MB)`, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    # Use absolute values for bar length and color (scaled to [0,1] for plotting)
+    median_duration_scaled = minmax_scale(median_duration_ms),
+    median_memory_scaled = minmax_scale(median_memory_mb)
+  ) %>%
+  select(method_type, median_duration_ms, median_memory_mb,
+         median_duration_scaled, median_memory_scaled)
+
+# Split method into consistency/dissimilarity
+method_info <- overall_scores %>%
+  filter_metrics(for_plot = TRUE) %>%
+  select(method_type) %>%
+  tidyr::separate(method_type,
+                  into = c("consistency_metric", "dissimilarity_method"),
+                  sep = " \\| ",
+                  remove = FALSE,
+                  fill = "right")
+
+# Combine to single data frame for funkyheatmap
+# Order by descending overall_score
+fh_data <- method_info %>%
+  left_join(task_wide, by = "method_type") %>%
+  left_join(overall_plot_data, by = "method_type") %>%
+  left_join(resources_summary, by = "method_type") %>%
+  mutate(id = method_type) %>%
+  arrange(desc(overall_score))
+
+# For tasks: create ranking columns for color
+n_methods <- nrow(fh_data)
+for (col in task_cols) {
+  scores <- fh_data[[col]]
+  # Higher score is better, so best should be rank 0 (green)
+  ranks <- rank(-scores, ties.method = "average", na.last = "keep")
+  fh_data[[paste0(col, "_color")]] <- ifelse(is.na(scores), NA, (ranks - 1) / (n_methods - 1))
+}
+
+# Select columns: metadata, overall (color, value, display), tasks (value), task colors, resources
+task_cols_color <- paste0(task_cols, "_color")
+fh_data <- fh_data %>%
+  dplyr::select(id, consistency_metric, dissimilarity_method, overall_score_color,
+                overall_score, overall_score_display, 
+                all_of(task_cols), all_of(task_cols_color),
+                median_duration_ms, median_memory_mb)
+
+# Recompute scaled resource columns (size/color need to be in [0,1] when scale_column = FALSE)
+fh_data <- fh_data %>%
+  mutate(
+    median_duration_scaled = minmax_scale(median_duration_ms),
+    median_memory_scaled = minmax_scale(median_memory_mb)
+  )
+
+# Column info for funkyheatmap (use official id_color/id_size/overlay fields)
+cinfo_metadata <- tibble::tibble(
+  id = c("consistency_metric", "dissimilarity_method", "overall_score", "overall_score_display"),
+  id_color = c(NA_character_, NA_character_, "overall_score_color", NA_character_),
+  id_size = c(NA_character_, NA_character_, "overall_score", NA_character_),
+  group = c("Method", "Method", "Overall", "Overall"),
+  name = c("Metric", "Dissimilarity", "", ""),
+  geom = c("text", "text", "bar", "text"),
+  palette = c(NA_character_, NA_character_, "overall_palette", NA_character_),
+  width = c(7, 7, 4, 4),
+  overlay = c(FALSE, FALSE, FALSE, TRUE),
+  legend = c(FALSE, FALSE, TRUE, FALSE),
+  label = c("consistency_metric", "dissimilarity_method", NA_character_, "overall_score_display"),
+  size = c(4, 4, NA_real_, 5.5),
+  fontface = c("plain", "plain", NA_character_, "bold"),
+  hjust = c(0, 0, NA_real_, 0.5),
+  vjust = c(0.5, 0.5, NA_real_, 0.5)
+)
+
+cinfo_tasks <- tibble::tibble(
+  id = task_cols,
+  id_color = task_cols_color,
+  id_size = task_cols,
+  group = rep("Tasks", length(task_cols)),
+  name = task_cols,
+  geom = rep("circle", length(task_cols)),
+  palette = rep("task_palette_rank", length(task_cols)),
+  width = rep(1.2, length(task_cols)),
+  overlay = rep(FALSE, length(task_cols)),
+  legend = rep(FALSE, length(task_cols))
+)
+
+cinfo_resources <- tibble::tibble(
+  id = c("median_duration_scaled", "median_memory_scaled"),
+  id_color = c("median_duration_scaled", "median_memory_scaled"),
+  id_size = c("median_duration_scaled", "median_memory_scaled"),
+  group = c("Resources", "Resources"),
+  name = c("Duration (ms)", "Peak memory (MB)"),
+  geom = c("bar", "bar"),
+  palette = c("duration_palette", "memory_palette"),
+  width = c(3, 3),
+  overlay = c(FALSE, FALSE),
+  legend = c(FALSE, FALSE),
+  draw_outline = c(TRUE, TRUE)
+)
+
+cinfo <- dplyr::bind_rows(cinfo_metadata, cinfo_tasks, cinfo_resources)
+
+palettes <- list(
+  # 1️⃣ Task rank palette: white → solid blue
+  task_palette_rank = grDevices::colorRampPalette(c("#08519c","#FFFFFF"))(50),
+  
+  # 2️⃣ Overall palette: warm gold → deep orange
+  overall_palette = rev(grDevices::colorRampPalette(c("#fffaf0", "#fee391", "#fdae61", "#e6550d", "#a63603"))(9)),
+  
+  # 3️⃣ Duration palette: soft-to-deep teal/green
+  duration_palette = grDevices::colorRampPalette(c("#f7fcf5", "#c7e9c0", "#74c476", "#238b45", "#005a32"))(7),
+  
+  # 4️⃣ Memory palette: soft lilac → rich purple (clearly distinct from overall)
+  memory_palette = grDevices::colorRampPalette(c("#f7f4f9", "#dadaeb", "#9e9ac8", "#6a51a3", "#3f007d"))(7)
+)
+
+# Legends: 1 shared 0-1 scale for task rank colors; resources show min-max actual values
+duration_range <- range(fh_data$median_duration_ms, na.rm = TRUE)
+memory_range <- range(fh_data$median_memory_mb, na.rm = TRUE)
+
+duration_labels <- c(
+  as.character(round(duration_range[[1]], 0)), "", "", "",
+  as.character(round(duration_range[[2]], 0))
+)
+memory_labels <- c(
+  as.character(round(memory_range[[1]], 0)), "", "", "",
+  as.character(round(memory_range[[2]], 0))
+)
+
+rank_labels <- as.character(c(1, "", "", "", n_methods))
+
+legends <- list(
+  list(
+    title = "Intra-task Rank",
+    palette = "task_palette_rank",
+    geom = "bar",
+    labels = rank_labels
+  ),
+  list(
+    title = "Score",
+    geom = "circle",
+    # Add spacer entries to increase separation between circles
+    labels = c("0", "", "", "0.25", "", "", "0.5", "", "", "0.75", "", "", "1"),
+    size = c(0, 0, 0, 0.25, 0, 0, 0.5, 0, 0, 0.75, 0, 0, 1),
+    color = c(
+      "#666666", "#00000000", "#00000000",
+      "#666666", "#00000000", "#00000000",
+      "#666666", "#00000000", "#00000000",
+      "#666666", "#00000000", "#00000000",
+      "#666666"
+    )
+  ),
+  # Keep an explicit (disabled) entry so funkyheatmap doesn't auto-add the legend
+  list(
+    palette = "overall_palette",
+    enabled = FALSE
+  ),
+  list(
+    title = "Duration (ms)",
+    palette = "duration_palette",
+    geom = "bar",
+    labels = duration_labels
+  ),
+  list(
+    title = "Memory (MB)",
+    palette = "memory_palette",
+    geom = "bar",
+    labels = memory_labels
+  )
+)
+
+funky_plot <- funkyheatmap::funky_heatmap(
+  fh_data,
+  column_info = cinfo,
+  palettes = palettes,
+  legends = legends,
+  position_args = funkyheatmap::position_arguments(
+    col_annot_offset = 3.5,
+    expand_xmax = 16,
+    expand_ymax = 0.8
+  ),
+  scale_column = FALSE
+)
+
+combined_plot <- funky_plot
+print(funky_plot)
+```
+
+## Residual Effects: Consistency vs Dissimilarity
+
+```{r residual-effects-plot, fig.width=16, fig.height=10}
+# Heatmap of residual effects per task. Fill = residual effect; labels show per-task rank (1 = best).
+
+fill_scale <- scale_fill_gradient2(
+  low = "#2C7BB6",
+  mid = "#F7F7F7",
+  high = "#FDAE61",
+  midpoint = 0,
+  name = "Z-Score\n(effect)"
+)
+
+base_theme <- theme_minimal(base_size = 12) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 13),
+    axis.text.y = element_text(size = 12),
+    legend.position = "right"
+  )
+
+top_panel_x_theme <- theme(
+  axis.text.x = element_blank(),
+  axis.ticks.x = element_blank()
+)
+
+metric_df <- residual_effects_plot %>%
+  filter(component == "Consistency metric")
+
+metric_levels <- metric_df %>%
+  group_by(level) %>%
+  summarise(avg_resid = mean(residual_effect, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(avg_resid)) %>%
+  pull(level)
+
+metric_df <- metric_df %>%
+  mutate(level = factor(level, levels = metric_levels))
+
+metric_plot <- ggplot(metric_df, aes(x = assay, y = level, fill = residual_effect)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(aes(label = as.integer(rank_residual)), size = 3.2, color = "black") +
+  fill_scale +
+  labs(
+    x = NULL,
+    y = NULL,
+    title = "Consistency metric residual effects",
+    subtitle = "Centered main effects (marginal mean minus assay grand mean); labels are ranks within each task"
+  ) +
+  base_theme +
+  top_panel_x_theme
+
+dissim_df <- residual_effects_plot %>%
+  filter(component == "Dissimilarity method")
+
+dissim_levels <- dissim_df %>%
+  group_by(level) %>%
+  summarise(avg_resid = mean(residual_effect, na.rm = TRUE), .groups = "drop") %>%
+  arrange(desc(avg_resid)) %>%
+  pull(level)
+
+dissim_df <- dissim_df %>%
+  mutate(level = factor(level, levels = dissim_levels))
+
+dissim_plot <- ggplot(dissim_df, aes(x = assay, y = level, fill = residual_effect)) +
+  geom_tile(color = "white", linewidth = 0.3) +
+  geom_text(aes(label = as.integer(rank_residual)), size = 3.2, color = "black") +
+  fill_scale +
+  labs(
+    x = NULL,
+    y = NULL,
+    title = "Dissimilarity method residual effects"
+  ) +
+  base_theme
+
+residuals_plot <- metric_plot / dissim_plot +
+  plot_layout(heights = c(1, 1), guides = "collect")
+
+print(residuals_plot)
+```
+
+# Export Results
+
+## Save Figure
+
+```{r save-figure}
+# Create output directory
+fig_dir <- file.path(
+  "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure3/"
+)
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Save as PDF
+pdf_file <- file.path(fig_dir, paste0("Benchmarking_", "_funkyheatmap.pdf"))
+ggsave(
+  pdf_file,
+  plot = combined_plot,
+  width = 15,
+  height = 10,
+  device = "pdf"
+)
+
+message("✓ Figure saved: ", pdf_file)
+
+# Save residual-effects plot
+residual_pdf_file <- file.path(fig_dir, paste0("Benchmarking_", "residual_effects.pdf"))
+ggsave(
+  residual_pdf_file,
+  plot = residuals_plot,
+  width = 8,
+  height = 6,
+  device = "pdf"
+)
+
+message("✓ Residual effects figure saved: ", residual_pdf_file)
+
+
+```
+
+
+
+## Save Table
+
+```{r save-table}
+results_table <- task_summary
+# Create output directory
+table_dir <- "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/tables/"
+dir.create(table_dir, showWarnings = FALSE, recursive = TRUE)
+
+# Save as Excel
+xlsx_file <- file.path(table_dir, paste0("Benchmarking_results_", CONFIG$group, ".xlsx"))
+
+wb <- createWorkbook()
+addWorksheet(wb, "Benchmarking Results")
+writeData(wb, "Benchmarking Results", results_table)
+
+# Residual effects worksheet (consistency metrics & dissimilarity methods)
+addWorksheet(wb, "Residual Effects")
+writeData(
+  wb,
+  "Residual Effects",
+  residual_effects_all %>%
+    mutate(assay = as.character(assay)) %>%
+    arrange(component, assay, rank_residual)
+)
+
+# Format header
+headerStyle <- createStyle(
+  fontSize = 11,
+  fontColour = "white",
+  halign = "center",
+  valign = "center",
+  textDecoration = "bold",
+  fgFill = "#4F81BD"
+)
+addStyle(wb, "Benchmarking Results", headerStyle, rows = 1, cols = 1:ncol(results_table))
+addStyle(
+  wb,
+  "Residual Effects",
+  headerStyle,
+  rows = 1,
+  cols = 1:ncol(residual_effects_all)
+)
+
+# Freeze header row
+freezePane(wb, "Benchmarking Results", firstRow = TRUE)
+freezePane(wb, "Residual Effects", firstRow = TRUE)
+
+# Set column widths
+setColWidths(wb, "Benchmarking Results", cols = 1:ncol(results_table), widths = "auto")
+setColWidths(wb, "Residual Effects", cols = 1:ncol(residual_effects_all), widths = "auto")
+
+# Save workbook
+saveWorkbook(wb, xlsx_file, overwrite = TRUE)
+
+message("✓ Table saved: ", xlsx_file)
+```
+
+## Summary Statistics
+
+```{r summary-stats}
+cat("\n=== BENCHMARKING SUMMARY ===\n\n")
+
+cat("Configuration:\n")
+cat("  Group:", CONFIG$group, "\n")
+cat("  Only perturbed cells:", CONFIG$onlyCell, "\n\n")
+
+cat("Data Summary:\n")
+cat("  Total methods evaluated:", nrow(overall_scores), "\n")
+cat("  Total tasks:", length(unique(task_summary$assay)), "\n")
+cat("  Total datasets:", length(unique(all_tasks_agg$dataset)), "\n\n")
+
+cat("Top 5 Methods (Overall Score):\n")
+top_methods <- overall_scores %>%
+  arrange(desc(overall_score)) %>%
+  head(5)
+for (i in 1:nrow(top_methods)) {
+  cat(sprintf("  %d. %s: %.3f\n", 
+              i, 
+              top_methods$method_type[i], 
+              top_methods$overall_score[i]))
+}
+
+cat("\nTask Weights:\n")
+for (task in names(weight_vector)) {
+  cat(sprintf("  %s: %.1f%%\n", task, weight_vector[task] * 100))
+}
+
+cat("\n=== END SUMMARY ===\n")
+```
+
+# LinePlots
+
+## Load raw benchmarking output
+
+### Benchmarking Tasks Data
+
+```{r load-benchmarking-raw, warning=F}
+message("Loading benchmarking tasks data...")
+
+li.fi <- list.files(file.path(wd, "results/isc/tasks/output"),
+                    pattern = "rds$",
+                    recursive = TRUE,
+                    full.names = TRUE) %>%
+  grep("summary", ., value = TRUE, invert = TRUE)
+
+tasks_data_raw <- bplapply(
+  li.fi,
+  BPPARAM = MulticoreParam(workers = CONFIG$n_workers, progressbar = TRUE),
+  function(fi) {
+    df0 <- readRDS(fi)
+    if (is.null(df0)) {
+      message("⚠️ Empty file: ", fi)
+      return(NULL)
+    }
+    
+    if (length(unique(df0$rate)) < 2) return(NULL)
+    
+    dataset_run_dir <- basename(dirname(dirname(fi)))
+    dataset <- str_remove(dataset_run_dir, "_[0-9]{6}_[0-9]{8}$")
+    
+    # Infer assay type from filename
+    assay_type <- case_when(
+      grepl("Missclassific", fi, ignore.case = TRUE) ~ "Signal-degradation",
+      grepl("NSamples", fi, ignore.case = TRUE) ~ "Number-samples",
+      grepl("NCell", fi, ignore.case = TRUE) ~ "Number-cells",
+      grepl("Nct", fi, ignore.case = TRUE) ~ "Complexity",
+      grepl("mergeCT", fi, ignore.case = TRUE) ~ "Granularity",
+      grepl("SplitCelltype", fi, ignore.case = TRUE) ~ "Overpartitioning",
+      TRUE ~ "Unknown"
+    )
+    
+    # Filter for specific cell types if needed
+    if (assay_type %in% c("Number-cells", "Overpartitioning") && CONFIG$onlyCell) {
+      fname <- basename(fi)
+      cell_type_raw <- strsplit(fname, split = "_")[[1]][2]
+      cell_type <- scTypeEval:::purge_label(cell_type_raw)
+      
+      if ("celltype" %in% colnames(df0)) {
+        df0 <- df0 %>% filter(celltype == cell_type)
+      }
+    }
+    
+    if (nrow(df0) < 1) return(NULL)
+    
+    ident <- unique(df0$original.ident)
+    
+    # Standardize rates
+    if (assay_type == "Number-samples") {
+      unique_rates <- sort(unique(as.numeric(df0$rate)), decreasing = TRUE)
+      target_values <- c(1, 0.9, 0.7, 0.5)[seq_along(unique_rates)]
+      df0$rate <- target_values[match(df0$rate, unique_rates)]
+    } else if (!assay_type %in% c("Signal-degradation", "Number-cells", "Overpartitioning")) {
+      df0$rate <- case_when(
+        assay_type == "Complexity" ~ str_count(as.character(df0$rate), "-") + 1,
+        assay_type == "Granularity" ~ as.numeric(df0$rate),
+        TRUE ~ as.numeric(df0$rate)
+      )
+      df0$rate <- minmax_scale(df0$rate)
+    }
+    
+    df0$assay <- assay_type
+    df0$dataset <- dataset
+    df0$ident <- ident
+    
+    return(df0)
+  }
+  
+) %>%
+  rbindlist(use.names = TRUE, fill = TRUE) %>%
+  standardize_methods()
+
+message("✓ Raw tasks data loaded: ", nrow(tasks_data_raw), " rows")
+
+```
+
+
+
+## auxiliary plots
+
+```{r}
+# line plots is for all tasks except for over-partitioning, batch effect, and perturbation effect which need to use barplot
+
+lineplot <- function(df,
+                     qs = c(0.05, 0.25, 0.75, 0.95),
+                     smooth = TRUE,
+                     span = 0.7,
+                     title = "",
+                     subtitle = ""){
+  summary_df <- df %>%
+    group_by(rate) %>%
+    summarise(
+      median = median(measure),
+      q1 = quantile(measure, qs[1]),
+      q2 = quantile(measure, qs[2]),
+      q3 = quantile(measure, qs[3]),
+      q4 = quantile(measure, qs[4]),
+      .groups = "drop"
+    )
+  
+  # smooth values per facet
+  smooth_df <- summary_df
+  if (smooth && nrow(summary_df) >= 4) {
+    smooth_df <- smooth_df %>%
+      mutate(
+        median = as.numeric(predict(loess(median ~ rate, span = span))),
+        q1 = as.numeric(predict(loess(q1 ~ rate, span = span))),
+        q2 = as.numeric(predict(loess(q2 ~ rate, span = span))),
+        q3 = as.numeric(predict(loess(q3 ~ rate, span = span))),
+        q4 = as.numeric(predict(loess(q4 ~ rate, span = span)))
+      )
+  }
+  
+  fpl <- ggplot(smooth_df, aes(x = rate, y = median, group = 1)) +
+    geom_line(size = 1.2, color = "black") +
+    geom_ribbon(aes(ymin = q1, ymax = q4), alpha = 0.2, fill = "steelblue") +
+    geom_ribbon(aes(ymin = q2, ymax = q3), alpha = 0.4, fill = "steelblue") +
+      labs(title = title, subtitle = subtitle) +
+    ggpubr::theme_classic2() +
+      theme(title = element_text(size = 15, hjust = 0.5, face = "bold"),
+          plot.subtitle = element_text(size = 14, hjust = 0.5))
+
+  return(fpl)
+}
+
+boxplot <- function(df,
+                    title = "",
+                    subtitle = "",
+                    rate_levels = NULL){
+  if ("rate_label" %in% colnames(df)) {
+    if (!is.null(rate_levels)) {
+      df <- df %>%
+        mutate(rate_plot = factor(rate_label, levels = rate_levels))
+    } else {
+      df <- df %>%
+        mutate(rate_plot = factor(rate_label, levels = unique(rate_label)))
+    }
+  } else {
+    df <- df %>%
+      mutate(rate_plot = factor(rate, levels = sort(unique(rate))))
+  }
+
+  pl <- ggplot(df, aes(x = rate_plot, y = measure,
+                       color = rate_plot)) +
+    geom_boxplot(width = 0.55,
+                 outlier.shape = NA,
+                 alpha = 0.35,
+                 show.legend = F) +
+    geom_jitter(
+      shape = 21,
+      size = 1,
+      height = 0,
+      width = 0.12,
+      alpha = 0.3,
+      show.legend = F
+    ) +
+    scale_color_manual(values = c("grey15", "#3B6FB6")) +
+    scale_x_discrete(drop = FALSE) +
+    labs(title = title, subtitle = subtitle) +
+    ggpubr::theme_classic2() +
+    theme(title = element_text(size = 15, hjust = 0.5, face = "bold"),
+          plot.subtitle = element_text(size = 14, hjust = 0.5))
+
+  return(pl)
+}
+```
+
+## Do plots
+
+One plot for each of the best-worst-assay chunk output (total of 16, 8 tasks)
+
+```{r panel-perturbation-data}
+
+# Ensure method_type is present in tasks_data_raw (if not already added)
+if (!"method_type" %in% colnames(tasks_data_raw)) {
+  tasks_data_raw <- tasks_data_raw %>%
+    mutate(method_type = paste(consistency.metric, dissimilarity_method, sep = " | "))
+}
+
+# Assemble raw data for the panel (tasks + batch + perturbation)
+panel_tasks <- tasks_data_raw
+
+# Raw batch-effect (single vs multi) using mult_dataset
+panel_batch <- mult_dataset %>%
+  mutate(
+    assay = "Batch-effect",
+    rate_raw = rate,
+    rate = dplyr::if_else(rate_raw <= 1, 0, 1),
+    rate_label = dplyr::if_else(rate_raw <= 1, "Single", "Multi")
+  ) %>%
+  select(-rate_raw) %>%
+  standardize_methods()
+
+# Raw perturbation-effect (single conditions vs combined) using mult_dataset
+panel_perturb <- mult_dataset %>%
+  mutate(
+    assay = "Perturbation-effect",
+    rate_raw = rate,
+    rate = dplyr::if_else(rate_raw <= 1, 0, 1),
+    rate_label = dplyr::if_else(rate_raw <= 1, "Single", "Paired")
+  ) %>%
+  select(-rate_raw) %>%
+  standardize_methods()
+
+panel_df <- dplyr::bind_rows(
+  panel_tasks,
+  panel_batch,
+  panel_perturb
+)
+
+# Remap plot_data assay names to internal format for lookup
+assay_remap <- c(
+  "Signal degradation" = "Signal-degradation",
+  "Over-partitioning" = "Overpartitioning",
+  "Granularity" = "Granularity",
+  "Complexity" = "Complexity",
+  "Num. samples" = "Number-samples",
+  "Num. cells" = "Number-cells",
+  "Batch effect" = "Batch-effect",
+  "Perturbation effect" = "Perturbation-effect"
+)
+```
+
+```{r best-worst-methods}
+# Method picks for each task in plot_data
+best_worst <- plot_data %>%
+  group_by(assay) %>%
+  summarise(
+    best_method = method_type[which.max(median_score)],
+    worst_method = method_type[which.min(median_score)],
+    .groups = "drop"
+  ) %>%
+  mutate(assay_internal = assay_remap[assay])
+```
+
+### render plots
+
+```{r panel-perturbation-data, fig.width=20, fig.height=10}
+
+make_panel_plot <- function(display_assay_name, which_row = c("best", "worst")) {
+  which_row <- match.arg(which_row)
+  
+  # Look up the internal assay name and best/worst method
+  internal_assay <- assay_remap[display_assay_name]
+  if (is.na(internal_assay)) {
+    return(ggplot() + theme_void() + labs(title = display_assay_name))
+  }
+  
+  row_data <- best_worst %>% filter(assay == display_assay_name)
+  if (nrow(row_data) == 0) {
+    return(ggplot() + theme_void() + labs(title = display_assay_name))
+  }
+  
+  method <- row_data[[paste0(which_row, "_method")]]
+  if (is.na(method) || method == "") {
+    return(ggplot() + theme_void() + labs(title = display_assay_name))
+  }
+
+  method_title <- gsub(" \\| ", "\n", method)
+
+  df0 <- panel_df %>%
+    filter(assay == internal_assay, method_type == method)
+
+  if (nrow(df0) < 1) {
+    return(ggplot() + theme_void() + labs(title = display_assay_name))
+  }
+
+  is_two_level <- dplyr::n_distinct(df0$rate) <= 2
+  if (is_two_level) {
+    rate_levels <- NULL
+    if (display_assay_name == "Over-partitioning") {
+      rate_levels <- c("Split", "Complete")
+    } else if (display_assay_name == "Batch effect") {
+      rate_levels <- c("Single", "Multi")
+    } else if (display_assay_name == "Perturbation effect") {
+      rate_levels <- c("Single", "Paired")
+    }
+
+    if (!"rate_label" %in% colnames(df0) || all(is.na(df0$rate_label))) {
+      rate_vals <- sort(unique(as.numeric(as.character(df0$rate))))
+      rate_keys <- as.character(rate_vals)
+      if (is.null(rate_levels)) {
+        rate_levels <- rate_keys
+      }
+      df0 <- df0 %>%
+        mutate(rate_label = dplyr::recode(as.character(rate),
+                                          !!!setNames(rate_levels, rate_keys)))
+    }
+
+    plot_obj <- boxplot(df0,
+                        title = display_assay_name,
+                        subtitle = method_title,
+                        rate_levels = rate_levels)
+  } else {
+    # coerce rate to numeric for line plots
+    df0_numeric <- df0 %>% mutate(rate = as.numeric(as.character(rate)))
+    if (any(is.na(df0_numeric$rate))) {
+      df0_numeric <- df0_numeric %>% filter(!is.na(rate))
+    }
+
+    if (nrow(df0_numeric) < 1) {
+      return(ggplot() + theme_void() + labs(title = display_assay_name))
+    }
+
+    plot_obj <- lineplot(df0_numeric,
+                         title = display_assay_name,
+                         subtitle = method_title)
+  }
+
+  show_axis <- which_row == "worst" && display_assay_name == task_order[[1]]
+  if (show_axis) {
+    plot_obj <- plot_obj +
+      labs(x = "Perturbation rate",
+           y = "Inter-Sample Consistency score") +
+      theme(axis.title = element_text(size = 10, face = "bold"))
+  } else {
+    plot_obj <- plot_obj +
+      theme(axis.title = element_blank())
+  }
+
+  return(plot_obj)
+}
+
+plots_best <- lapply(task_order, make_panel_plot, which_row = "best")
+plots_worst <- lapply(task_order, make_panel_plot, which_row = "worst")
+
+panel_plot <- (wrap_plots(plots_best, ncol = 8) /
+                wrap_plots(plots_worst, ncol = 8))
+
+print(panel_plot)
+
+# Export the panel plot
+panel_pdf_file <- file.path(fig_dir, paste0("Benchmarking_", "perturbation_panel.pdf"))
+ggsave(
+  panel_pdf_file,
+  plot = panel_plot,
+  width = 20,
+  height = 6,
+  device = "pdf"
+)
+
+message("✓ Perturbation panel plot saved: ", panel_pdf_file)
+```
+
+
+
+
