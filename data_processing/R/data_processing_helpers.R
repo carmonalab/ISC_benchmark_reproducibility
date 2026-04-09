@@ -6,6 +6,52 @@ suppressPackageStartupMessages({
   library(BiocParallel)
 })
 
+
+#' Load dataset from raw file(s)
+
+load_dataset <- function(ds, input_dir = "../data/raw") {
+  tryCatch({
+    # Multiple files (e.g., BCC)
+    if (!is.null(ds$raw_files) && length(ds$raw_files) > 0) {
+      files <- file.path(input_dir, ds$raw_files)
+      objs <- lapply(files, readRDS)
+      # Merge multiple datasets, adding dataset labels
+      for (i in 2:length(objs)) {
+        objs[[1]] <- merge(objs[[1]], objs[[i]])
+      }
+      obj <- objs[[1]]
+      # Add dataset labels if not already present (for BCC)
+      if (!("dataset" %in% colnames(obj@meta.data))) {
+        # Try to infer from original objects
+        for (i in seq_along(ds$raw_files)) {
+          dataset_label <- sub("_[^_]*\\.rds$", "", basename(ds$raw_files[i]))
+          # This is dataset-specific; for BCC we handle it differently
+          if (ds$id == "BCC") {
+            file_content <- readRDS(file.path(input_dir, ds$raw_files[i]))
+            # Mark cells from this file
+            idx <- colnames(obj) %in% colnames(file_content)
+            if (sum(idx) > 0) {
+              obj$dataset[idx] <- if (grepl("LY", ds$raw_files[i])) "LY" else "CG"
+            }
+          }
+        }
+      }
+      return(obj)
+    }
+    
+    # Single file (default)
+    if (!is.null(ds$raw_file)) {
+      file <- file.path(input_dir, ds$raw_file)
+      return(readRDS(file))
+    }
+    
+    return(NULL)
+  }, error = function(e) {
+    warning(sprintf("Failed to load dataset '%s': %s", ds$id, e$message))
+    return(NULL)
+  })
+}
+
 #' Process one dataset: downsample → split by batch+condition → save
 #'
 #' @param obj Seurat object
@@ -30,7 +76,7 @@ process_dataset <- function(obj,
   message(sprintf("[%s] Processing %s - %d cells", 
                   format(Sys.time(), "%H:%M:%S"), prefix, ncol(obj)))
   
-  # ===== Step 1: Exclude low-quality cell types =====
+  # ===== Step 1: Exclude low consistency cell types =====
   if (!is.null(exclude_celltypes) && length(exclude_celltypes) > 0) {
     if (ident_col %in% colnames(obj@meta.data)) {
       n_before <- ncol(obj)
@@ -85,7 +131,7 @@ process_dataset <- function(obj,
   message("  Applying optimal_dataset filtering")
   
   w <- min(config$n_cores, length(splits))
-  # if resulting splits are too large we prioritize keepin samples
+  # if resulting splits are too large we prioritize keeping samples
   # with enough cell types and total cells
   splits <- bplapply(
     splits,
@@ -230,32 +276,6 @@ optimal_dataset <- function(obj,
   obj
 }
 
-
-# ============================================================================
-# HELPERS: LOAD AND PROCESS EACH DATASET
-# ============================================================================
-
-#' Load dataset from raw file(s)
-#' @param ds Dataset configuration entry
-#' @return Seurat object or NULL if loading fails
-load_dataset <- function(ds, input_dir = config$in_dir) {
-  tryCatch({
-    # Multiple files (e.g., BCC)
-    if ("raw_files" %in% names(ds)) {
-      files <- file.path(input_dir, ds$raw_files)
-      objs <- lapply(files, readRDS)
-      obj <- merge(objs[[1]], objs[-1])
-      return(obj)
-    }
-    
-    # Single file (default)
-    file <- file.path(input_dir, ds$raw_file)
-    readRDS(file)
-  }, error = function(e) {
-    warning(sprintf("Failed to load dataset '%s': %s", ds$id, e$message))
-    return(NULL)
-  })
-}
 
 #' Apply dataset-specific preprocessing
 #' @param obj Seurat object

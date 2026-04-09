@@ -19,7 +19,7 @@
 #      - Set YOUR_ACCOUNT to your HPC account
 #      - Set YOUR_PARTITION to your compute partition
 #      - Set YOUR_EMAIL for notifications
-#   2. Ensure raw data is downloaded to zenodo/raw/ (see data_processing/README.md)
+#   2. Ensure raw data is downloaded to data/raw/ (see data_processing/README.md)
 #
 # Submit the job:
 #   sbatch data_processing/scripts/submit_hpc.sh

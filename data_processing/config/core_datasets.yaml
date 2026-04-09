@@ -5,12 +5,11 @@
 # 
 # This file specifies:
 # - Dataset identifiers (used in output naming)
-# - Raw file locations (relative to zenodo/raw/)
+# - Raw file locations (relative to data/raw/)
 # - Metadata column mappings
 # - Cell type exclusions (if any)
 
 zenodo:
-  # Placeholder for global Zenodo DOI (once published)
   doi: "10.5281/zenodo.18921437"
 
 datasets:

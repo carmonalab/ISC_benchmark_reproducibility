@@ -22,6 +22,22 @@ ICB_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds
 
 ### 2. Run Processing
 
+**Option A: Using targets pipeline (recommended)**
+
+From data_processing directory:
+```bash
+cd data_processing
+targets::tar_make()
+```
+
+Benefits:
+- ✅ Incremental processing (only reruns missing datasets)
+- ✅ Graceful error handling (one failure doesn't stop others)
+- ✅ Automatic dependency tracking
+- ✅ View status with `targets::tar_status()`
+
+**Option B: Direct script execution**
+
 From repository root:
 ```bash
 Rscript data_processing/process_datasets.R
@@ -30,8 +46,54 @@ Rscript data_processing/process_datasets.R
 ### 3. Verify Output
 
 ```bash
-ls data/processed/*.rds | wc -l   # Should be 31 files
+ls data/processed/isc/*.rds | wc -l   # Should be 31 files
 ```
+
+---
+
+## Targets Pipeline Details
+
+### Why targets?
+
+Targets provides robust pipeline management:
+- **Incremental**: Only reruns if outputs are missing
+- **Error handling**: One dataset failure doesn't stop the others (error = "continue")
+- **Visibility**: Check status, see what's running/done
+- **Dependencies**: Auto-invalidates if config changes
+
+### Usage
+
+```bash
+cd data_processing
+
+# Check what needs to be done
+targets::tar_status()
+
+# Run all pending targets
+targets::tar_make()
+
+# Force rerun everything
+targets::tar_make(ask = FALSE)
+
+# Rerun if config changed
+targets::tar_cue(names = "config")
+
+# View detailed results
+targets::tar_read(summary)
+```
+
+### Pipeline Structure
+
+- **config** target: Loads `processing_parameters.yaml`
+- **datasets** target: Loads `core_datasets.yaml`
+- **process_ds_[1-6]** targets: One per dataset
+  - Checks if output exists (skips if done)
+  - Loads data with error handling
+  - Applies preprocessing
+  - Processes and saves splits
+  - Returns status (success/failed/skipped)
+- **summary** target: Collects all dataset results
+- **report** target: Displays final summary
 
 ---
 
