@@ -66,6 +66,7 @@ datasets:
   - id: BCC
     reference: "Ganier & Yerly"
     
+    raw_file: null                      # Only has raw_files (plural), not single file
     raw_files:
       - "BCC_all_LY_clean_annotated.rds"
       - "BCC_CG_all_annotated.rds"

@@ -53,7 +53,7 @@ list(
   # Load dataset registry once
   tar_target(
     datasets,
-    load_dpd_dp_datasets(),
+    load_dp_datasets(),
     # Invalidate if registry changes
     cue = tar_cue(file = "config/core_datasets.yaml")
   ),

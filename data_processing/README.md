@@ -2,7 +2,7 @@
 
 Reproduces the core data preprocessing from `Consistency_metrics_benchmark/datasets/proc_data.Rmd`.
 
-**Processes 6 datasets**: downsamples cells, splits by batch × condition, applies quality filters.
+**Processes 5 datasets** (6 raw files): downsamples cells, splits by batch × condition, applies quality filters.
 
 ---
 
@@ -22,8 +22,6 @@ ICB_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds
 
 ### 2. Run Processing
 
-**Option A: Using targets pipeline (recommended)**
-
 From data_processing directory:
 ```bash
 cd data_processing
@@ -35,13 +33,6 @@ Benefits:
 - ✅ Graceful error handling (one failure doesn't stop others)
 - ✅ Automatic dependency tracking
 - ✅ View status with `targets::tar_status()`
-
-**Option B: Direct script execution**
-
-From repository root:
-```bash
-Rscript data_processing/process_datasets.R
-```
 
 ### 3. Verify Output
 
@@ -134,13 +125,25 @@ For each dataset:
 
 ## Core Datasets Overview
 
-| Dataset | Reference | Splits | Notes |
-|---------|-----------|--------|-------|
-| JoaI | Joanito et al. 2022 | 7 | Colorectal cancer (dataset × tumor/normal) |
-| Mitchel | Stephenson et al. 2021 | 5 | COVID PBMC (site × status) |
-| BCC | Ganier & Yerly | 2 | Basal cell carcinoma (dataset only) |
-| LungAtlas | Sikkema et al. 2023 | 8 | Healthy lung (dataset × tissue) |
-| ICBAtlas | Gondal et al. 2025 | 9 | Immunotherapy cohort (study × pre/post) |
+| Dataset | Reference | Raw Files | Splits | Notes |
+|---------|-----------|-----------|--------|-------|
+| JoaI | Joanito et al. 2022 | 1 | 7 | Colorectal cancer (dataset × tumor/normal) |
+| Stephenson | Stephenson et al. 2021 | 1 | 5 | COVID PBMC (site × status) |
+| BCC | Ganier & Yerly | 2 | 2 | Basal cell carcinoma (dataset only) |
+| LungAtlas | Sikkema et al. 2023 | 1 | 8 | Healthy lung (dataset × tissue) |
+| ICBAtlas | Gondal et al. 2025 | 1 | 9 | Immunotherapy cohort (study × pre/post) |
+| **TOTAL** | | **6** | **31** | |
+
+---
+
+## Scripts Directory (HPC Submission - Legacy)
+
+The `scripts/` directory contains custom HPC submission scripts for SLURM clusters:
+
+- **`master_job.sh`** — Standalone pipeline runner (pre-targets implementation)
+- **`submit_hpc.sh`** — SLURM job submission wrapper
+
+These scripts are provided for reference/historical purposes. **Use the targets pipeline (above) for current workflows** — it provides better dependency tracking, error handling, and reproducibility.
 
 ---
 
