@@ -1,14 +1,18 @@
 #!/bin/bash
 #
-# master_job.sh — Process all datasets via SLURM/HPC
+# master_job.sh — Process all datasets via targets pipeline (HPC/local)
+#
+# This script orchestrates the targets-based data processing pipeline
+# (data_processing/_targets.R) with proper logging and error handling.
 #
 # Usage:
-#   bash data_processing/scripts/master_job.sh     # Run locally (serial)
-#   sbatch data_processing/scripts/submit_hpc.sh   # Submit to HPC
+#   bash data_processing/scripts/master_job.sh          # Run locally (serial)
+#   sbatch data_processing/scripts/submit_hpc.sh        # Submit to HPC via SLURM
 #
 # Requirements:
 #   - Run from project root: cd /path/to/ISC_benchmark_reproducibility
-#   - R with packages: yaml, dplyr, stringr, Seurat, Matrix, BiocParallel
+#   - R with packages: targets, yaml, dplyr, stringr, Seurat, Matrix, BiocParallel
+#   - Raw data downloaded to data/raw/ (see data_processing/README.md)
 #
 
 set -euo pipefail
@@ -44,8 +48,9 @@ if [[ ! -f "${DATA_PROCESSING_DIR}/config/processing_parameters.yaml" ]]; then
   exit 1
 fi
 
-if [[ ! -f "${DATA_PROCESSING_DIR}/process_datasets.R" ]]; then
-  log_msg "ERROR: data_processing/process_datasets.R not found."
+# Check if R targets package is available
+if ! Rscript -e 'stopifnot(requireNamespace("targets", quietly=TRUE))' 2>/dev/null; then
+  log_msg "ERROR: R package 'targets' not found. Install with: install.packages('targets')"
   exit 1
 fi
 
@@ -56,15 +61,19 @@ if [[ ! -d "${RAW_DIR}" ]] || [[ -z "$(find "${RAW_DIR}" -maxdepth 1 -name '*.rd
   log_msg "Download datasets from Zenodo first (see data_processing/README.md)"
 fi
 
-# Run R processing script
+# Run targets pipeline
 log_msg ""
-log_msg "Running R processing script..."
-log_msg "Command: Rscript ${DATA_PROCESSING_DIR}/process_datasets.R"
+log_msg "Running targets pipeline (data_processing/_targets.R)..."
+log_msg "Command: cd ${DATA_PROCESSING_DIR} && Rscript -e 'targets::tar_make()'"
 
-cd "${PROJECT_ROOT}"
-if Rscript "${DATA_PROCESSING_DIR}/process_datasets.R" 2>&1 | tee -a "${LOG_FILE}"; then
+cd "${DATA_PROCESSING_DIR}"
+if Rscript -e 'targets::tar_make()' 2>&1 | tee -a "${LOG_FILE}"; then
   log_msg ""
   log_msg "✓ Dataset processing completed successfully"
+  log_msg ""
+  log_msg "View results:"
+  log_msg "  targets::tar_read(summary)     # Summary of all datasets"
+  log_msg "  targets::tar_read(report)      # Detailed processing report"
 else
   log_msg ""
   log_msg "✗ Dataset processing failed. See log: ${LOG_FILE}"

@@ -136,14 +136,20 @@ For each dataset:
 
 ---
 
-## Scripts Directory (HPC Submission - Legacy)
+## Scripts Directory (HPC Submission)
 
-The `scripts/` directory contains custom HPC submission scripts for SLURM clusters:
+The `scripts/` directory contains scripts for submitting data processing jobs to HPC clusters and running locally:
 
-- **`master_job.sh`** — Standalone pipeline runner (pre-targets implementation)
-- **`submit_hpc.sh`** — SLURM job submission wrapper
+- **`master_job.sh`** — Orchestrates the targets pipeline with logging and error handling
+  - Can run locally: `bash scripts/master_job.sh`
+  - Or be called by SLURM job submission script
+  
+- **`submit_hpc.sh`** — SLURM job submission wrapper for HPC clusters
+  - Edit SBATCH directives (account, partition, email) before submitting
+  - Submit with: `sbatch scripts/submit_hpc.sh`
+  - Monitors job status and logs output to `data_processing/logs/`
 
-These scripts are provided for reference/historical purposes. **Use the targets pipeline (above) for current workflows** — it provides better dependency tracking, error handling, and reproducibility.
+**Both scripts now use the targets pipeline** (`_targets.R`) internally, providing proper dependency tracking, error handling, and incremental re-runs.
 
 ---
 

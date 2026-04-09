@@ -12,7 +12,10 @@
 #SBATCH --mail-user=<YOUR_EMAIL>
 
 # ============================================================================
-# SLURM Job Submission: ISC Benchmark Dataset Processing
+# SLURM Job Submission: ISC Benchmark Dataset Processing via Targets Pipeline
+#
+# This script submits the data processing job to an HPC cluster using SLURM.
+# It runs master_job.sh, which orchestrates the targets-based pipeline.
 #
 # Before running:
 #   1. Edit the SBATCH directives above:
@@ -20,6 +23,7 @@
 #      - Set YOUR_PARTITION to your compute partition
 #      - Set YOUR_EMAIL for notifications
 #   2. Ensure raw data is downloaded to data/raw/ (see data_processing/README.md)
+#   3. Ensure R has required packages: targets, yaml, dplyr, stringr, Seurat, etc.
 #
 # Submit the job:
 #   sbatch data_processing/scripts/submit_hpc.sh
