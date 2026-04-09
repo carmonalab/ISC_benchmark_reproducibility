@@ -20,10 +20,12 @@
 library(targets)
 library(yaml)
 
-# Source utilities from parent directory
+# Source utilities from parent directory and local modules
 source("../R/cli_utils.R")
 source("../R/shared_helpers.R")
+source("R/00_utils.R")
 source("R/data_processing_helpers.R")
+source("R/process_datasets.R")
 
 # ============================================================================
 # TARGETS PIPELINE CONFIGURATION
@@ -31,39 +33,10 @@ source("R/data_processing_helpers.R")
 
 tar_option_set(
   packages = c("yaml", "dplyr", "stringr", "Seurat", "SeuratObject", "Matrix", "BiocParallel"),
-  # Store outputs in data/processed/isc/
+  # Store outputs in data/processed/
   storage = "worker",
   retrieval = "worker"
 )
-
-# ============================================================================
-# HELPER FUNCTIONS FOR TARGETS
-# ============================================================================
-
-#' Load configuration
-#' @return List of configuration parameters
-get_config <- function() {
-  config <- read_yaml("config/processing_parameters.yaml")
-  config$out_dir <- "../data/processed/isc"  # Relative to data_processing dir
-  dir.create(config$out_dir, showWarnings = FALSE, recursive = TRUE)
-  config
-}
-
-#' Load dataset registry
-#' @return List of dataset configurations
-get_datasets <- function() {
-  datasets_config <- read_yaml("config/core_datasets.yaml")
-  datasets_config$datasets
-}
-
-#' Check if dataset output files exist
-#' @param prefix Dataset prefix (e.g., "JoaI")
-#' @param out_dir Output directory
-#' @return TRUE if at least one output file exists, FALSE otherwise
-output_exists <- function(prefix, out_dir) {
-  files <- list.files(out_dir, pattern = paste0("^", prefix, "_.*\\.rds$"))
-  length(files) > 0
-}
 
 # ============================================================================
 # DYNAMIC TARGETS: ONE PER DATASET
@@ -73,7 +46,7 @@ list(
   # Load configuration once
   tar_target(
     config,
-    get_config(),
+    load_dp_params(),
     # Invalidate if config file changes
     cue = tar_cue(file = "config/processing_parameters.yaml")
   ),
@@ -81,7 +54,7 @@ list(
   # Load dataset registry once
   tar_target(
     datasets,
-    get_datasets(),
+    load_dpd_dp_datasets(),
     # Invalidate if registry changes
     cue = tar_cue(file = "config/core_datasets.yaml")
   ),
