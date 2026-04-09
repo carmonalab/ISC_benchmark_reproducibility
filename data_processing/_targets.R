@@ -25,7 +25,6 @@ source("../R/cli_utils.R")
 source("../R/shared_helpers.R")
 source("R/00_utils.R")
 source("R/data_processing_helpers.R")
-source("R/process_datasets.R")
 
 # ============================================================================
 # TARGETS PIPELINE CONFIGURATION
