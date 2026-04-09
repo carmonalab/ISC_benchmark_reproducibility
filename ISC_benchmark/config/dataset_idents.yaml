@@ -3,8 +3,6 @@
 # Cell type annotation columns for each dataset
 # Maps dataset identifiers to their available cell type annotation columns
 # Used by ISC benchmark pipeline to identify which annotations to test
-#
-# Based on: get_idents_by_prefix() from legacy code
 
 # ============================================================================
 # DATASET IDENT MAPPINGS
@@ -46,16 +44,3 @@ idents:
   ICBAtlas_2024:
     - "cell_type"
   
-
-# ============================================================================
-# NOTES
-# ============================================================================
-#
-# - Annotations are listed in order from coarse (left) to fine-grained (right)
-# - The ISC benchmark will test consistency across all annotation levels
-# - Some datasets have multiple levels (e.g., Mitchel_2021, LungAtlas_2023)
-# - Single-level annotations (JoaI_2022, BCC, ICBAtlas_2024) use only one ident
-#
-# Usage in _targets.R:
-#   get_cell_type_columns(dataset_id) reads this file and retrieves
-#   the ident columns for the specified dataset
