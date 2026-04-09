@@ -14,6 +14,13 @@ seed: 22                          # Random seed (must match original benchmarkin
 n_cores: 8                        # Number of cores for parallel processing
 
 # ============================================================================
+# PATHS (relative to project root)
+# ============================================================================
+paths:
+  data_processed: "data/processed"            # Processed datasets directory
+  results_root: "ISC_benchmark/results"       # Root results directory
+
+# ============================================================================
 # TASK SELECTION
 # ============================================================================
 # Order reflects logical progression from sensitivity to robustness:
@@ -175,6 +182,5 @@ task_NCell:
 # OUTPUT CONFIGURATION
 # ============================================================================
 output:
-  dir: "results/isc_benchmark"          # Output directory (relative to project root)
   save_plots: true                      # Save diagnostic plots
   plot_format: "pdf"                    # Plot format: png, pdf, or both
