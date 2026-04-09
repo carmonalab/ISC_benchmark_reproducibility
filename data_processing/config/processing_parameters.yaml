@@ -1,0 +1,43 @@
+# data_processing/config/processing_parameters.yaml
+# Configuration parameters specific to data preprocessing (process_datasets.R)
+#
+# ============================================================================
+# PATHS
+# ============================================================================
+in_dir: "data/raw"
+out_dir: "data/processed"
+#
+# ============================================================================
+# REPRODUCIBILITY SETTINGS
+# ============================================================================
+
+seed: 22                        # Random seed for downsampling (must match proc_data.Rmd)
+n_cores: 8                      # Number of cores for parallel processing
+
+# ============================================================================
+# DOWNSAMPLING PARAMETERS
+# ============================================================================
+
+downsampling:
+  # Maximum cells to retain per cell type per sample
+  max_cells_per_sample_celltype: 200
+
+# ============================================================================
+# SAMPLE-LEVEL FILTERING
+# ============================================================================
+
+sample_filtering:
+  # Whether to apply optimal_dataset filtering (min/max samples, min cells)
+  enforce_optimal_dataset: true
+  
+  # Minimum samples per dataset-condition combination
+  # Datasets with fewer samples are excluded
+  min_samples: 9
+  
+  # Maximum samples to retain per dataset-condition combination
+  # If exceeded, random sample subset is used
+  max_samples: 15
+  
+  # Minimum cells required in a sample
+  # Samples with fewer cells are excluded
+  min_cells_per_sample: 200

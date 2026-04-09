@@ -19,6 +19,9 @@ data/processed/
 # Results / figures (re-generated)
 results/
 
+# Audits / documentation (not synced)
+audits/
+
 # Optional reproducibility environments
 renv/library/
 renv/staging/

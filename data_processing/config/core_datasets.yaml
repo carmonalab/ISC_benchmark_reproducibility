@@ -1,0 +1,141 @@
+# data_processing/config/core_datasets.yaml
+# 
+# Registry for the 6 core datasets used in ISC benchmark reproducibility
+# Based on: Consistency_metrics_benchmark/datasets/proc_data.Rmd
+# 
+# This file specifies:
+# - Dataset identifiers (used in output naming)
+# - Raw file locations (relative to zenodo/raw/)
+# - Metadata column mappings
+# - Cell type exclusions (if any)
+
+zenodo:
+  # Placeholder for global Zenodo DOI (once published)
+  doi: "10.5281/zenodo.18921437"
+
+datasets:
+  # ========================================================================
+  # 1. JOANITO - Colorectal Cancer
+  # ========================================================================
+  - id: JoaI_2022
+    reference: "Joanito et al., 2022"
+    
+    raw_file: "JoaI_2022_35773407_Nofilt_whole.rds"
+    
+    # Metadata column mappings
+    ident_col: "cell.type"          # Cell type annotation
+    sample_col: "sample.ID"         # Sample identifier
+    batch_col: "dataset"            # Batch/site identifier
+    condition_col: "sample.origin"  # Biological condition
+    
+    # Cell types to exclude (low quality/consistency)
+    exclude_cell_types:
+      - "iCMS2"
+      - "iCMS3"
+    
+    notes: |
+      - Splits by dataset (CRC.SG1, CRC.SG2, KUL3, KUL5, SMC)
+      - Condition: Tumor vs Normal
+      - Cell type: cell.type
+      - Output: 7 splits (CRC.SG1_Normal, CRC.SG1_Tumor, etc.)
+
+  # ========================================================================
+  # 2. STEPHENSON - COVID PBMC
+  # ========================================================================
+  - id: Mitchel_2021
+    reference: "Stephenson et al., 2021"
+    
+    raw_file: "StephensonE_2021_33879890_preprocessed.rds"
+    
+    # Metadata column mappings
+    ident_col: "OriginalAnnotationLevel2"  # Cell type annotation (fine-grained)
+    sample_col: "Sample"                   # Sample identifier
+    batch_col: "Site"                      # Batch: Cambridge, Ncl, Sanger
+    condition_col: "Status"                # Condition: Covid, Healthy
+    
+    # No exclusions for this dataset
+    exclude_cell_types: []
+    
+    notes: |
+      - Splits by Site (Cambridge, Ncl, Sanger) × Status (Covid, Healthy)
+      - Uses both annotation levels for analysis
+      - Output: 5 splits (Cambridge_Covid, Cambridge_Healthy, Ncl_Covid, etc.)
+
+  # ========================================================================
+  # 3. BCC - Basal Cell Carcinoma (Ganier & Yerly)
+  # ========================================================================
+  - id: BCC
+    reference: "Ganier & Yerly"
+    
+    raw_files:
+      - "BCC_all_LY_clean_annotated.rds"
+      - "BCC_CG_all_annotated.rds"
+    
+    # Metadata column mappings
+    ident_col: "annotation"             # Cell type annotation
+    sample_col: "patient_bcc"           # Sample identifier (patient ID)
+    batch_col: "dataset"                # Batch: LY, CG (merged objects)
+    condition_col: null                 # No biological condition split
+    
+    # Cell types to exclude
+    exclude_cell_types:
+      - "Cancer_cells"
+    
+    notes: |
+      - Merges two cohorts: LY and CG (assigned to dataset column)
+      - Splits by dataset only (no condition)
+      - Output: 2 splits (BCC_LY, BCC_CG)
+      - Min samples: 7 (smaller dataset)
+
+  # ========================================================================
+  # 4. LUNG ATLAS - Healthy Lung Tissue
+  # ========================================================================
+  - id: LungAtlas_2023
+    reference: "Sikkema et al., 2023 (HCA Lung)"
+    
+    raw_file: "LUNG_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    
+    # Metadata column mappings
+    ident_col: "cell_type"              # Cell type annotation
+    sample_col: "sample"                # Sample identifier
+    batch_col: "dataset"                # Batch: individual studies/sources
+    condition_col: "tissue"             # Condition: tissue type (lung parenchyma, respiratory airway, nose)
+    
+    # No exclusions
+    exclude_cell_types: []
+    
+    notes: |
+      - Large integrated dataset from HCA Lung
+      - Splits by dataset (source study) × tissue type
+      - Output: 8 splits (e.g., Banovich.Kropski.2020_lung.parenchyma)
+      - Min samples: 7 (tissue-based splits can be sparse)
+
+  # ========================================================================
+  # 5. ICB ATLAS - Immunotherapy Cohort
+  # ========================================================================
+  - id: ICBAtlas_2024
+    reference: "Gondal et al., 2025 (compiled studies)"
+    
+    raw_file: "ICB_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+    
+    # Metadata column mappings
+    ident_col: "cell_type"              # Cell type annotation
+    sample_col: "donor_id_pre_post"     # Sample identifier
+    batch_col: "Study_name"             # Batch: different studies included
+    condition_col: "pre_post"           # Condition: Pre vs Post treatment
+    
+    # Cell types to exclude
+    exclude_cell_types:
+      - "malignant cell"
+      - "unknown"
+    
+    notes: |
+      - Compiled dataset containing multiple immunotherapy studies
+      - Splits by Study_name (Alvarez.Breckenridge, Bassez, etc.) × pre_post
+      - Output: 9 splits (various study combinations)
+      - Min samples: 7
+
+  # ========================================================================
+  # NOTE: The original proc_data.Rmd processes 5 main datasets, which
+  # through batch × condition splits generates 31 final output files.
+  # ========================================================================
