@@ -25,7 +25,6 @@ suppressPackageStartupMessages({
 })
 
 # Load utilities
-source("R/project_paths.R")
 source("R/cli_utils.R")
 source("R/shared_helpers.R")
 source("data_processing/R/data_processing_helpers.R")

@@ -107,15 +107,6 @@ set_seed_safely <- function(seed) {
   invisible(seed)
 }
 
-log_metadata <- function(output_file, metadata, append = FALSE) {
-  cat(
-    yaml::as.yaml(metadata),
-    file = output_file,
-    append = append
-  )
-  invisible(output_file)
-}
-
 compute_file_hash <- function(path) {
   if (!file.exists(path)) return(NA_character_)
   tools::md5sum(path) %>% as.character() %>% unname()

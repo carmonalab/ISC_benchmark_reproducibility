@@ -21,7 +21,6 @@ library(targets)
 library(yaml)
 
 # Source utilities from parent directory
-source("../R/project_paths.R")
 source("../R/cli_utils.R")
 source("../R/shared_helpers.R")
 source("R/data_processing_helpers.R")
