@@ -1,0 +1,61 @@
+# ISC_benchmark/config/dataset_idents.yaml
+#
+# Cell type annotation columns for each dataset
+# Maps dataset identifiers to their available cell type annotation columns
+# Used by ISC benchmark pipeline to identify which annotations to test
+#
+# Based on: get_idents_by_prefix() from legacy code
+
+# ============================================================================
+# DATASET IDENT MAPPINGS
+# ============================================================================
+# Each dataset can have multiple annotation levels (coarse to fine-grained)
+# Listed in order from coarse to fine-grained annotations
+
+idents:
+  # ========================================================================
+  # JoaI (Joanito et al., 2022) - Colorectal Cancer
+  # ========================================================================
+  JoaI_2022:
+    - "cell.type"
+    
+  # ========================================================================
+  # Mitchel (Stephenson et al., 2021) - COVID PBMC
+  # ========================================================================
+  Mitchel_2021:
+    - "OriginalAnnotationLevel1"
+    - "OriginalAnnotationLevel2"
+  
+  # ========================================================================
+  # BCC (Ganier & Yerly) - Basal Cell Carcinoma
+  # ========================================================================
+  BCC:
+    - "annotation"
+  
+  # ========================================================================
+  # LungAtlas (Sikkema et al., 2023) - Healthy Lung Tissue
+  # ========================================================================
+  LungAtlas_2023:
+    - "cell_type"
+    - "ann_level_3"
+    - "ann_level_4"
+  
+  # ========================================================================
+  # ICBAtlas (Gondal et al., 2025) - Immunotherapy Cohort
+  # ========================================================================
+  ICBAtlas_2024:
+    - "cell_type"
+  
+
+# ============================================================================
+# NOTES
+# ============================================================================
+#
+# - Annotations are listed in order from coarse (left) to fine-grained (right)
+# - The ISC benchmark will test consistency across all annotation levels
+# - Some datasets have multiple levels (e.g., Mitchel_2021, LungAtlas_2023)
+# - Single-level annotations (JoaI_2022, BCC, ICBAtlas_2024) use only one ident
+#
+# Usage in _targets.R:
+#   get_cell_type_columns(dataset_id) reads this file and retrieves
+#   the ident columns for the specified dataset
