@@ -1,0 +1,27 @@
+# ISC_benchmark/_targets.yaml --- Targets configuration for ISC benchmark
+
+# Storage location for targets cache
+store: results/_targets
+
+# Parallelization via future (requires _targets.R to specify plan)
+controller: future
+
+# For local development: use sequential execution
+# For HPC: Override in SLURM job script
+future:
+  plan: sequential
+
+# Resource limits per target
+resources:
+  # Example SLURM parameters (used when plan = future.batchtools::batchtools_slurm)
+  # slurm_time: "04:00:00"
+  # slurm_cpus_per_task: 4
+  # slurm_memory_gb: 32
+  # slurm_partition: "normal"
+
+# Caching behavior
+format: file
+trust_object_timestamps: true
+
+# Timeout for worker startup (seconds)
+seconds_timeout: 3600

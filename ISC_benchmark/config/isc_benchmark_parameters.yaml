@@ -117,9 +117,10 @@ task_missclassify:
   category: "sensitivity"
   type: "monotonic"                     # Metric type: monotonic degradation expected
   
-  # Rates: proportion of labels KEPT (1=no noise, 0=complete noise)
-  rates: [1, 0.75, 0.5, 0.25, 0]       # Proportion of labels shuffled within sample
-  replicates: 3                         # Number of replicates at each rate               
+  isc_params:
+    # Rates: proportion of labels KEPT (1=no noise, 0=complete noise)
+    rates: [1, 0.75, 0.5, 0.25, 0]       # Proportion of labels shuffled within sample
+    replicates: 3                         # Number of replicates at each rate               
 
 # Task 2: Sensitivity to cell type over-partitioning (artificial subtypes)
 # Tests ability to detect when cell types are artificially split into subtypes
@@ -127,12 +128,13 @@ task_SplitCelltype:
   name: "SplitCelltype"
   description: "Split most abundant cell type into artificial subtypes"
   category: "sensitivity"
-  type: "constant"                      # Metric type: constant (binary: split or not)
+  type: "drop"                     
   
-  # Rates: proportion of cells NOT split (1=no split, 0=50% split)
-  rates: [1, 0.5]                       # Proportion of cells to split (within samples)
-  ctype: null                           # null = use most abundant; or specify cell type
-  replicates: 3                   # Number of replicates at each rate
+  isc_params:
+    # Rates: proportion of cells NOT split (1=no split, 0=50% split)
+    rates: [1, 0.5]                       # Proportion of cells to split (within samples)
+    ctype: null                           # null = use most abundant; or specify cell type
+    replicates: 3                   # Number of replicates at each rate
 
 # Task 3: Robustness to annotation granularity (coarse vs fine)
 # Tests consistency when cell type annotations are coarsened (merged)
@@ -142,8 +144,9 @@ task_Nct:
   category: "robustness_annotation"
   type: "constant"
   
-  # Sample 30 random combinations of cell types (from original wr.Nct)
-  down_sample_combinations: 30          # Number of random cell type subsets to try
+  isc_params:
+    # Sample 30 random combinations of cell types (from original wr.Nct)
+    down_sample_combinations: 30          # Number of random cell type subsets to try
 
 # Task 4: Robustness to cellular complexity (high vs low variability)
 task_cellular_complexity:
@@ -160,9 +163,10 @@ task_Nsamples:
   category: "robustness_dataset_size"
   type: "constant"
   
-  # Rates: proportion of samples KEPT (1=all samples, 0.5=50% of samples)
-  rates: [1, 0.9, 0.7, 0.5]            # From original wr.NSamples
-  replicates: 3
+  isc_params:
+    # Rates: proportion of samples KEPT (1=all samples, 0.5=50% of samples)
+    rates: [1, 0.9, 0.7, 0.5]            # From original wr.NSamples
+    replicates: 3
 
 # Task 6: Robustness to dataset size - cells (varying cells per cell type)
 # Tests consistency with reduced sequencing depth (fewer cells per sample)
@@ -172,11 +176,40 @@ task_NCell:
   category: "robustness_dataset_size"
   type: "constant"
   
-  # Rates: proportion of cells KEPT per sample (1=all cells, 0.25=25% of cells)
-  rates: [1, 0.75, 0.5, 0.25]          # From original wr.NCell
-  ctype: null                          # null = use most abundant; or specify cell type
-  replicates: 3
+  isc_params:
+    # Rates: proportion of cells KEPT per sample (1=all cells, 0.25=25% of cells)
+    rates: [1, 0.75, 0.5, 0.25]          # From original wr.NCell
+    ctype: null                          # null = use most abundant; or specify cell type
+    replicates: 3
 
+# Task 7: Robustness to batch effects
+# Tests consistency when data contains systematic technical batch differences
+task_batch_effects:
+  name: "batch_effects"
+  description: "Assess ISC robustness to systematic batch effects"
+  category: "robustness_batch"
+  type: "constant"
+  
+  # Batch column name in metadata (e.g., "batch", "sequencing_run", "plate")
+  batch_col: "batch"                   # Metadata column containing batch identifiers
+  
+  # Comparison types: "within" (same batch), "cross" (different batches), "both" (both comparisons)
+  comparison_type: "both"              # Type of batch comparison to evaluate
+
+# Task 8: Robustness to biological perturbations
+# Tests consistency when comparing different biological conditions/states
+task_biological_perturbations:
+  name: "biological_perturbations"
+  description: "Assess ISC robustness to biological condition changes"
+  category: "robustness_biological"
+  type: "constant"
+  
+  # Condition column name in metadata (e.g., "treatment", "disease_status", "timepoint")
+  condition_col: "condition"           # Metadata column containing biological conditions
+  
+  # Whether to apply misclassification to perturbed data
+  apply_missclassify: false            # Apply label noise to perturb consistency
+  missclassify_rate: 0.1              # Proportion of labels to shuffle if apply_missclassify=true
 
 # ============================================================================
 # OUTPUT CONFIGURATION

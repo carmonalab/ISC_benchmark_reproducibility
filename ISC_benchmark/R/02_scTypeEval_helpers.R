@@ -51,3 +51,5 @@ load_scTypeEval_benchmarking <- function() {
   
   TRUE
 }
+
+load_scTypeEval_benchmarking()
