@@ -1,0 +1,180 @@
+# ISC_benchmark/config/isc_benchmark_parameters.yaml
+#
+# Configuration parameters for ISC benchmark reproducibility
+#
+# This file specifies:
+# - Which tasks to run (all 8 robustness evaluations)
+# - Common parameters for scTypeEval functions (normalization, metrics, methods)
+# - Task-specific parameters (rates, replicates, seeds)
+#
+# ============================================================================
+# REPRODUCIBILITY SETTINGS
+# ============================================================================
+seed: 22                          # Random seed (must match original benchmarking)
+n_cores: 8                        # Number of cores for parallel processing
+
+# ============================================================================
+# TASK SELECTION
+# ============================================================================
+# Order reflects logical progression from sensitivity to robustness:
+# 1-2: Sensitivity (signal degradation, over-partitioning)
+# 3-6: Robustness (granularity, complexity, dataset size)
+# 7-8: Robustness (batch effects, biological perturbations)
+
+run:
+  # (1) Sensitivity to cell type signal degradation
+  # Evaluated by progressively disrupting coherent cell type structure in semi-synthetic datasets
+  missclassify: true
+  
+  # (2) Sensitivity to cell type over-partitioning
+  # Assessed by artificially splitting cell populations into subpopulations
+  SplitCelltype: true
+  
+  # (3) Robustness to cell type annotation granularity
+  # Measuring consistency of ISC scores for coarse- versus fine-grained annotations
+  # by removing some cell types
+  Nct: true
+  
+  # (4) Robustness to cellular complexity
+  cellular_complexity: true
+  
+  # (5) Robustness to dataset size - samples
+  # Quantified by varying the number of samples
+  Nsamples: true
+  
+  # (6) Robustness to dataset size - cells
+  # Quantified by varying the number of cells per cell type
+  NCell: true
+  
+  # (7) Robustness to batch effects
+  # Quantifying ISC stability in the presence of systematic technical differences
+  batch_effects: true
+  
+  # (8) Robustness to biological perturbations (condition-driven changes)
+  biological_perturbations: true
+
+# ============================================================================
+# COMMON PARAMETERS (shared across all tasks)
+# ============================================================================
+common:
+  # Data preprocessing
+  normalization_method: "Log1p"        # Normalization: Log1p or Seurat's NormalizeData
+  reduction: true                       # Apply PCA reduction
+  ndim: 30                            # Number of PCA dimensions
+  
+  # Sample/cell filtering
+  sample_col: "sample"                  # Sample identifier column in metadata
+  min_samples: 5                        # Minimum samples per split
+  min_cells: 10                         # Minimum cells per sample
+  
+  # Gene filtering
+  black_list: null                      # Path to blacklist genes (TCR, IG, Y-genes)
+  gene_list: null                       # Path to relevant features to compute ISC
+  
+  # Dissimilarity metrics (comparing cell type consistency)
+  dissimilarity_method:
+    - "WasserStein"                     # Optimal transport distance
+    - "Pseudobulk:Euclidean"           # Pseudo-bulk aggregation + Euclidean
+    - "Pseudobulk:Cosine"              # Pseudo-bulk aggregation + Cosine
+    - "Pseudobulk:Pearson"             # Pseudo-bulk aggregation + Pearson
+    - "recip_classif:Match"                  # Best-hit cell matching
+    - "recip_classif:Score"                  # Best-hit scoring
+  
+  # Intrinsic validation metrics (within-sample structure quality)
+  int_val_metric:
+    - "silhouette"                      # Silhouette index
+    - "2label_silhouette"              # Pairwise silhouette
+    - "NeighborhoodPurity"             # kNN purity
+    - "ward_PropMatch"                 # Ward linkage proportional matching
+    - "Orbital_medoid"                 # Orbital medoid
+    - "Average_similarity"              # Average pairwise similarity
+  
+  # kNN and clustering parameters
+  knn_graph_k: 5                        # Number of neighbors for kNN graph
+  hclust_method: "ward.D2"             # Hierarchical clustering method
+  
+  # Output options
+  save_plots: true                      # Save diagnostic plots
+  verbose: true                         # Detailed messages
+  progressbar: false                    # Progress bars for BiocParallel
+
+# ============================================================================
+# TASK-SPECIFIC PARAMETERS
+# ============================================================================
+
+# Task 1: Sensitivity to cell type signal degradation (label noise)
+# Tests monotonic degradation: as label noise increases, consistency should decrease
+task_missclassify:
+  name: "missclassify"
+  description: "Misclassify cells (label noise at increasing rates)"
+  category: "sensitivity"
+  type: "monotonic"                     # Metric type: monotonic degradation expected
+  
+  # Rates: proportion of labels KEPT (1=no noise, 0=complete noise)
+  rates: [1, 0.75, 0.5, 0.25, 0]       # Proportion of labels shuffled within sample
+  replicates: 3                         # Number of replicates at each rate               
+
+# Task 2: Sensitivity to cell type over-partitioning (artificial subtypes)
+# Tests ability to detect when cell types are artificially split into subtypes
+task_SplitCelltype:
+  name: "SplitCelltype"
+  description: "Split most abundant cell type into artificial subtypes"
+  category: "sensitivity"
+  type: "constant"                      # Metric type: constant (binary: split or not)
+  
+  # Rates: proportion of cells NOT split (1=no split, 0=50% split)
+  rates: [1, 0.5]                       # Proportion of cells to split (within samples)
+  ctype: null                           # null = use most abundant; or specify cell type
+  replicates: 3                   # Number of replicates at each rate
+
+# Task 3: Robustness to annotation granularity (coarse vs fine)
+# Tests consistency when cell type annotations are coarsened (merged)
+task_Nct:
+  name: "Nct"
+  description: "Downsample to random subsets of cell types"
+  category: "robustness_annotation"
+  type: "constant"
+  
+  # Sample 30 random combinations of cell types (from original wr.Nct)
+  down_sample_combinations: 30          # Number of random cell type subsets to try
+
+# Task 4: Robustness to cellular complexity (high vs low variability)
+task_cellular_complexity:
+  name: "cellular_complexity"
+  description: "Stratify by cellular complexity (high vs low variability)"
+  category: "robustness_complexity"
+  type: "constant"
+
+# Task 5: Robustness to dataset size - samples (varying sample count)
+# Tests consistency with reduced number of samples (missing data)
+task_Nsamples:
+  name: "Nsamples"
+  description: "Downsample to random subsets of samples"
+  category: "robustness_dataset_size"
+  type: "constant"
+  
+  # Rates: proportion of samples KEPT (1=all samples, 0.5=50% of samples)
+  rates: [1, 0.9, 0.7, 0.5]            # From original wr.NSamples
+  replicates: 3
+
+# Task 6: Robustness to dataset size - cells (varying cells per cell type)
+# Tests consistency with reduced sequencing depth (fewer cells per sample)
+task_NCell:
+  name: "NCell"
+  description: "Downsample cells per sample (varying sequencing depth)"
+  category: "robustness_dataset_size"
+  type: "constant"
+  
+  # Rates: proportion of cells KEPT per sample (1=all cells, 0.25=25% of cells)
+  rates: [1, 0.75, 0.5, 0.25]          # From original wr.NCell
+  ctype: null                          # null = use most abundant; or specify cell type
+  replicates: 3
+
+
+# ============================================================================
+# OUTPUT CONFIGURATION
+# ============================================================================
+output:
+  dir: "results/isc_benchmark"          # Output directory (relative to project root)
+  save_plots: true                      # Save diagnostic plots
+  plot_format: "pdf"                    # Plot format: png, pdf, or both
