@@ -99,14 +99,6 @@ load_dataset_registry <- function() {
 # REPRODUCIBILITY HELPERS
 # ============================================================================
 
-set_seed_safely <- function(seed) {
-  set.seed(seed)
-  if (requireNamespace("reticulate", quietly = TRUE)) {
-    try(reticulate::py_set_seed(seed), silent = TRUE)
-  }
-  invisible(seed)
-}
-
 compute_file_hash <- function(path) {
   if (!file.exists(path)) return(NA_character_)
   tools::md5sum(path) %>% as.character() %>% unname()
