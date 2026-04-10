@@ -1,0 +1,57 @@
+# label_transfer_task/config/label_transfer_parameters.yaml
+# Complete configuration for label transfer benchmark pipeline
+
+# ============================================================================
+# GLOBAL REPRODUCIBILITY SETTINGS
+# ============================================================================
+
+seed: 22                    # Reproducible seed for sample splitting
+n_cores: 8                  # Number of cores for parallel processing
+
+# ============================================================================
+# DATASET PREPARATION & SPLITTING
+# ============================================================================
+
+# Sample splitting parameters (matching Consistency_metrics_benchmark)
+data_preparation:
+  min_samples: 10           # Minimum samples required for a dataset
+  prop_query: 0.7           # Proportion of samples for query/test set (30% reference)
+
+# ============================================================================
+# CLASSIFIERS TO EVALUATE
+# ============================================================================
+
+classifiers:
+  # All classifiers to run per dataset
+  # (Pure R implementations only)
+  methods:
+    - "SingleR"
+    - "LogisticRegression"
+    - "XGBoost"
+    - "MLP"
+    - "RandomForest"
+    - "SVM"
+    - "kNN"
+    - "NaiveBayes"
+    - "LDA"
+    - "SeuratTransfer"
+    - "DecisionTree"
+    - "scPred"
+    - "Random"                  # Baseline: random predictions
+
+# ============================================================================
+# EXECUTION CONFIGURATION
+# ============================================================================
+
+execution:
+  continue_on_error: true  # If a classifier fails, continue with next
+  skip_completed: true     # Only run classifiers that haven't been completed
+  output_predictions: true # Save classifier predictions to predictions.rds
+
+# ============================================================================
+# OUTPUT CONFIGURATION
+# ============================================================================
+
+output:
+  save_plots: true
+  verbose: true

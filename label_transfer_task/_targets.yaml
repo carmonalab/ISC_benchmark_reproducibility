@@ -1,0 +1,21 @@
+# label_transfer_task/_targets.yaml --- Targets configuration
+
+store: results/_targets
+
+controller: future
+
+# For local development: sequential
+# For HPC: Override in job script
+future:
+  plan: sequential
+
+# Resource limits (used with future.batchtools::batchtools_slurm)
+resources:
+  # slurm_time: "04:00:00"
+  # slurm_cpus_per_task: 4
+  # slurm_memory_gb: 32
+  # slurm_partition: "normal"
+
+format: file
+trust_object_timestamps: true
+seconds_timeout: 3600

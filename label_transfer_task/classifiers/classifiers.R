@@ -667,7 +667,7 @@ classify_DecisionTree <- function(ref_counts, ref_labels, query_counts) {
 }
 
 # ============================================================================
-# 13. SCPRED CLASSIFIER
+# 12. SCPRED CLASSIFIER
 # ============================================================================
 classify_scPred <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
@@ -720,7 +720,7 @@ classify_scPred <- function(ref_counts, ref_labels, query_counts) {
 }
 
 # ============================================================================
-# 14. RANDOM CLASSIFIER (baseline/negative control)
+# 13. RANDOM CLASSIFIER (baseline/negative control)
 # ============================================================================
 classify_Random <- function(ref_counts, ref_labels, query_counts, seed = 22) {
   res <- tryCatch({
@@ -741,7 +741,7 @@ classify_Random <- function(ref_counts, ref_labels, query_counts, seed = 22) {
 }
 
 # ============================================================================
-# 15. ENSEMBLE VOTING CLASSIFIER
+# 14. ENSEMBLE VOTING CLASSIFIER
 # ============================================================================
 classify_Ensemble <- function(predictions_list) {
   res <- tryCatch({
