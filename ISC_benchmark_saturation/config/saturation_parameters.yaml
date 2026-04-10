@@ -1,0 +1,36 @@
+seed: 22
+
+paths:
+  merged_results_file: "../results/isc_benchmark/all_results_merged.rds"
+  fallback_metrics_dir: "../results/isc_benchmark"
+  output_dir: "../results/isc_benchmark_saturation"
+  cache_dir: "../results/isc_benchmark_saturation/cache_groups"
+
+analysis:
+  type: "ident"
+  n_pairs: 5000
+  chunk_size: 100
+  max_iter: 200
+  n_cores: 8
+  incremental: true
+  group_sizes: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]
+
+weights:
+  Missclassification: 0.2
+  Similar-celltype: 0.2
+  Number-samples: 0.1
+  Complexity: 0.1
+  Number-cells: 0.1
+  Batch-Effect: 0.1
+  Perturbation-Effect: 0.1
+  Granularity: 0.1
+
+assay_map:
+  missclassify: "Missclassification"
+  SplitCelltype: "Similar-celltype"
+  Nsamples: "Number-samples"
+  cellular_complexity: "Complexity"
+  NCell: "Number-cells"
+  batch_effects: "Batch-Effect"
+  biological_perturbations: "Perturbation-Effect"
+  Nct: "Granularity"
