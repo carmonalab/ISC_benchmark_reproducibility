@@ -30,7 +30,17 @@ list(
   # Random seed
   tar_target(
     seed_global,
-    params$seed %||% 42
+    get_lt_seed(params)
+  ),
+
+  tar_target(
+    n_cores,
+    get_lt_n_cores(params)
+  ),
+
+  tar_target(
+    n_replicates,
+    get_lt_n_replicates(params)
   ),
   
   # ========================================================================
@@ -40,28 +50,7 @@ list(
   tar_target(
     lt_dataset_ids,
     {
-      # Find all datasets that have prepared label_transfer data
-      data_dir <- lt_data_processed_dir()
-      
-      if (!dir.exists(data_dir)) {
-        warning("Label-transfer data directory not found: ", data_dir)
-        return(character(0))
-      }
-      
-      # List all dataset subdirectories that have query.rds + reference.rds
-      dataset_dirs <- list.dirs(data_dir, recursive = FALSE, full.names = FALSE)
-      
-      # Filter by existence of both files
-      valid_datasets <- dataset_dirs[
-        map_lgl(dataset_dirs, ~ {
-          validate_label_transfer_data(.x)
-        })
-      ]
-      
-      # Also filter by participation flag (optional)
-      valid_datasets[
-        map_lgl(valid_datasets, validate_label_transfer_participation)
-      ]
+      list_label_transfer_datasets_from_isc(params)
     }
   ),
   
@@ -73,6 +62,30 @@ list(
   # ========================================================================
   # GRID EXPANSION: datasets × classifiers × replicates
   # ========================================================================
+
+  tar_target(
+    lt_split_grid,
+    {
+      expand_grid(
+        dataset_id = lt_dataset_ids,
+        replicate = seq_len(n_replicates)
+      )
+    }
+  ),
+
+  tar_target(
+    lt_prepared_splits,
+    {
+      prepare_label_transfer_split(
+        dataset_id = lt_split_grid$dataset_id,
+        replicate = lt_split_grid$replicate,
+        params = params
+      )
+    },
+    format = "file",
+    pattern = map(lt_split_grid),
+    iteration = "list"
+  ),
   
   tar_target(
     lt_grid,
@@ -80,7 +93,7 @@ list(
       expand_grid(
         dataset_id = lt_dataset_ids,
         classifier = lt_classifiers,
-        replicate = 1:3  # 3 replicates per classifier-dataset pair
+        replicate = seq_len(n_replicates)
       )
     }
   ),
@@ -92,13 +105,14 @@ list(
   tar_target(
     lt_classifier_results,
     {
+      invisible(lt_prepared_splits)
       run_label_transfer_classifier(
         dataset_id = lt_grid$dataset_id,
         classifier_name = lt_grid$classifier,
         rep = lt_grid$replicate,
-        data_dir = lt_data_processed_dir(),
+        data_dir = lt_data_processed_dir(lt_grid$replicate),
         output_dir = lt_raw_results_dir(),
-        seed = seed_global + lt_grid$replicate
+        seed = seed_global + lt_grid$replicate - 1
       )
     },
     format = "file",
@@ -120,9 +134,9 @@ list(
         classifier_name = lt_grid$classifier,
         rep = lt_grid$replicate,
         result_path = lt_classifier_results,
-        data_dir = lt_data_processed_dir(),
+        data_dir = lt_data_processed_dir(lt_grid$replicate),
         output_dir = lt_consistency_dir(),
-        ncores = params$n_cores %||% 2
+        ncores = n_cores
       )
     },
     format = "file",
@@ -134,14 +148,15 @@ list(
     lt_reference_consistency,
     {
       compute_lt_reference_consistency(
-        dataset_id = lt_dataset_ids,
-        data_dir = lt_data_processed_dir(),
+        dataset_id = lt_split_grid$dataset_id,
+        rep = lt_split_grid$replicate,
+        data_dir = lt_data_processed_dir(lt_split_grid$replicate),
         output_dir = lt_consistency_dir(),
-        ncores = params$n_cores %||% 2
+        ncores = n_cores
       )
     },
     format = "file",
-    pattern = map(lt_dataset_ids),
+    pattern = map(lt_split_grid),
     iteration = "list"
   ),
 

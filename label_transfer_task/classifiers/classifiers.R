@@ -722,14 +722,13 @@ classify_scPred <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 # 13. RANDOM CLASSIFIER (baseline/negative control)
 # ============================================================================
-classify_Random <- function(ref_counts, ref_labels, query_counts, seed = 22) {
+classify_Random <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
     # Get unique cell types from reference
     cell_types <- unique(ref_labels)
     
     # Randomly assign cell types to query cells
     n_query <- ncol(query_counts)
-    set.seed(seed)
     random_assignments <- sample(cell_types, size = n_query, replace = TRUE)
     
     as.character(random_assignments)

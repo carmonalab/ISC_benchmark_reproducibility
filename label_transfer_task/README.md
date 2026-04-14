@@ -31,8 +31,9 @@ Rscript label_transfer_task/R/00_prepare_splits.R
 This:
 - Loads processed datasets from `data/processed/isc/`
 - Filters for datasets with ≥10 samples
-- Splits each into query (70% samples) and reference (30% samples) 
-- Saves to `data/processed/label_transfer/<dataset_id>/query.rds` and `reference.rds`
+- Creates `n_replicates` independent sample-level splits
+- Splits each into query (70% samples) and reference (30% samples)
+- Saves to `data/processed/label_transfer/rep<k>/<dataset_id>/query.rds` and `reference.rds`
 
 ### Step 2: Run All Classifiers
 
@@ -73,6 +74,7 @@ All parameters are in `config/label_transfer_parameters.yaml`:
 ```yaml
 seed: 22                    # Reproducibility seed
 n_cores: 8                  # Parallel workers
+n_replicates: 3             # Independent splits (rep1/rep2/...)
 
 data_preparation:
   min_samples: 10           # Datasets with <10 samples are skipped
@@ -146,7 +148,7 @@ label_transfer_task/
 
 ### Input: Reference & Query
 
-**File: `data/processed/label_transfer/<dataset_id>/reference.rds`**
+**File: `data/processed/label_transfer/rep<k>/<dataset_id>/reference.rds`**
 
 ```r
 reference <- list(
@@ -155,7 +157,7 @@ reference <- list(
 )
 ```
 
-**File: `data/processed/label_transfer/<dataset_id>/query.rds`**
+**File: `data/processed/label_transfer/rep<k>/<dataset_id>/query.rds`**
 
 ```r
 query <- list(
@@ -166,7 +168,7 @@ query <- list(
 
 ### Output: Predictions
 
-**File: `data/processed/label_transfer/<dataset_id>/predictions.rds`**
+**File: `data/processed/label_transfer/rep<k>/<dataset_id>/predictions.rds`**
 
 Updated query metadata with prediction columns:
 
@@ -285,7 +287,7 @@ Check classifier function in `classifiers/classifiers.R` for verbose error messa
 
 ## Reproducibility Notes
 
-- **Seed**: Fixed seed=22 for consistent sample splits and random classifiers
+- **Seed**: Controlled by `seed` in config (and offset per replicate to generate different splits)
 - **Processors**: Set `n_cores` equal to available cores for reproducible results
 - **Software versions**: Lock package versions in renv (if used)
 
@@ -334,7 +336,7 @@ Rscript -e 'targets::tar_make()'
 ```
 
 This will:
-- Load query/reference pairs from `../data/processed/label_transfer/`
+- Load query/reference pairs from `../data/processed/label_transfer/rep<k>/`
 - Create grid: datasets × classifiers × replicates
 - Run all classifiers (~100-200 runs, depending on participation)
 - Aggregate results to `results/aggregated/label_transfer_metrics_aggregated.csv`
@@ -361,11 +363,11 @@ Edit `_targets.yaml` with SLURM resources, then submit via `scripts/submit_hpc.s
 All settings are in `config/label_transfer_parameters.yaml`. Edit to configure:
 
 - `seed` — Random seed
-- `ncores` — Number of parallel cores
-- `classifiers.methods` — Which classifiers to evaluate (RF, SVM, KNN)
-- `classifiers.common` — Shared classifier parameters (label_col, pca_ndim)
-- `label_transfer.prop_query_samples` — Train/test split ratio
-- `grid.n_replicates` — Number of replicates per classifier-dataset pair
+- `n_cores` — Number of parallel cores
+- `n_replicates` — Number of independent splits (rep1/rep2/...)
+- `data_preparation.min_samples` — Datasets with fewer samples are skipped
+- `data_preparation.prop_query` — Query split proportion (rest is reference)
+- `classifiers.methods` — Which classifiers to evaluate
 
 ## Output Files
 

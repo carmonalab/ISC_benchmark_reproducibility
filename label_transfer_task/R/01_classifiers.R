@@ -25,9 +25,13 @@ run_label_transfer_classifier_targets <- function(
     rep = 1,
     data_dir = NULL,
     output_dir = NULL,
-    seed = 42) {
+    seed = NULL) {
 
-  set.seed(seed)
+  if (is.null(seed)) {
+    stop("Missing required argument: seed (should be provided from config)")
+  }
+
+  set.seed(as.integer(seed))
   
   if (is.null(data_dir)) {
     data_dir <- proj_path("data/processed/label_transfer")

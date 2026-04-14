@@ -26,8 +26,8 @@ source("R/00_utils.R")              # For load_lt_params, get_idents_by_prefix, 
 # ============================================================================
 
 params <- load_lt_params()
-SEED <- params$seed %||% 22
-N_CORES <- params$n_cores %||% 8
+SEED <- get_lt_seed(params)
+N_CORES <- get_lt_n_cores(params)
 
 # ============================================================================
 # HELPER: Check if dataset already completed
@@ -91,11 +91,7 @@ classify_dataset <- function(dataset_dir, dataset_name, params) {
   predictions_list <- list()
   
   # Get list of classifiers to run
-  classifiers <- params$classifiers$methods %||% c(
-    "SingleR", "LogisticRegression", "XGBoost", "MLP",
-    "RandomForest", "SVM", "kNN", "NaiveBayes", "LDA",
-    "SeuratTransfer", "DecisionTree", "ProjecTILs", "scPred", "Random"
-  )
+  classifiers <- get_lt_classifiers(params)
   
   # Load classifier functions
   source(proj_path("label_transfer_task/classifiers/classifiers.R"), local = environment())
@@ -258,8 +254,22 @@ run_all_classifiers <- function(base_dir = NULL, params = NULL) {
     stop("Label-transfer data directory not found: ", base_dir)
   }
   
-  # List all dataset directories
-  dataset_dirs <- list.dirs(base_dir, recursive = FALSE, full.names = TRUE)
+  # Support both layouts:
+  #  - legacy: <base_dir>/<dataset_id>/{query,reference}.rds
+  #  - replicate: <base_dir>/rep<k>/<dataset_id>/{query,reference}.rds
+  first_level <- list.dirs(base_dir, recursive = FALSE, full.names = TRUE)
+  first_level <- first_level[!grepl("\\.DS_Store", first_level)]
+
+  rep_dirs <- first_level[grepl("/rep[0-9]+$", first_level)]
+
+  if (length(rep_dirs) > 0) {
+    dataset_dirs <- unlist(lapply(rep_dirs, function(rd) {
+      list.dirs(rd, recursive = FALSE, full.names = TRUE)
+    }))
+  } else {
+    dataset_dirs <- first_level
+  }
+
   dataset_dirs <- dataset_dirs[!grepl("\\.DS_Store", dataset_dirs)]
   dataset_names <- basename(dataset_dirs)
   

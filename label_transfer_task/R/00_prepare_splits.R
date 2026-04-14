@@ -10,9 +10,10 @@
 #' Key features:
 #'   - Loads Seurat objects from data/processed/isc/
 #'   - Extracts counts and metadata using scTypeEval::load_singleCell_object
-#'   - Stratified sample-level split (deterministic seed=22)
-#'   - Skips datasets with <10 samples
-#'   - Outputs query.rds and reference.rds to data/processed/label_transfer/<dataset_id>/
+#'   - Stratified sample-level split (seed from label_transfer_parameters.yaml)
+#'   - Supports multiple split replicates (n_replicates) with different seeds
+#'   - Skips datasets with <min_samples samples (from config)
+#'   - Outputs query.rds and reference.rds to data/processed/label_transfer/rep<k>/<dataset_id>/
 #'
 #' Usage:
 #'   Rscript label_transfer_task/R/00_prepare_splits.R
@@ -24,214 +25,88 @@
 #'
 
 suppressPackageStartupMessages({
-  library(dplyr)
-  library(Seurat)
   library(BiocParallel)
   library(yaml)
 })
 
-# Source shared utilities (these were previously defined locally here)
-source("../../R/cli_utils.R")       # For message_time() and message_step()
-source("../../R/shared_helpers.R")  # For ensure_dir(), proj_path(), etc.
-source("00_utils.R")                # For get_idents_by_prefix()
-
-# ============================================================================
-# Configuration
-# ============================================================================
-
-# ============================================================================
-# Helper Functions (module-specific)
-# ============================================================================
-
-#' Get identification column for dataset based on filename prefix
-#'
-#' Maps dataset prefixes to their cell-type identification columns,
-#' matching reference implementation exactly.
-#' Uses centralized get_idents_by_prefix() function from 00_utils.R
-#'
-#' @param dataset_key The dataset identifier/filename (e.g., "Stephenson_COVID")
-#' @param metadata_cols Available columns in metadata
-#'
-#' @return Character string: column name to use as cell_type annotation
-get_ident_for_dataset <- function(dataset_key, metadata_cols) {
-  # Parse dataset_key to infer dataset source
-  prefix <- strsplit(dataset_key, "_")[[1]][1]
-  
-  # Use centralized mapping function
-  ident_col <- get_idents_by_prefix(prefix)
-  
-  # If inferred column not available, try common alternatives
-  if (!ident_col %in% metadata_cols) {
-    candidates <- c(
-      "OriginalAnnotationLevel2", "OriginalAnnotationLevel1",
-      "cell_type", "celltype", "cell.type",
-      "annotation", "cell_annotation", "type"
-    )
-    ident_col <- candidates[candidates %in% metadata_cols][1]
-    if (is.na(ident_col)) {
-      stop("No suitable cell-type column found in metadata. Available: ",
-           paste(metadata_cols, collapse = ", "))
-    }
+# Source shared utilities (robust to being run from any working directory)
+get_script_path <- function() {
+  cmd_args <- commandArgs(trailingOnly = FALSE)
+  file_arg <- grep("^--file=", cmd_args, value = TRUE)
+  if (length(file_arg) > 0) {
+    return(sub("^--file=", "", file_arg[[1]]))
   }
-  
-  ident_col
-}
-           paste(metadata_cols, collapse = ", "))
-    }
-  }
-  
-  ident_col
+  NULL
 }
 
-process_label_transfer_dataset <- function(isc_path,
-                                          yaml_path,
-                                          out_lt_dir) {
-  dataset_key <- tools::file_path_sans_ext(basename(isc_path))
-  
-  message_time(paste("Loading:", dataset_key))
-  
-  # Load ISC processed object
-  obj <- readRDS(isc_path)
-  
-  if (!inherits(obj, "Seurat")) {
-    warning("Not a Seurat object: ", isc_path)
-    return(invisible(NULL))
-  }
-  
-  # Check if dataset is marked for label transfer
-  if (file.exists(yaml_path)) {
-    meta <- yaml::read_yaml(yaml_path)
-    if (!isTRUE(meta$label_transfer)) {
-      message_time(paste("Skipping (not marked for label transfer):", dataset_key))
-      return(invisible(NULL))
-    }
-  }
-  
-  # Extract counts and metadata
-  counts <- SeuratObject::GetAssayData(obj, assay = DefaultAssay(obj), slot = "counts")
-  md <- obj@meta.data
-  
-  # Check minimum samples threshold
-  n_samples <- n_distinct(md$sample)
-  if (n_samples < MIN_SAMPLES) {
-    message_time(paste("Skipping (n_samples =", n_samples, "<", MIN_SAMPLES, "):", dataset_key))
-    return(invisible(NULL))
-  }
-  
-  # Determine cell-type column
-  ident_col <- get_ident_for_dataset(dataset_key, colnames(md))
-  message_time(paste("Using cell-type column:", ident_col))
-  
-  # Standardize metadata (matching Consistency_metrics_benchmark/OPS/manual_classifiers)
-  md_standardized <- md %>%
-    dplyr::select(sample) %>%
-    dplyr::mutate(
-      cell_type = md[[ident_col]],
-      dataset_id = dataset_key
-    )
-  
-  # Split samples: 70% query, 30% reference
-  all_samples <- unique(md_standardized$sample)
-  n_query <- floor(length(all_samples) * PROP_QUERY)
-  
-  set.seed(SEED)
-  query_samples <- sample(all_samples, size = n_query)
-  
-  # Subset cells for each split
-  cells_query <- rownames(md_standardized)[md_standardized$sample %in% query_samples]
-  cells_ref <- rownames(md_standardized)[!md_standardized$sample %in% query_samples]
-  
-  # Create output directory
-  outdir <- ensure_dir(file.path(out_lt_dir, dataset_key))
-  
-  # Create and save query split
-  query <- list(
-    counts = counts[, cells_query, drop = FALSE],
-    metadata = md_standardized[cells_query, , drop = FALSE]
-  )
-  saveRDS(query, file.path(outdir, "query.rds"))
-  
-  # Create and save reference split
-  reference <- list(
-    counts = counts[, cells_ref, drop = FALSE],
-    metadata = md_standardized[cells_ref, , drop = FALSE]
-  )
-  saveRDS(reference, file.path(outdir, "reference.rds"))
-  
-  # Summary statistics
-  n_query_samples <- n_distinct(query$metadata$sample)
-  n_ref_samples <- n_distinct(reference$metadata$sample)
-  
-  message_time(sprintf(
-    "✓ Saved: %s (query: %d samples, %d cells | ref: %d samples, %d cells)",
-    outdir,
-    n_query_samples, ncol(query$counts),
-    n_ref_samples, ncol(reference$counts)
-  ))
-  
-  invisible(list(
-    dataset_key = dataset_key,
-    outdir = outdir,
-    n_query_samples = n_query_samples,
-    n_ref_samples = n_ref_samples
-  ))
+script_path <- get_script_path()
+if (is.null(script_path)) {
+  stop("Unable to determine script path (expected Rscript --file=...)")
 }
+
+script_dir <- dirname(normalizePath(script_path))
+proj_root_guess <- normalizePath(file.path(script_dir, "../.."))
+
+source(file.path(proj_root_guess, "R", "shared_helpers.R"))
+source(file.path(proj_root_guess, "R", "cli_utils.R"))
+
+# Ensure the pipeline context is label_transfer_task for config loading
+setwd(file.path(proj_root_guess, "label_transfer_task"))
+
+source("R/00_utils.R")
+
+# ============================================================================
+# Configuration (from label_transfer_parameters.yaml)
+# ============================================================================
+
+params <- load_lt_params()
+n_replicates <- get_lt_n_replicates(params)
+n_cores <- get_lt_n_cores(params)
 
 main <- function() {
   # Verify we're in correct directory
-  if (!file.exists("data_processing/config/datasets.yaml") || !dir.exists("data/processed/isc")) {
-    stop("Run from project root: cd /path/to/ISC_benchmark_reproducibility")
+  if (!file.exists(proj_path("data_processing/config/datasets.yaml")) ||
+      !dir.exists(proj_path("data/processed/isc"))) {
+    stop("Project data not found. Expected to find data_processing/config/datasets.yaml and data/processed/isc under the project root.")
   }
   
-  message_time("=".repeat(70))
+  message_time(strrep("=", 70))
   message_time("Preparing Label Transfer Query/Reference Splits")
-  message_time("=".repeat(70))
+  message_time(strrep("=", 70))
   
-  isc_dir <- "data/processed/isc"
-  out_lt_dir <- "data/processed/label_transfer"
-  
-  ensure_dir(out_lt_dir)
-  
-  # Find ISC processed RDS files
-  isc_files <- list.files(
-    isc_dir,
-    pattern = "\\.rds$",
-    ignore.case = TRUE,
-    full.names = TRUE
-  )
-  
-  if (length(isc_files) == 0) {
-    stop("No RDS files found in ", isc_dir)
+  dataset_ids <- list_label_transfer_datasets_from_isc(params)
+  if (length(dataset_ids) == 0) {
+    stop("No eligible ISC datasets found for label transfer")
+  }
+
+  message_time(paste("Preparing splits for", length(dataset_ids), "datasets and", n_replicates, "replicates..."))
+
+  workers <- min(n_cores, length(dataset_ids))
+
+  all_results <- list()
+  for (rep in seq_len(n_replicates)) {
+    message_time(paste("--- Replicate", rep, "---"))
+    res <- bplapply(
+      dataset_ids,
+      BPPARAM = BiocParallel::MulticoreParam(workers = workers, progressbar = TRUE),
+      function(dataset_id) {
+        tryCatch(
+          prepare_label_transfer_split(dataset_id = dataset_id, replicate = rep, params = params),
+          error = function(e) {
+            warning("Error preparing ", dataset_id, " (rep ", rep, "): ", conditionMessage(e))
+            NULL
+          }
+        )
+      }
+    )
+    all_results[[paste0("rep", rep)]] <- Filter(Negate(is.null), res)
   }
   
-  message_time(paste("Processing", length(isc_files), "ISC datasets..."))
-  
-  # Process all datasets (parallel where possible)
-  n_cores <- min(8, length(isc_files))
-  
-  results <- bplapply(
-    isc_files,
-    BPPARAM = BiocParallel::MulticoreParam(workers = n_cores, progressbar = TRUE),
-    function(isc_path) {
-      yaml_path <- paste0(isc_path, ".yaml")
-      tryCatch(
-        process_label_transfer_dataset(isc_path, yaml_path, out_lt_dir),
-        error = function(e) {
-          warning("Error processing ", basename(isc_path), ": ", conditionMessage(e))
-          return(NULL)
-        }
-      )
-    }
-  )
-  
-  # Filter successful conversions
-  results <- Filter(Negate(is.null), results)
-  
-  message_time("=".repeat(70))
-  message_time(paste("✓ Successfully processed", length(results), "datasets"))
-  message_time("=".repeat(70))
+  message_time(strrep("=", 70))
+  message_time("✓ Split preparation complete")
+  message_time(strrep("=", 70))
   message_time("")
-  message_time("Label transfer splits saved to: data/processed/label_transfer/")
+  message_time("Label transfer splits saved to: data/processed/label_transfer/rep<k>/")
   message_time("")
   message_time("Next steps:")
   message_time("  1. Review splits: ls -lh data/processed/label_transfer/")
@@ -239,7 +114,7 @@ main <- function() {
   message_time("     cd label_transfer_task && Rscript -e 'targets::tar_make()'")
   message_time("")
   
-  invisible(results)
+  invisible(all_results)
 }
 
 if (!interactive()) {

@@ -153,7 +153,7 @@ compute_lt_query_consistency <- function(dataset_id,
                                          output_dir = NULL,
                                          sample_col = "sample",
                                          ncores = 1) {
-  if (is.null(data_dir)) data_dir <- lt_data_processed_dir()
+  if (is.null(data_dir)) data_dir <- lt_data_processed_dir(rep)
   if (is.null(results_dir)) results_dir <- lt_raw_results_dir()
   if (is.null(output_dir)) output_dir <- lt_consistency_dir()
 
@@ -234,11 +234,12 @@ compute_lt_query_consistency <- function(dataset_id,
 }
 
 compute_lt_reference_consistency <- function(dataset_id,
+                                             rep,
                                              data_dir = NULL,
                                              output_dir = NULL,
                                              sample_col = "sample",
                                              ncores = 1) {
-  if (is.null(data_dir)) data_dir <- lt_data_processed_dir()
+  if (is.null(data_dir)) data_dir <- lt_data_processed_dir(rep)
   if (is.null(output_dir)) output_dir <- lt_consistency_dir()
 
   dataset_dir <- file.path(data_dir, dataset_id)
@@ -279,13 +280,13 @@ compute_lt_reference_consistency <- function(dataset_id,
     dplyr::mutate(
       dataset_id = dataset_id,
       classifier = "ground_truth",
-      replicate = NA_integer_,
+      replicate = rep,
       split = "reference"
     )
 
   out_file <- file.path(
     output_dir,
-    sprintf("%s_reference_ground_truth_consistency.rds", dataset_id)
+    sprintf("%s_rep%d_reference_ground_truth_consistency.rds", dataset_id, rep)
   )
   saveRDS(cons, out_file)
 

@@ -7,6 +7,7 @@
 
 seed: 22                    # Reproducible seed for sample splitting
 n_cores: 8                  # Number of cores for parallel processing
+n_replicates: 3             # Number of split replicates (different query/reference splits)
 
 # ============================================================================
 # DATASET PREPARATION & SPLITTING
