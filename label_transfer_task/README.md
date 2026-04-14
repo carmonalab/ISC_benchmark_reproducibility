@@ -109,8 +109,8 @@ label_transfer_task/
 │   ├── 00_utils.R                          # Utilities & paths
 │   ├── 00_prepare_splits.R                 # Data preparation script
 │   ├── 01_run_classifiers.R                # Classification runner
-│   ├── 02_scTypeEval_helpers.R             # (Optional)
-│   └── 03_plots_tables.R                   # (Optional)
+│   ├── 02_plots_tables.R                   # (Optional)
+│   └── 03_consistency.R                    # Consistency + F1 metrics
 ├── scripts/
 │   ├── submit_classifiers_hpc.sh           # HPC submission
 │   └── submit_hpc.sh                       # (Legacy)
@@ -392,7 +392,7 @@ Check `../data/processed/isc/<dataset>.rds.yaml` — if `label_transfer: false`,
 
 ## Integration with scTypeEval
 
-Optionally leverages scTypeEval's reciprocal labeling functions. See `R/02_scTypeEval_helpers.R`.
+Consistency metrics are computed via scTypeEval in `R/03_consistency.R`.
 
 ## Related
 

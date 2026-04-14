@@ -39,15 +39,6 @@ source("00_utils.R")                # For get_idents_by_prefix()
 # Configuration
 # ============================================================================
 
-# Fixed seed for reproducible sample splits (matches proc_data.Rmd)
-SEED <- 22
-
-# Proportion of samples for query set
-PROP_QUERY <- 0.7
-
-# Minimum samples required to process dataset
-MIN_SAMPLES <- 10
-
 # ============================================================================
 # Helper Functions (module-specific)
 # ============================================================================

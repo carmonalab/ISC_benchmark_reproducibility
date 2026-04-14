@@ -27,6 +27,10 @@ lt_figures_dir <- function() {
   ensure_dir(file.path(lt_results_root(), "figures"))
 }
 
+lt_consistency_dir <- function() {
+  ensure_dir(file.path(lt_results_root(), "consistency"))
+}
+
 # ============================================================================
 # LOAD LABEL-TRANSFER PARAMETERS
 # ============================================================================
@@ -66,7 +70,6 @@ get_lt_classifiers <- function(params) {
 get_idents_by_prefix <- function(prefix) {
   switch(prefix,
     "JoaI"        = "cell.type",
-    "Mitchel"     = "OriginalAnnotationLevel1",
     "Joanito"     = "cell.type",
     "Lee"         = "cell.type",
     "Stephenson"  = "OriginalAnnotationLevel2",

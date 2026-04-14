@@ -6,11 +6,14 @@ suppressPackageStartupMessages({
   library(tidyverse)
 })
 
+# Shared messaging helpers (message_time/message_step)
+source("../R/cli_utils.R")
+
 # Load all pipeline-specific functions
 source("R/00_utils.R")
 source("R/01_classifiers.R")
-source("R/02_scTypeEval_helpers.R")
-source("R/03_plots_tables.R")
+source("R/02_plots_tables.R")
+source("R/03_consistency.R")
 
 # ============================================================================
 # CONFIGURATION LAYER
@@ -21,8 +24,7 @@ list(
   # (label_transfer_task/config/label_transfer_parameters.yaml contains all required settings)
   tar_target(
     params,
-    load_pipeline_config("label_transfer_parameters.yaml"),
-    format = "file"
+    load_pipeline_config("label_transfer_parameters.yaml")
   ),
   
   # Random seed
@@ -102,6 +104,59 @@ list(
     format = "file",
     pattern = map(lt_grid),
     iteration = "list"
+  ),
+
+  # ========================================================================
+  # CONSISTENCY METRICS
+  #   - Query split: consistency on predicted labels + F1 vs ground truth
+  #   - Reference split: consistency on ground truth only
+  # ========================================================================
+
+  tar_target(
+    lt_query_consistency,
+    {
+      compute_lt_query_consistency(
+        dataset_id = lt_grid$dataset_id,
+        classifier_name = lt_grid$classifier,
+        rep = lt_grid$replicate,
+        result_path = lt_classifier_results,
+        data_dir = lt_data_processed_dir(),
+        output_dir = lt_consistency_dir(),
+        ncores = params$n_cores %||% 2
+      )
+    },
+    format = "file",
+    pattern = map(lt_grid, lt_classifier_results),
+    iteration = "list"
+  ),
+
+  tar_target(
+    lt_reference_consistency,
+    {
+      compute_lt_reference_consistency(
+        dataset_id = lt_dataset_ids,
+        data_dir = lt_data_processed_dir(),
+        output_dir = lt_consistency_dir(),
+        ncores = params$n_cores %||% 2
+      )
+    },
+    format = "file",
+    pattern = map(lt_dataset_ids),
+    iteration = "list"
+  ),
+
+  tar_target(
+    lt_consistency_aggregated,
+    {
+      aggregate_lt_consistency_results(
+        consistency_dir = lt_consistency_dir(),
+        output_file = file.path(
+          lt_aggregated_dir(),
+          "label_transfer_consistency.csv"
+        )
+      )
+    },
+    format = "file"
   ),
   
   # ========================================================================

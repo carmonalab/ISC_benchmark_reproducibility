@@ -26,6 +26,8 @@ run_label_transfer_classifier_targets <- function(
     data_dir = NULL,
     output_dir = NULL,
     seed = 42) {
+
+  set.seed(seed)
   
   if (is.null(data_dir)) {
     data_dir <- proj_path("data/processed/label_transfer")
@@ -71,15 +73,21 @@ run_label_transfer_classifier_targets <- function(
     warning("Classifier failed: ", e$message)
     NA
   })
+
+  # Ensure predictions can be aligned downstream
+  if (!all(is.na(predictions)) && length(predictions) == ncol(query$counts)) {
+    names(predictions) <- colnames(query$counts)
+  }
   
   # Create result data frame
   result_df <- query$metadata %>%
     as.data.frame() %>%
+    tibble::rownames_to_column("cell_id") %>%
     mutate(
       dataset_id = dataset_id,
       classifier = classifier_name,
       replicate = rep,
-      prediction = predictions,
+      prediction = unname(predictions),
       accuracy = if (all(is.na(predictions))) NA else 
                  mean(predictions == cell_type, na.rm = TRUE),
       seed = seed
@@ -91,8 +99,8 @@ run_label_transfer_classifier_targets <- function(
     sprintf("%s_%s_rep%d.rds", dataset_id, classifier_name, rep)
   )
   saveRDS(result_df, output_file)
-  
-  return(result_df)
+
+  return(output_file)
 }
 
 # Keep legacy function name for compatibility
