@@ -41,7 +41,7 @@ datasets:
   # ========================================================================
   # 2. STEPHENSON - COVID PBMC
   # ========================================================================
-  - id: Mitchel_2021
+  - id: StephensonE_2021
     reference: "Stephenson et al., 2021"
     
     raw_file: "StephensonE_2021_33879890_preprocessed.rds"
@@ -135,7 +135,3 @@ datasets:
       - Output: 9 splits (various study combinations)
       - Min samples: 7
 
-  # ========================================================================
-  # NOTE: The original proc_data.Rmd processes 5 main datasets, which
-  # through batch × condition splits generates 31 final output files.
-  # ========================================================================
