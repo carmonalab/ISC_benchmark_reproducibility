@@ -29,3 +29,6 @@ activate.R
 
 # targets
 */_targets/
+
+# hpc logs
+*/logs/
