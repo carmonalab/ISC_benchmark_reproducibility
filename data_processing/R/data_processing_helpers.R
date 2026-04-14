@@ -135,7 +135,7 @@ process_dataset <- function(obj,
   # with enough cell types and total cells
   splits <- bplapply(
     splits,
-    BPPARAM = MulticoreParam(workers = w, progressbar = TRUE),
+    BPPARAM = MulticoreParam(workers = w, progressbar = FALSE),
     function(x) {
       optimal_dataset(
         x,
