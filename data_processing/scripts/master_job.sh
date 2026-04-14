@@ -21,14 +21,14 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DATA_PROCESSING_DIR="${PROJECT_ROOT}/data_processing"
 
-# Logging
-LOG_FILE="${DATA_PROCESSING_DIR}/data_processing.log"
-: > "${LOG_FILE}"  # Clear log
+# Export for R subprocesses
+export PROJECT_ROOT
+export DATA_PROCESSING_DIR
 
 log_msg() {
   local msg="$1"
   local timestamp=$(date '+%Y-%m-%d %H:%M:%S')
-  echo "[${timestamp}] ${msg}" | tee -a "${LOG_FILE}"
+  echo "[${timestamp}] ${msg}"
 }
 
 log_msg "============================================"
@@ -36,6 +36,18 @@ log_msg "Starting dataset processing"
 log_msg "============================================"
 log_msg "Project root: ${PROJECT_ROOT}"
 log_msg "Processing directory: ${DATA_PROCESSING_DIR}"
+
+# Load modules if available (HPC environments)
+if command -v module >/dev/null 2>&1; then
+  log_msg "Loading environment modules"
+  module purge || true
+  module load GCC/12.3.0 || true
+  module load R/4.3.2 || true
+  module load GLPK/5.0 || true
+  module load cairo/1.17.8 || true
+  module load freetype/2.13.0 || true
+  module load libwebp/1.3.1 || true
+fi
 
 # Check prerequisites
 if [[ ! -f "${DATA_PROCESSING_DIR}/config/core_datasets.yaml" ]]; then
@@ -48,9 +60,39 @@ if [[ ! -f "${DATA_PROCESSING_DIR}/config/processing_parameters.yaml" ]]; then
   exit 1
 fi
 
-# Check if R targets package is available
-if ! Rscript -e 'stopifnot(requireNamespace("targets", quietly=TRUE))' 2>/dev/null; then
-  log_msg "ERROR: R package 'targets' not found. Install with: install.packages('targets')"
+# Check if required R packages are available (under this project's renv)
+if ! Rscript - <<'RS' 2>&1; then
+project_root <- Sys.getenv("PROJECT_ROOT")
+stopifnot(nzchar(project_root))
+
+# Force project renv library on .libPaths() (works even before renv::load())
+r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
+renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(renv_lib)) {
+  .libPaths(unique(c(renv_lib, .libPaths())))
+}
+
+# Ensure renv is activated for this project, then load it.
+activate <- file.path(project_root, "renv", "activate.R")
+if (file.exists(activate)) {
+  source(activate)
+}
+
+stopifnot(requireNamespace("renv", quietly = TRUE))
+renv::load(project = project_root)
+
+cat("[INFO] .libPaths():\n")
+writeLines(.libPaths())
+
+stopifnot(
+  requireNamespace("targets", quietly = TRUE),
+  requireNamespace("yaml", quietly = TRUE),
+  requireNamespace("Seurat", quietly = TRUE),
+  requireNamespace("BiocParallel", quietly = TRUE)
+)
+RS
+  log_msg "ERROR: Required R packages not loadable in this environment (after renv::load())."
+  log_msg "If this is a new machine, run: R -e 'renv::restore()' from the project root."
   exit 1
 fi
 
@@ -64,10 +106,40 @@ fi
 # Run targets pipeline
 log_msg ""
 log_msg "Running targets pipeline (data_processing/_targets.R)..."
-log_msg "Command: cd ${DATA_PROCESSING_DIR} && Rscript -e 'targets::tar_make()'"
+log_msg "Command: cd ${DATA_PROCESSING_DIR} && Rscript -e 'source(\"${PROJECT_ROOT}/renv/activate.R\"); renv::load(project=\"${PROJECT_ROOT}\"); targets::tar_make(callr_function=NULL)'"
 
 cd "${DATA_PROCESSING_DIR}"
-if Rscript -e 'targets::tar_make()' 2>&1 | tee -a "${LOG_FILE}"; then
+if Rscript - <<'RS' 2>&1; then
+options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2024-01-15"))
+project_root <- Sys.getenv("PROJECT_ROOT")
+stopifnot(nzchar(project_root))
+
+# Force project renv library on .libPaths() (works even before renv::load())
+r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
+renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(renv_lib)) {
+  .libPaths(unique(c(renv_lib, .libPaths())))
+}
+
+activate <- file.path(project_root, "renv", "activate.R")
+if (file.exists(activate)) {
+  source(activate)
+}
+stopifnot(requireNamespace("renv", quietly = TRUE))
+renv::load(project = project_root)
+
+cat("[INFO] .libPaths():\n")
+writeLines(.libPaths())
+library(targets)
+targets::tar_make(callr_function = NULL)
+
+tryCatch({
+  cat("\n[SUMMARY]\n")
+  print(targets::tar_read(summary))
+}, error = function(e) {
+  message("[INFO] Could not read summary target: ", conditionMessage(e))
+})
+RS
   log_msg ""
   log_msg "✓ Dataset processing completed successfully"
   log_msg ""
@@ -76,7 +148,7 @@ if Rscript -e 'targets::tar_make()' 2>&1 | tee -a "${LOG_FILE}"; then
   log_msg "  targets::tar_read(report)      # Detailed processing report"
 else
   log_msg ""
-  log_msg "✗ Dataset processing failed. See log: ${LOG_FILE}"
+  log_msg "✗ Dataset processing failed. See SLURM output/error logs."
   exit 1
 fi
 
