@@ -26,3 +26,6 @@ audits/
 renv/
 activate.R
 .Rprofile
+
+# targets
+*/_targets/
