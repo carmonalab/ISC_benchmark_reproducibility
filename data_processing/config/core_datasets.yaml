@@ -19,7 +19,7 @@ datasets:
   - id: JoaI_2022
     reference: "Joanito et al., 2022"
     
-    raw_file: "JoaI_2022_35773407_Nofilt_whole.rds"
+    raw_file: "Joanito_2022_35773407.rds"
     
     # Metadata column mappings
     ident_col: "cell.type"          # Cell type annotation
@@ -44,7 +44,7 @@ datasets:
   - id: StephensonE_2021
     reference: "Stephenson et al., 2021"
     
-    raw_file: "StephensonE_2021_33879890_preprocessed.rds"
+    raw_file: "Stephenson_2021_33879890.rds"
     
     # Metadata column mappings
     ident_col: "OriginalAnnotationLevel2"  # Cell type annotation (fine-grained)
@@ -68,8 +68,8 @@ datasets:
     
     raw_file: null                      # Only has raw_files (plural), not single file
     raw_files:
-      - "BCC_all_LY_clean_annotated.rds"
-      - "BCC_CG_all_annotated.rds"
+      - "Yerly_2022_35986012.rds"
+      - "Ganier_2024_38165934.rds"
     
     # Metadata column mappings
     ident_col: "annotation"             # Cell type annotation
@@ -93,7 +93,7 @@ datasets:
   - id: LungAtlas_2023
     reference: "Sikkema et al., 2023 (HCA Lung)"
     
-    raw_file: "LUNG_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+    raw_file: "Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
     
     # Metadata column mappings
     ident_col: "cell_type"              # Cell type annotation
@@ -116,7 +116,7 @@ datasets:
   - id: ICBAtlas_2024
     reference: "Gondal et al., 2025 (compiled studies)"
     
-    raw_file: "ICB_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
+    raw_file: "Gondal_2025_36095221_8d918bdd-ab11-4c83-9de0-93640aeb8e20.rds"
     
     # Metadata column mappings
     ident_col: "cell_type"              # Cell type annotation
