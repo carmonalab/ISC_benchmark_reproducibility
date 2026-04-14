@@ -321,10 +321,20 @@ preprocess_dataset <- function(obj, ds) {
     obj$pre_post <- str_trim(obj$pre_post, side = "both")
     obj$pre_post <- sub("\\.$", "", obj$pre_post)
     
-    obj$dataset <- str_replace_all(obj$dataset, "[^a-zA-Z0-9._-]", ".")
-    obj$dataset <- str_replace_all(obj$dataset, "\\.+", ".")
-    obj$dataset <- str_trim(obj$dataset, side = "both")
-    obj$dataset <- sub("\\.$", "", obj$dataset)
+    # Clean the batch column used in core_datasets.yaml
+    if ("Study_name" %in% colnames(obj@meta.data)) {
+      obj$Study_name <- str_replace_all(obj$Study_name, "[^a-zA-Z0-9._-]", ".")
+      obj$Study_name <- str_replace_all(obj$Study_name, "\\.+", ".")
+      obj$Study_name <- str_trim(obj$Study_name, side = "both")
+      obj$Study_name <- sub("\\.$", "", obj$Study_name)
+    }
+    # Backwards-compat: some objects may already have a `dataset` column
+    if ("dataset" %in% colnames(obj@meta.data)) {
+      obj$dataset <- str_replace_all(obj$dataset, "[^a-zA-Z0-9._-]", ".")
+      obj$dataset <- str_replace_all(obj$dataset, "\\.+", ".")
+      obj$dataset <- str_trim(obj$dataset, side = "both")
+      obj$dataset <- sub("\\.$", "", obj$dataset)
+    }
   }
   
   obj
