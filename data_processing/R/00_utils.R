@@ -18,6 +18,15 @@ load_dp_params <- function() {
   }
   
   config <- yaml::read_yaml(config_path)
+
+  # Make paths robust to current working directory by resolving
+  # them relative to the project root.
+  if (!is.null(config$in_dir)) {
+    config$in_dir <- proj_path(config$in_dir)
+  }
+  if (!is.null(config$out_dir)) {
+    config$out_dir <- proj_path(config$out_dir)
+  }
   
   # Ensure output directory exists
   dir.create(config$out_dir, showWarnings = FALSE, recursive = TRUE)
@@ -34,8 +43,30 @@ load_dp_datasets <- function() {
     stop("Config file not found: ", config_path)
   }
   
-  datasets_config <- yaml::read_yaml(config_path)
-  datasets_config$datasets
+  `%||%` <- function(x, y) if (is.null(x)) y else x
+
+  datasets_config <- yaml::read_yaml(config_path)$datasets
+  if (is.null(datasets_config) || length(datasets_config) == 0) {
+    stop("No datasets found in: ", config_path)
+  }
+
+  # Convert YAML list entries into a data.frame for targets::pattern = map().
+  # Keep list-like fields as list-columns.
+  df <- data.frame(
+    id = vapply(datasets_config, function(x) x$id %||% NA_character_, character(1)),
+    reference = vapply(datasets_config, function(x) x$reference %||% NA_character_, character(1)),
+    ident_col = vapply(datasets_config, function(x) x$ident_col %||% NA_character_, character(1)),
+    sample_col = vapply(datasets_config, function(x) x$sample_col %||% NA_character_, character(1)),
+    batch_col = vapply(datasets_config, function(x) x$batch_col %||% "", character(1)),
+    condition_col = vapply(datasets_config, function(x) x$condition_col %||% "", character(1)),
+    stringsAsFactors = FALSE
+  )
+
+  df$raw_file <- I(lapply(datasets_config, function(x) x$raw_file %||% NULL))
+  df$raw_files <- I(lapply(datasets_config, function(x) x$raw_files %||% character(0)))
+  df$exclude_cell_types <- I(lapply(datasets_config, function(x) x$exclude_cell_types %||% character(0)))
+
+  df
 }
 
 # ============================================================================
