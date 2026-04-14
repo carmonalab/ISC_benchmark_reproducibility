@@ -18,7 +18,6 @@
 # NOTE: Run from data_processing directory (NOT from project root)
 
 library(targets)
-library(tarchetypes)
 library(yaml)
 
 # Source utilities from parent directory and local modules
@@ -32,7 +31,7 @@ source("R/data_processing_helpers.R")
 # ============================================================================
 
 tar_option_set(
-  packages = c("yaml", "dplyr", "stringr", "Seurat", "SeuratObject", "Matrix", "BiocParallel", "tarchetypes"),
+  packages = c("yaml", "dplyr", "stringr", "Seurat", "SeuratObject", "Matrix", "BiocParallel"),
   # Store outputs in data/processed/
   storage = "worker",
   retrieval = "worker"
