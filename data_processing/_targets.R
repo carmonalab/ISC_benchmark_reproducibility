@@ -211,9 +211,9 @@ list(
     report,
     {
       cat("\n")
-      cat("="*60, "\n")
+      cat(strrep("=", 60), "\n")
       cat("DATA PROCESSING SUMMARY\n")
-      cat("="*60, "\n")
+      cat(strrep("=", 60), "\n")
       cat("\n")
       
       # Summary table
@@ -237,7 +237,7 @@ list(
       }
       
       cat("\n")
-      cat("="*60, "\n")
+      cat(strrep("=", 60), "\n")
       
       # Total counts
       success_count <- sum(summary$status == "success")
@@ -248,7 +248,7 @@ list(
       cat(sprintf("Successful: %d | Failed: %d | Skipped: %d\n", 
                  success_count, failed_count, skipped_count))
       cat(sprintf("Total output files: %d\n", total_files))
-      cat("="*60, "\n\n")
+      cat(strrep("=", 60), "\n\n")
       
       invisible(summary)
     }
