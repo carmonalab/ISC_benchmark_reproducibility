@@ -1,7 +1,7 @@
 # ISC_benchmark/R/00_utils.R --- ISC-specific utility functions
 
 source("../R/shared_helpers.R")
-source("../R/cli_utils.R")
+source(proj_path("R/cli_utils.R"))
 
 isc_params_path <- "config/isc_benchmark_parameters.yaml"
 

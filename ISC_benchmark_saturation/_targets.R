@@ -4,8 +4,10 @@ library(targets)
 library(tibble)
 library(data.table)
 
-source("R/00_utils.R")
-source("R/saturation_helpers.R")
+# Source shared utilities (defines proj_path)
+source("../R/shared_helpers.R")
+source(proj_path("ISC_benchmark_saturation/R/00_utils.R"))
+source(proj_path("ISC_benchmark_saturation/R/saturation_helpers.R"))
 
 tar_option_set(
   packages = c("yaml", "dplyr", "tibble", "tidyr", "purrr", "stringr", "data.table", "BiocParallel")

@@ -17,8 +17,9 @@ suppressPackageStartupMessages({
 })
 
 # Load utilities
-source("../../R/cli_utils.R")       # For message functions
-source("../../R/shared_helpers.R")  # For proj_path, etc.
+# First establish project root using shared_helpers function
+source("../R/shared_helpers.R")
+source(proj_path("R/cli_utils.R"))  # For message functions
 source("R/00_utils.R")              # For load_lt_params, get_idents_by_prefix, etc.
 
 # ============================================================================

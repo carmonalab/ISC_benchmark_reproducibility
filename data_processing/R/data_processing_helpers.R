@@ -6,8 +6,9 @@ suppressPackageStartupMessages({
   library(BiocParallel)
 })
 
-# Source shared utilities (normalize_metadata_name function)
-source("../../R/cli_utils.R")
+# Source shared utilities (defines proj_path and normalize_metadata_name)
+source("../R/shared_helpers.R")
+source(proj_path("R/cli_utils.R"))
 
 
 #' Load dataset from raw file(s)

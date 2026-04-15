@@ -37,8 +37,8 @@ library(tidyr)
 
 # Source utilities and task functions
 # (project_paths.R deleted — all functions moved to shared_helpers.R)
-source("../R/cli_utils.R")
 source("../R/shared_helpers.R")
+source(proj_path("R/cli_utils.R"))
 source("R/isc_benchmark_helpers.R")
 source("R/01_isc_tasks.R")
 

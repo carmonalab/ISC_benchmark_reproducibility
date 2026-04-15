@@ -7,7 +7,8 @@ suppressPackageStartupMessages({
 })
 
 # Shared messaging helpers (message_time/message_step)
-source("../R/cli_utils.R")
+source("../R/shared_helpers.R")
+source(proj_path("R/cli_utils.R"))
 
 # Load all pipeline-specific functions
 source("R/00_utils.R")
