@@ -61,34 +61,41 @@ datasets:
       - Output: 5 splits (Cambridge_Covid, Cambridge_Healthy, Ncl_Covid, etc.)
 
   # ========================================================================
-  # 3. BCC - Basal Cell Carcinoma (Ganier & Yerly)
+  # 3. BCC - Basal Cell Carcinoma (Ganier)
   # ========================================================================
-  - id: BCC
-    reference: "Ganier & Yerly"
+  - id: BCC_Ganier
+    reference: "Ganier et al., 2024"
     
-    raw_file: null                      # Only has raw_files (plural), not single file
-    raw_files:
-      - "Yerly_2022_35986012.rds"
-      - "Ganier_2024_38165934.rds"
+    raw_file: "Ganier_2024_38165934.rds"
     
     # Metadata column mappings
     ident_col: "annotation"             # Cell type annotation
     sample_col: "patient_bcc"           # Sample identifier (patient ID)
-    batch_col: "dataset"                # Batch: LY, CG (merged objects)
     condition_col: null                 # No biological condition split
     
     # Cell types to exclude
     exclude_cell_types:
       - "Cancer_cells"
-    
-    notes: |
-      - Merges two cohorts: LY and CG (assigned to dataset column)
-      - Splits by dataset only (no condition)
-      - Output: 2 splits (BCC_LY, BCC_CG)
-      - Min samples: 7 (smaller dataset)
 
   # ========================================================================
-  # 4. LUNG ATLAS - Healthy Lung Tissue
+  # 4. BCC - Basal Cell Carcinoma (Yerly)
+  # ========================================================================
+  - id: BCC_Yerly
+    reference: "Yerly et al., 2022"
+    
+    raw_file: "Yerly_2022_35986012.rds"
+    
+    # Metadata column mappings
+    ident_col: "annotation"             # Cell type annotation
+    sample_col: "patient_bcc"           # Sample identifier (patient ID)
+    condition_col: null                 # No biological condition split
+    
+    # Cell types to exclude
+    exclude_cell_types:
+      - "Cancer_cells"
+
+  # ========================================================================
+  # 5. LUNG ATLAS - Healthy Lung Tissue
   # ========================================================================
   - id: LungAtlas_2023
     reference: "Sikkema et al., 2023 (HCA Lung)"
@@ -111,7 +118,7 @@ datasets:
       - Min samples: 7 (tissue-based splits can be sparse)
 
   # ========================================================================
-  # 5. ICB ATLAS - Immunotherapy Cohort
+  # 6. ICB ATLAS - Immunotherapy Cohort
   # ========================================================================
   - id: ICBAtlas_2024
     reference: "Gondal et al., 2025 (compiled studies)"
