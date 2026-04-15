@@ -4,7 +4,7 @@
 #SBATCH --time=00:45:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=5
-#SBATCH --mem=64G
+#SBATCH --mem=128G
 #SBATCH --output=data_processing/logs/processing_%j.log
 #SBATCH --error=data_processing/logs/processing_%j.err
 #SBATCH --mail-type=END,FAIL
