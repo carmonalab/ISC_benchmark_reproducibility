@@ -6,6 +6,9 @@ suppressPackageStartupMessages({
   library(BiocParallel)
 })
 
+# Source shared utilities (normalize_metadata_name function)
+source("../../R/cli_utils.R")
+
 
 #' Load dataset from raw file(s)
 
@@ -84,14 +87,7 @@ has_condition <- !is.null(condition_col) && condition_col %in% colnames(obj@meta
 if (has_batch && has_condition) {
   # Both batch and condition
   batch_vals <- obj[[batch_col, drop = TRUE]]
-  condition_vals <- obj[[condition_col, drop = TRUE]]
-  
-  # Clean values (remove special chars)
-  condition_vals <- str_replace_all(condition_vals, "[^a-zA-Z0-9._-]", ".")
-  condition_vals <- str_replace_all(condition_vals, "\\.+", ".")
-  condition_vals <- str_trim(condition_vals, side = "both")
-  condition_vals <- sub("\\.$", "", condition_vals)
-  
+  condition_vals <- normalize_metadata_name(obj[[condition_col, drop = TRUE]])
   obj$split <- paste(batch_vals, condition_vals, sep = "_")
   
 } else if (has_batch) {
@@ -100,15 +96,7 @@ if (has_batch && has_condition) {
   
 } else if (has_condition) {
   # Condition only
-  condition_vals <- obj[[condition_col, drop = TRUE]]
-  
-  # Clean values
-  condition_vals <- str_replace_all(condition_vals, "[^a-zA-Z0-9._-]", ".")
-  condition_vals <- str_replace_all(condition_vals, "\\.+", ".")
-  condition_vals <- str_trim(condition_vals, side = "both")
-  condition_vals <- sub("\\.$", "", condition_vals)
-  
-  obj$split <- condition_vals
+  obj$split <- normalize_metadata_name(obj[[condition_col, drop = TRUE]])
   
 } else {
   # Neither provided → fallback
@@ -288,37 +276,21 @@ preprocess_dataset <- function(obj, ds) {
   
   # LungAtlas: Clean tissue and dataset columns
   if (ds$id == "LungAtlas_2023") {
-    obj$tissue <- str_replace_all(obj$tissue, "[^a-zA-Z0-9._-]", ".")
-    obj$tissue <- str_replace_all(obj$tissue, "\\.+", ".")
-    obj$tissue <- str_trim(obj$tissue, side = "both")
-    obj$tissue <- sub("\\.$", "", obj$tissue)
-    
-    obj$dataset <- str_replace_all(obj$dataset, "[^a-zA-Z0-9._-]", ".")
-    obj$dataset <- str_replace_all(obj$dataset, "\\.+", ".")
-    obj$dataset <- str_trim(obj$dataset, side = "both")
-    obj$dataset <- sub("\\.$", "", obj$dataset)
+    obj$tissue <- normalize_metadata_name(obj$tissue)
+    obj$dataset <- normalize_metadata_name(obj$dataset)
   }
   
   # ICBAtlas: Clean condition and dataset columns
   if (ds$id == "ICBAtlas_2024") {
-    obj$pre_post <- str_replace_all(obj$pre_post, "[^a-zA-Z0-9._-]", ".")
-    obj$pre_post <- str_replace_all(obj$pre_post, "\\.+", ".")
-    obj$pre_post <- str_trim(obj$pre_post, side = "both")
-    obj$pre_post <- sub("\\.$", "", obj$pre_post)
+    obj$pre_post <- normalize_metadata_name(obj$pre_post)
     
     # Clean the batch column used in core_datasets.yaml
     if ("Study_name" %in% colnames(obj@meta.data)) {
-      obj$Study_name <- str_replace_all(obj$Study_name, "[^a-zA-Z0-9._-]", ".")
-      obj$Study_name <- str_replace_all(obj$Study_name, "\\.+", ".")
-      obj$Study_name <- str_trim(obj$Study_name, side = "both")
-      obj$Study_name <- sub("\\.$", "", obj$Study_name)
+      obj$Study_name <- normalize_metadata_name(obj$Study_name)
     }
     # Backwards-compat: some objects may already have a `dataset` column
     if ("dataset" %in% colnames(obj@meta.data)) {
-      obj$dataset <- str_replace_all(obj$dataset, "[^a-zA-Z0-9._-]", ".")
-      obj$dataset <- str_replace_all(obj$dataset, "\\.+", ".")
-      obj$dataset <- str_trim(obj$dataset, side = "both")
-      obj$dataset <- sub("\\.$", "", obj$dataset)
+      obj$dataset <- normalize_metadata_name(obj$dataset)
     }
   }
   
