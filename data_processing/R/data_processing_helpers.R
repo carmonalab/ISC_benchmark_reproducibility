@@ -40,7 +40,7 @@ process_dataset <- function(obj,
                            prefix,
                            ident_col,
                            sample_col,
-                           batch_col,
+                           batch_col = NULL,
                            condition_col = NULL,
                            exclude_celltypes = NULL,
                            config) {
@@ -77,22 +77,43 @@ process_dataset <- function(obj,
   message(sprintf("  After downsampling: %d cells", ncol(obj)))
   
   # ===== Step 4: Create split variable (batch_condition) =====
-  if (!is.null(condition_col) && condition_col %in% colnames(obj@meta.data)) {
-    # Both batch and condition
-    batch_vals <- obj[[batch_col, drop = TRUE]]
-    condition_vals <- obj[[condition_col, drop = TRUE]]
-    
-    # Clean values (remove special chars)
-    condition_vals <- str_replace_all(condition_vals, "[^a-zA-Z0-9._-]", ".")
-    condition_vals <- str_replace_all(condition_vals, "\\.+", ".")
-    condition_vals <- str_trim(condition_vals, side = "both")
-    condition_vals <- sub("\\.$", "", condition_vals)
-    
-    obj$split <- paste(batch_vals, condition_vals, sep = "_")
-  } else {
-    # Batch only
-    obj$split <- obj[[batch_col, drop = TRUE]]
-  }
+
+has_batch <- !is.null(batch_col) && batch_col %in% colnames(obj@meta.data)
+has_condition <- !is.null(condition_col) && condition_col %in% colnames(obj@meta.data)
+
+if (has_batch && has_condition) {
+  # Both batch and condition
+  batch_vals <- obj[[batch_col, drop = TRUE]]
+  condition_vals <- obj[[condition_col, drop = TRUE]]
+  
+  # Clean values (remove special chars)
+  condition_vals <- str_replace_all(condition_vals, "[^a-zA-Z0-9._-]", ".")
+  condition_vals <- str_replace_all(condition_vals, "\\.+", ".")
+  condition_vals <- str_trim(condition_vals, side = "both")
+  condition_vals <- sub("\\.$", "", condition_vals)
+  
+  obj$split <- paste(batch_vals, condition_vals, sep = "_")
+  
+} else if (has_batch) {
+  # Batch only
+  obj$split <- obj[[batch_col, drop = TRUE]]
+  
+} else if (has_condition) {
+  # Condition only
+  condition_vals <- obj[[condition_col, drop = TRUE]]
+  
+  # Clean values
+  condition_vals <- str_replace_all(condition_vals, "[^a-zA-Z0-9._-]", ".")
+  condition_vals <- str_replace_all(condition_vals, "\\.+", ".")
+  condition_vals <- str_trim(condition_vals, side = "both")
+  condition_vals <- sub("\\.$", "", condition_vals)
+  
+  obj$split <- condition_vals
+  
+} else {
+  # Neither provided → fallback
+  obj$split <- "all"
+}
   
   # ===== Step 5: Split by batch+condition =====
   message("  Splitting by batch+condition")
