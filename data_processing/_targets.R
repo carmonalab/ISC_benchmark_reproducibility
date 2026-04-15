@@ -83,7 +83,6 @@ list(
       id <- row$id
       reference <- row$reference
       raw_file <- row$raw_file[[1]]
-      raw_files <- row$raw_files[[1]]
       ident_col <- row$ident_col
       sample_col <- row$sample_col
       batch_col <- row$batch_col
@@ -95,7 +94,6 @@ list(
         id = id,
         reference = reference,
         raw_file = raw_file,
-        raw_files = raw_files,
         ident_col = ident_col,
         sample_col = sample_col,
         batch_col = batch_col,

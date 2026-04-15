@@ -11,34 +11,6 @@ suppressPackageStartupMessages({
 
 load_dataset <- function(ds, input_dir = "../data/raw") {
   tryCatch({
-    # Multiple files (e.g., BCC)
-    if (!is.null(ds$raw_files) && length(ds$raw_files) > 0) {
-      files <- file.path(input_dir, ds$raw_files)
-      objs <- lapply(files, readRDS)
-      # Merge multiple datasets, adding dataset labels
-      for (i in 2:length(objs)) {
-        objs[[1]] <- merge(objs[[1]], objs[[i]])
-      }
-      obj <- objs[[1]]
-      # Add dataset labels if not already present (for BCC)
-      if (!("dataset" %in% colnames(obj@meta.data))) {
-        # Try to infer from original objects
-        for (i in seq_along(ds$raw_files)) {
-          dataset_label <- sub("_[^_]*\\.rds$", "", basename(ds$raw_files[i]))
-          # This is dataset-specific; for BCC we handle it differently
-          if (ds$id == "BCC") {
-            file_content <- readRDS(file.path(input_dir, ds$raw_files[i]))
-            # Mark cells from this file
-            idx <- colnames(obj) %in% colnames(file_content)
-            if (sum(idx) > 0) {
-              obj$dataset[idx] <- if (grepl("LY", ds$raw_files[i])) "LY" else "CG"
-            }
-          }
-        }
-      }
-      return(obj)
-    }
-    
     # Single file (default)
     if (!is.null(ds$raw_file)) {
       file <- file.path(input_dir, ds$raw_file)
@@ -291,14 +263,6 @@ preprocess_dataset <- function(obj, ds) {
       "Tumor", 
       "Normal"
     )
-  }
-  
-  # BCC: Merge two cohorts and assign dataset labels
-  if (ds$id == "BCC") {
-    # Objects were already merged, just mark datasets
-    if (!("dataset" %in% colnames(obj@meta.data))) {
-      stop("BCC merge failed: no dataset column found")
-    }
   }
   
   # LungAtlas: Clean tissue and dataset columns

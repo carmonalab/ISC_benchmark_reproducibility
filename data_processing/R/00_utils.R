@@ -63,7 +63,6 @@ load_dp_datasets <- function() {
   )
 
   df$raw_file <- I(lapply(datasets_config, function(x) x$raw_file %||% NULL))
-  df$raw_files <- I(lapply(datasets_config, function(x) x$raw_files %||% character(0)))
   df$exclude_cell_types <- I(lapply(datasets_config, function(x) x$exclude_cell_types %||% character(0)))
 
   df
