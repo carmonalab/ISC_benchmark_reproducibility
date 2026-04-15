@@ -1,5 +1,13 @@
 #!/usr/bin/env Rscript
 
+# Set up renv library paths
+project_root <- normalizePath("..")
+r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
+renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(renv_lib)) {
+  .libPaths(unique(c(renv_lib, .libPaths())))
+}
+
 suppressPackageStartupMessages({
   library(data.table)
 })

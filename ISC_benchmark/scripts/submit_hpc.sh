@@ -15,15 +15,34 @@
 #
 # This submits the ISC benchmark pipeline with parallelization via SLURM
 
-cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+# Load required modules (customize for your HPC)
+module purge 2>/dev/null || true
+module load GCC/12.3.0 2>/dev/null || true
+module load R/4.3.2 2>/dev/null || true
+module load GLPK/5.0 2>/dev/null || true
+module load cairo/1.17.8 2>/dev/null || true
+module load freetype/2.13.0 2>/dev/null || true
+module load libwebp/1.3.1 2>/dev/null || true
 
-# Load R module (adjust for your HPC)
-# module load R/4.3
+cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
 
 echo "[$(date)] Starting ISC benchmark pipeline on HPC..."
 
 # Run targets with SLURM future plan
 Rscript - <<'EOF'
+options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2024-01-15"))
+project_root <- normalizePath("..")
+
+# Force project renv library on .libPaths()
+r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
+renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(renv_lib)) {
+  .libPaths(unique(c(renv_lib, .libPaths())))
+}
+
+cat("[INFO] .libPaths():\n")
+writeLines(.libPaths())
+
 library(targets)
 library(future.batchtools)
 

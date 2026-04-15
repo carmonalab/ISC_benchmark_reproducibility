@@ -13,7 +13,14 @@
 
 set -euo pipefail
 
-module load r-light/4.3.3
+# Load required modules (customize for your HPC)
+module purge 2>/dev/null || true
+module load GCC/12.3.0 2>/dev/null || true
+module load R/4.3.2 2>/dev/null || true
+module load GLPK/5.0 2>/dev/null || true
+module load cairo/1.17.8 2>/dev/null || true
+module load freetype/2.13.0 2>/dev/null || true
+module load libwebp/1.3.1 2>/dev/null || true
 
 WORKDIR=/scratch/jgarnica/ISC_benchmark_reproducibility/ISC_benchmark_saturation
 cd "$WORKDIR"
