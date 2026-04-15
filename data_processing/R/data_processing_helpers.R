@@ -166,7 +166,7 @@ process_dataset <- function(obj,
   w <- min(config$n_cores, length(splits))
   bplapply(
     names(splits),
-    BPPARAM = MulticoreParam(workers = w, progressbar = TRUE),
+    BPPARAM = MulticoreParam(workers = w, progressbar = FALSE),
     function(name) {
       out_file <- file.path(config$out_dir, paste0(prefix, "_", name, ".rds"))
       saveRDS(splits[[name]], out_file)
