@@ -87,13 +87,13 @@ has_condition <- !is.null(condition_col) && condition_col %in% colnames(obj@meta
 
 if (has_batch && has_condition) {
   # Both batch and condition
-  batch_vals <- obj[[batch_col, drop = TRUE]]
+  batch_vals <- normalize_metadata_name(obj[[batch_col, drop = TRUE]])
   condition_vals <- normalize_metadata_name(obj[[condition_col, drop = TRUE]])
   obj$split <- paste(batch_vals, condition_vals, sep = "_")
   
 } else if (has_batch) {
   # Batch only
-  obj$split <- obj[[batch_col, drop = TRUE]]
+  obj$split <- normalize_metadata_name(obj[[batch_col, drop = TRUE]])
   
 } else if (has_condition) {
   # Condition only
