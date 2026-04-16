@@ -1,69 +1,54 @@
 #!/bin/bash
-#SBATCH --job-name=label-transfer-benchmark
+#SBATCH --job-name=ISC_label_transfer
+#SBATCH --partition=private-carmona-gpu
 #SBATCH --time=12:00:00
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --partition=normal
-#SBATCH --output=slurm-%j.log
+#SBATCH --cpus-per-task=16
+#SBATCH --mem=256G
+#SBATCH --output=label_transfer_task/logs/label_transfer_%j.log
+#SBATCH --error=label_transfer_task/logs/label_transfer_%j.err
+#SBATCH --mail-type=END,FAIL
+#SBATCH --mail-user=josep.garnicacaparros@unige.ch
 
-# Label-Transfer Benchmark pipeline on HPC (SLURM)
+# ============================================================================
+# SLURM Job Submission: Label-Transfer Benchmark via Targets Pipeline
 #
-# Usage:
-#   sbatch scripts/submit_hpc.sh
+# This script submits the label-transfer benchmark job to HPC via SLURM.
+# It runs master_job.sh, which orchestrates the targets-based pipeline.
 #
-# This submits the label-transfer benchmark pipeline with SLURM parallelization
+# Before running:
+#   1. Ensure processed data exists in data/processed/ (run data_processing first)
+#   2. Optionally restrict datasets/replicates in:
+#      label_transfer_task/config/label_transfer_parameters.yaml
+#
+# Submit the job (from project root):
+#   sbatch label_transfer_task/scripts/submit_hpc.sh
+#
+# Monitor:
+#   squeue -u $USER
+#   tail -f label_transfer_task/logs/label_transfer_<jobid>.log
+#
+# ============================================================================
+
+set -euo pipefail
 
 # Load required modules (customize for your HPC)
-module purge 2>/dev/null || true
-module load GCC/12.3.0 2>/dev/null || true
-module load R/4.3.2 2>/dev/null || true
-module load GLPK/5.0 2>/dev/null || true
-module load cairo/1.17.8 2>/dev/null || true
-module load freetype/2.13.0 2>/dev/null || true
-module load libwebp/1.3.1 2>/dev/null || true
+module purge
+module load GCC/12.3.0
+module load R/4.3.2
+module load GLPK/5.0 || true
+module load cairo/1.17.8 || true
+module load freetype/2.13.0 || true
+module load libwebp/1.3.1 || true
 
-cd "$(dirname "$(readlink -f "$0")")/.." || exit 1
+# Activate renv (best-effort; master_job.sh will also activate)
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+if [[ -f "${PROJECT_ROOT}/renv/activate.R" ]]; then
+  Rscript -e "source('${PROJECT_ROOT}/renv/activate.R'); renv::load(project='${PROJECT_ROOT}')" >/dev/null 2>&1 || true
+fi
 
-echo "[$(date)] Starting label-transfer benchmark pipeline on HPC..."
+# Create logs directory
+mkdir -p label_transfer_task/logs
 
-# Run targets with SLURM future plan
-Rscript - <<'EOF'
-options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2024-01-15"))
-project_root <- normalizePath("..")
-
-# Force project renv library on .libPaths()
-r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
-if (dir.exists(renv_lib)) {
-  .libPaths(unique(c(renv_lib, .libPaths())))
-}
-
-cat("[INFO] .libPaths():\n")
-writeLines(.libPaths())
-
-library(targets)
-library(future.batchtools)
-
-# Configure SLURM future plan
-plan(
-  future.batchtools::batchtools_slurm,
-  workers = 12,  # Fewer workers than ISC (smaller jobs)
-  resources = list(
-    n_cores = 4,
-    memory_gb = 32,
-    walltime = "04:00:00",
-    partition = "normal"
-  )
-)
-
-# Run targets workflow
-tar_make()
-
-# Print summary
-cat("\n")
-tar_summary()
-EOF
-
-echo "[$(date)] Pipeline complete."
+# Run the master job script
+bash label_transfer_task/scripts/master_job.sh
