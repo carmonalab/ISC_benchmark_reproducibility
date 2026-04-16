@@ -22,6 +22,13 @@ suppressPackageStartupMessages({
   library(BiocParallel)
 })
 
+# Source benchmarking wrappers (wr_* functions) from scTypeEval inst/benchmarking
+local({
+  bench_file <- system.file("benchmarking", "Metrics_benchmarking.R", package = "scTypeEval")
+  if (!nzchar(bench_file)) stop("scTypeEval benchmarking scripts not found")
+  source(bench_file, local = parent.env(environment()))
+})
+
 # ============================================================================
 # DATA PREPARATION FOR scTypeEval
 # ============================================================================
@@ -267,7 +274,7 @@ compute_degradation_score <- function(single_measures, combined_measure) {
 get_ratio <- function(mb, df, col = "batch") {
   singles <- stringr::str_split(mb, "-", simplify = TRUE) %>% as.vector()
   
-  group_cols <- c("dissimilarity_method", "consistency.metric", "celltype", "dataset", "ident")
+  group_cols <- c("dissimilarity_method", "consistency_metric", "celltype", "dataset", "ident")
   
   r <- df %>%
     filter(.data[[col]] %in% c(mb, singles)) %>%
@@ -305,7 +312,7 @@ run_task_missclassify <- function(obj_prepared, config, task_config, output_dir)
     list(dir = output_dir)
   )
   
-  wr <- do.call(wr_missclassify, params)
+  wr <- do.call(wr_missclasify, params)
   wr
 }
 
@@ -455,23 +462,23 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
     }
     
     # Compute ISC for individual batches
-    isc_batch1 <- scTypeEval::run_dissimilarity(
+    isc_batch1 <- scTypeEval::wrapper_scTypeEval(
       count_matrix = count_matrix[, batch1_cells],
       metadata = metadata[batch1_cells, , drop = FALSE],
       ident = obj_prepared$ident,
       sample = config$common$sample_col,
-      dissimilarity.method = config$common$dissimilarity_methods,
+      dissimilarity_method = config$common$dissimilarity_methods,
       reduction = config$common$reduction,
       ndim = config$common$n_dims,
       verbose = FALSE
     )
     
-    isc_batch2 <- scTypeEval::run_dissimilarity(
+    isc_batch2 <- scTypeEval::wrapper_scTypeEval(
       count_matrix = count_matrix[, batch2_cells],
       metadata = metadata[batch2_cells, , drop = FALSE],
       ident = obj_prepared$ident,
       sample = config$common$sample_col,
-      dissimilarity.method = config$common$dissimilarity_methods,
+      dissimilarity_method = config$common$dissimilarity_methods,
       reduction = config$common$reduction,
       ndim = config$common$n_dims,
       verbose = FALSE
@@ -479,33 +486,29 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
     
     # Compute ISC for combined batches
     combined_cells <- c(batch1_cells, batch2_cells)
-    isc_combined <- scTypeEval::run_dissimilarity(
+    isc_combined <- scTypeEval::wrapper_scTypeEval(
       count_matrix = count_matrix[, combined_cells],
       metadata = metadata[combined_cells, , drop = FALSE],
       ident = obj_prepared$ident,
       sample = config$common$sample_col,
-      dissimilarity.method = config$common$dissimilarity_methods,
+      dissimilarity_method = config$common$dissimilarity_methods,
       reduction = config$common$reduction,
       ndim = config$common$n_dims,
       verbose = FALSE
     )
     
     # Convert to tidy format for get_ratio()
-    batch1_tidy <- isc_batch1$Consistency %>%
-      rename(dissimilarity_method = dissimilarity.method) %>%
+    batch1_tidy <- scTypeEval::get_consistency(isc_batch1) %>%
       mutate(batch = batch1, dataset = dataset_ref, ident = obj_prepared$ident)
     
-    batch2_tidy <- isc_batch2$Consistency %>%
-      rename(dissimilarity_method = dissimilarity.method) %>%
+    batch2_tidy <- scTypeEval::get_consistency(isc_batch2) %>%
       mutate(batch = batch2, dataset = dataset_ref, ident = obj_prepared$ident)
     
-    combined_tidy <- isc_combined$Consistency %>%
-      rename(dissimilarity_method = dissimilarity.method) %>%
+    combined_tidy <- scTypeEval::get_consistency(isc_combined) %>%
       mutate(batch = pair_name, dataset = dataset_ref, ident = obj_prepared$ident)
     
     # Combine into single tidy frame for this pair
-    pair_tidy <- rbind(batch1_tidy, batch2_tidy, combined_tidy) %>%
-      rename(dissimilarity.method = dissimilarity_method)
+    pair_tidy <- rbind(batch1_tidy, batch2_tidy, combined_tidy)
     
     # Compute degradation score using get_ratio()
     pair_scores <- get_ratio(pair_name, pair_tidy, col = "batch")
@@ -595,23 +598,23 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
     }
     
     # Compute ISC for individual conditions
-    isc_cond1 <- scTypeEval::run_dissimilarity(
+    isc_cond1 <- scTypeEval::wrapper_scTypeEval(
       count_matrix = count_matrix[, cond1_cells],
       metadata = metadata[cond1_cells, , drop = FALSE],
       ident = obj_prepared$ident,
       sample = config$common$sample_col,
-      dissimilarity.method = config$common$dissimilarity_methods,
+      dissimilarity_method = config$common$dissimilarity_methods,
       reduction = config$common$reduction,
       ndim = config$common$n_dims,
       verbose = FALSE
     )
     
-    isc_cond2 <- scTypeEval::run_dissimilarity(
+    isc_cond2 <- scTypeEval::wrapper_scTypeEval(
       count_matrix = count_matrix[, cond2_cells],
       metadata = metadata[cond2_cells, , drop = FALSE],
       ident = obj_prepared$ident,
       sample = config$common$sample_col,
-      dissimilarity.method = config$common$dissimilarity_methods,
+      dissimilarity_method = config$common$dissimilarity_methods,
       reduction = config$common$reduction,
       ndim = config$common$n_dims,
       verbose = FALSE
@@ -619,34 +622,30 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
     
     # Compute ISC for combined conditions
     combined_cells <- c(cond1_cells, cond2_cells)
-    isc_combined <- scTypeEval::run_dissimilarity(
+    isc_combined <- scTypeEval::wrapper_scTypeEval(
       count_matrix = count_matrix[, combined_cells],
       metadata = metadata[combined_cells, , drop = FALSE],
       ident = obj_prepared$ident,
       sample = config$common$sample_col,
-      dissimilarity.method = config$common$dissimilarity_methods,
+      dissimilarity_method = config$common$dissimilarity_methods,
       reduction = config$common$reduction,
       ndim = config$common$n_dims,
       verbose = FALSE
     )
     
     # Convert to tidy format for get_ratio()
-    cond1_tidy <- isc_cond1$Consistency %>%
-      rename(dissimilarity_method = dissimilarity.method) %>%
+    cond1_tidy <- scTypeEval::get_consistency(isc_cond1) %>%
       mutate(condition = cond1, dataset = dataset_ref, ident = obj_prepared$ident)
     
-    cond2_tidy <- isc_cond2$Consistency %>%
-      rename(dissimilarity_method = dissimilarity.method) %>%
+    cond2_tidy <- scTypeEval::get_consistency(isc_cond2) %>%
       mutate(condition = cond2, dataset = dataset_ref, ident = obj_prepared$ident)
     
-    combined_tidy <- isc_combined$Consistency %>%
-      rename(dissimilarity_method = dissimilarity.method) %>%
+    combined_tidy <- scTypeEval::get_consistency(isc_combined) %>%
       mutate(condition = pair_name, dataset = dataset_ref, ident = obj_prepared$ident)
     
     # Combine into single tidy frame for this pair
     # Note: pair_name is like "Healthy-Tumor" from get_perturbation_pairs
-    pair_tidy <- rbind(cond1_tidy, cond2_tidy, combined_tidy) %>%
-      rename(dissimilarity.method = dissimilarity_method)
+    pair_tidy <- rbind(cond1_tidy, cond2_tidy, combined_tidy)
     
     # Compute degradation score using get_ratio()
     pair_scores <- get_ratio(pair_name, pair_tidy, col = "condition")
@@ -684,7 +683,7 @@ extract_task_metrics <- function(wr_result, task_name, metric_type) {
   metrics_df <- wr_assay_plot(
     wr_result,
     type = metric_type,
-    return.df = TRUE
+    return_df = TRUE
   )
   
   # Add task metadata
