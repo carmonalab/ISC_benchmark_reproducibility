@@ -7,7 +7,16 @@
 
 seed: 22                    # Reproducible seed for sample splitting
 n_cores: 8                  # Number of cores for parallel processing
-n_replicates: 3             # Number of split replicates (different query/reference splits)
+n_replicates: 1            # Number of split replicates (different query/reference splits)
+
+datasets_filter:
+  - ICBAtlas_Alvarez_Breckenridge_Pre
+  - ICBAtlas_Bassez_Post
+  - ICBAtlas_Bassez_Pre
+  - ICBAtlas_Jerby_Arnon_Post
+  - ICBAtlas_Tirosh_Post
+  - ICBAtlas_Yost_Post
+  - ICBAtlas_Yost_Pre
 
 # ============================================================================
 # DATASET PREPARATION & SPLITTING
