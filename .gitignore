@@ -1,5 +1,7 @@
 *.code*
 *.DS_Store
+*.rds
+*troubleshooting*
 
 # R
 .Rhistory
