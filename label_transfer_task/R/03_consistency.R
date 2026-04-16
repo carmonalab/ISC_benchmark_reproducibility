@@ -61,7 +61,7 @@ compute_consistency_core <- function(counts_matrix,
   if (n_samples < 2) {
     stop("Need >= 2 samples to compute consistency; found ", n_samples)
   }
-  min_samples <- min(4, n_samples)
+  min_samples <- min(3, n_samples)
 
   sc_tmp <- scTypeEval::run_processing_data(
     sc,
