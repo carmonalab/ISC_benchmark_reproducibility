@@ -165,6 +165,7 @@ list(
   tar_target(
     lt_consistency_aggregated,
     {
+      list(lt_query_consistency, lt_reference_consistency)
       aggregate_lt_consistency_results(
         consistency_dir = lt_consistency_dir(),
         output_file = file.path(
@@ -183,6 +184,7 @@ list(
   tar_target(
     lt_aggregated_results,
     {
+      list(lt_classifier_results)
       aggregate_label_transfer_results(
         results_dir = lt_raw_results_dir(),
         output_file = file.path(
@@ -201,6 +203,10 @@ list(
   tar_target(
     lt_summary_stats,
     {
+      if (is.null(lt_aggregated_results) || !file.exists(lt_aggregated_results)) {
+        message("[SKIP] lt_summary_stats: no aggregated results available")
+        return(invisible(NULL))
+      }
       results <- read.csv(lt_aggregated_results)
       summary <- summarize_label_transfer_results(results)
       output_file <- file.path(
@@ -216,6 +222,10 @@ list(
   tar_target(
     lt_figures,
     {
+      if (is.null(lt_aggregated_results) || !file.exists(lt_aggregated_results)) {
+        message("[SKIP] lt_figures: no aggregated results available")
+        return(invisible(NULL))
+      }
       results <- read.csv(lt_aggregated_results)
       plot_label_transfer_benchmarks(
         results_table = results,
