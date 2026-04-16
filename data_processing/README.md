@@ -37,7 +37,7 @@ Benefits:
 ### 3. Verify Output
 
 ```bash
-ls data/processed/isc/*.rds | wc -l   # Should be 31 files
+ls data/processed/*.rds | wc -l   # Should be 31 files
 ```
 
 ---

@@ -38,7 +38,7 @@ bash data_processing/scripts/master_job.sh
 sbatch data_processing/scripts/submit_hpc.sh
 ```
 
-**Once processing completes**, you'll have clean data in `data/processed/isc/` and `data/processed/label_transfer/`
+**Once processing completes**, you'll have clean data in `data/processed/` and `data/processed/label_transfer/`
 
 ### Step 3: Prepare Label Transfer Data (Optional)
 If running the label transfer benchmark, prepare query/reference splits:
@@ -175,7 +175,7 @@ Rscript -e '
 
 ### 2. Prepare Data
 
-Run the data processing pipeline first (generates `data/processed/isc/` and `data/processed/label_transfer/`):
+Run the data processing pipeline first (generates `data/processed/` and `data/processed/label_transfer/`):
 
 ```bash
 cd data_processing
@@ -392,7 +392,7 @@ Ensure:
 
 ### Some datasets skipped
 
-Check `data/processed/isc/<dataset>.rds.yaml`:
+Check `data/processed/<dataset>.rds.yaml`:
 
 ```yaml
 isc: true                             # Participates in ISC benchmark
