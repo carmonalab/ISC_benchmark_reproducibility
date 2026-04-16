@@ -309,8 +309,8 @@ run_all_classifiers <- function(base_dir = NULL, params = NULL) {
 # SCRIPT EXECUTION (when run from command line)
 # ============================================================================
 
-if (interactive() == FALSE) {
-  # Script was called from command line
+if (!interactive() && sys.nframe() == 0L) {
+  # Script was called directly from command line (not sourced)
   args <- commandArgs(trailingOnly = TRUE)
   
   base_dir <- if (length(args) > 0) args[1] else NULL
