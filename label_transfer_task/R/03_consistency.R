@@ -206,13 +206,21 @@ compute_lt_query_consistency <- function(dataset_id,
   md$pred_labels <- unname(pred[cell_ids])
   md$true_labels <- md$cell_type
 
-  cons <- compute_consistency_core(
-    counts_matrix = counts,
-    metadata = md,
-    ident = "pred_labels",
-    sample_col = sample_col,
-    ncores = ncores
+  cons <- tryCatch(
+    compute_consistency_core(
+      counts_matrix = counts,
+      metadata = md,
+      ident = "pred_labels",
+      sample_col = sample_col,
+      ncores = ncores
+    ),
+    error = function(e) {
+      message(sprintf("[SKIP] Query consistency failed for '%s' / '%s' (rep %d): %s",
+                      dataset_id, classifier_name, rep, conditionMessage(e)))
+      return(invisible(NULL))
+    }
   )
+  if (is.null(cons)) return(invisible(NULL))
 
   cons <- add_f1_one_vs_rest(cons, pred_labels = md$pred_labels, true_labels = md$true_labels)
 
@@ -268,13 +276,21 @@ compute_lt_reference_consistency <- function(dataset_id,
 
   md$true_labels <- md$cell_type
 
-  cons <- compute_consistency_core(
-    counts_matrix = counts,
-    metadata = md,
-    ident = "true_labels",
-    sample_col = sample_col,
-    ncores = ncores
+  cons <- tryCatch(
+    compute_consistency_core(
+      counts_matrix = counts,
+      metadata = md,
+      ident = "true_labels",
+      sample_col = sample_col,
+      ncores = ncores
+    ),
+    error = function(e) {
+      message(sprintf("[SKIP] Reference consistency failed for '%s' (rep %d): %s",
+                      dataset_id, rep, conditionMessage(e)))
+      return(invisible(NULL))
+    }
   )
+  if (is.null(cons)) return(invisible(NULL))
 
   cons <- cons %>%
     dplyr::mutate(

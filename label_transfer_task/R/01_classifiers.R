@@ -77,7 +77,8 @@ run_label_transfer_classifier_targets <- function(
       query$counts
     )
   }, error = function(e) {
-    warning("Classifier failed: ", e$message)
+    message(sprintf("[SKIP] Classifier '%s' failed on '%s' (rep %d): %s",
+                    classifier_name, dataset_id, rep, conditionMessage(e)))
     NA
   })
 
