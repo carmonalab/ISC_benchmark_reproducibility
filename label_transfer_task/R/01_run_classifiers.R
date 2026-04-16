@@ -116,7 +116,6 @@ classify_dataset <- function(dataset_dir, dataset_name, params, ncores = 1) {
       
       # Special handling for some classifiers
       result <- clf_func(ref_counts, ref_labels, query_counts)
-      }
       
       if (is.na(result)) {
         rep(NA, ncol(query_counts))
