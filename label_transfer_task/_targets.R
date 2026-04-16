@@ -24,24 +24,24 @@ list(
   # Load all parameters from pipeline-specific config
   # (label_transfer_task/config/label_transfer_parameters.yaml contains all required settings)
   tar_target(
-    params,
+    lt_params,
     load_pipeline_config("label_transfer_parameters.yaml")
   ),
   
   # Random seed
   tar_target(
     seed_global,
-    get_lt_seed(params)
+    get_lt_seed(lt_params)
   ),
 
   tar_target(
     n_cores,
-    get_lt_n_cores(params)
+    get_lt_n_cores(lt_params)
   ),
 
   tar_target(
     n_replicates,
-    get_lt_n_replicates(params)
+    get_lt_n_replicates(lt_params)
   ),
   
   # ========================================================================
@@ -51,13 +51,13 @@ list(
   tar_target(
     lt_dataset_ids,
     {
-      list_label_transfer_datasets_from_isc(params)
+      list_label_transfer_datasets_from_isc(lt_params)
     }
   ),
   
   tar_target(
     lt_classifiers,
-    get_lt_classifiers(params)
+    get_lt_classifiers(lt_params)
   ),
   
   # ========================================================================
@@ -80,7 +80,7 @@ list(
       prepare_label_transfer_split(
         dataset_id = lt_split_grid$dataset_id,
         replicate = lt_split_grid$replicate,
-        params = params
+        params = lt_params
       )
     },
     format = "file",
@@ -166,13 +166,14 @@ list(
     lt_consistency_aggregated,
     {
       list(lt_query_consistency, lt_reference_consistency)
-      aggregate_lt_consistency_results(
+      out <- aggregate_lt_consistency_results(
         consistency_dir = lt_consistency_dir(),
         output_file = file.path(
           lt_aggregated_dir(),
           "label_transfer_consistency.csv"
         )
       )
+      if (is.null(out)) character(0) else out
     },
     format = "file"
   ),
@@ -185,13 +186,14 @@ list(
     lt_aggregated_results,
     {
       list(lt_classifier_results)
-      aggregate_label_transfer_results(
+      out <- aggregate_label_transfer_results(
         results_dir = lt_raw_results_dir(),
         output_file = file.path(
           lt_aggregated_dir(),
           "label_transfer_metrics_aggregated.csv"
         )
       )
+      if (is.null(out)) character(0) else out
     },
     format = "file"
   ),
@@ -205,7 +207,7 @@ list(
     {
       if (is.null(lt_aggregated_results) || !file.exists(lt_aggregated_results)) {
         message("[SKIP] lt_summary_stats: no aggregated results available")
-        return(invisible(NULL))
+        return(character(0))
       }
       results <- read.csv(lt_aggregated_results)
       summary <- summarize_label_transfer_results(results)
@@ -214,7 +216,7 @@ list(
         "label_transfer_summary_stats.csv"
       )
       write.csv(summary, output_file, row.names = FALSE)
-      invisible(output_file)
+      output_file
     },
     format = "file"
   ),
@@ -224,7 +226,7 @@ list(
     {
       if (is.null(lt_aggregated_results) || !file.exists(lt_aggregated_results)) {
         message("[SKIP] lt_figures: no aggregated results available")
-        return(invisible(NULL))
+        return(character(0))
       }
       results <- read.csv(lt_aggregated_results)
       plot_label_transfer_benchmarks(
