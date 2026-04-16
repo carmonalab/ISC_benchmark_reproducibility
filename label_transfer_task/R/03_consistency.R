@@ -23,12 +23,12 @@ get_default_blacklist <- function() {
   }
 
   # Provided by scTypeEval data
-  data("default_black_list", package = "scTypeEval", envir = environment())
+  data("black_list", package = "scTypeEval", envir = environment())
 
   unlist(list(
-    black.list$TCR,
-    black.list$Immunoglobulins,
-    black.list$Ygenes
+    black_list$TCR,
+    black_list$Immunoglobulins,
+    black_list$Ygenes
   ))
 }
 
@@ -36,10 +36,10 @@ compute_consistency_core <- function(counts_matrix,
                                      metadata,
                                      ident,
                                      sample_col = "sample",
-                                     method_diss = c("Pseudobulk:Cosine", "RecipClassif:Match"),
+                                     method_diss = c("Pseudobulk:Cosine", "recip_classif:Match"),
                                      cons_methods = c(
-                                       "silhouette | RecipClassif:Match",
-                                       "2label.silhouette | Pseudobulk:Cosine"
+                                       "silhouette | recip_classif:Match",
+                                       "2label_silhouette | Pseudobulk:Cosine"
                                      ),
                                      ncores = 1) {
   if (!requireNamespace("scTypeEval", quietly = TRUE)) {
@@ -49,10 +49,10 @@ compute_consistency_core <- function(counts_matrix,
   metadata[[sample_col]] <- purge_label_local(metadata[[sample_col]])
   metadata[[ident]] <- purge_label_local(metadata[[ident]])
 
-  sc <- scTypeEval::create.scTypeEval(
+  sc <- scTypeEval::create_scTypeEval(
     matrix = counts_matrix,
     metadata = metadata,
-    black.list = get_default_blacklist()
+    black_list = get_default_blacklist()
   )
 
   hvg_ident <- if ("true_labels" %in% colnames(metadata)) "true_labels" else ident
@@ -63,38 +63,38 @@ compute_consistency_core <- function(counts_matrix,
   }
   min_samples <- min(4, n_samples)
 
-  sc_tmp <- scTypeEval::Run.ProcessingData(
+  sc_tmp <- scTypeEval::run_processing_data(
     sc,
     ident = hvg_ident,
     aggregation = "single-cell",
     sample = sample_col,
-    min.samples = min_samples,
+    min_samples = min_samples,
     verbose = FALSE
   )
 
-  sc_tmp <- scTypeEval::Run.HVG(
+  sc_tmp <- scTypeEval::run_hvg(
     sc_tmp,
     ngenes = 2000,
     ncores = ncores,
     verbose = FALSE
   )
 
-  hvg <- sc_tmp@gene.lists
+  hvg <- sc_tmp@gene_lists
 
-  sc_proc <- scTypeEval::Run.ProcessingData(
+  sc_proc <- scTypeEval::run_processing_data(
     sc,
     ident = ident,
     aggregation = "pseudobulk",
     sample = sample_col,
-    min.samples = min_samples,
+    min_samples = min_samples,
     verbose = FALSE
   )
 
-  sc_proc <- scTypeEval::add.GeneList(sc_proc, gene.list = hvg)
-  sc_proc <- scTypeEval::Run.PCA(sc_proc, verbose = FALSE)
+  sc_proc <- scTypeEval::add_gene_list(sc_proc, gene_list = hvg)
+  sc_proc <- scTypeEval::run_pca(sc_proc, verbose = FALSE)
 
   for (mdiss in method_diss) {
-    sc_proc <- scTypeEval::Run.Dissimilarity(
+    sc_proc <- scTypeEval::run_dissimilarity(
       sc_proc,
       method = mdiss,
       ncores = ncores,
@@ -102,11 +102,11 @@ compute_consistency_core <- function(counts_matrix,
     )
   }
 
-  scTypeEval::get.Consistency(sc_proc) %>%
+  scTypeEval::get_consistency(sc_proc) %>%
     dplyr::rename(cell_type = celltype) %>%
-    dplyr::mutate(method_type = paste(consistency.metric, dissimilarity_method, sep = " | ")) %>%
+    dplyr::mutate(method_type = paste(consistency_metric, dissimilarity_method, sep = " | ")) %>%
     dplyr::filter(method_type %in% cons_methods) %>%
-    dplyr::select(-consistency.metric, -dissimilarity_method) %>%
+    dplyr::select(-consistency_metric, -dissimilarity_method) %>%
     tidyr::pivot_wider(names_from = method_type, values_from = measure) %>%
     dplyr::mutate(product = .data[[cons_methods[1]]] * .data[[cons_methods[2]]])
 }
