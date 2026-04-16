@@ -6,7 +6,7 @@
 # ============================================================================
 
 seed: 22                    # Reproducible seed for sample splitting
-n_cores: 8                  # Number of cores for parallel processing
+n_cores: 16                  # Number of cores for parallel processing
 n_replicates: 1            # Number of split replicates (different query/reference splits)
 
 datasets_filter:
