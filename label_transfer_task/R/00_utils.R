@@ -181,6 +181,12 @@ list_label_transfer_datasets_from_isc <- function(params = NULL) {
 
   dataset_ids <- dataset_ids[vapply(dataset_ids, validate_label_transfer_participation, logical(1))]
 
+  # Apply config filter early (before expensive readRDS loop)
+  filter <- params$datasets_filter
+  if (!is.null(filter) && length(filter) > 0) {
+    dataset_ids <- dataset_ids[dataset_ids %in% filter]
+  }
+
   # Filter by sample threshold (so downstream split-prep always produces files)
   keep <- vapply(dataset_ids, function(id) {
     path <- file.path(isc_dir, paste0(id, ".rds"))
@@ -195,15 +201,7 @@ list_label_transfer_datasets_from_isc <- function(params = NULL) {
     length(unique(md$sample)) >= min_samples
   }, logical(1))
 
-  dataset_ids <- dataset_ids[keep]
-
-  # Optional filter from config
-  filter <- params$datasets_filter
-  if (!is.null(filter) && length(filter) > 0) {
-    dataset_ids <- dataset_ids[dataset_ids %in% filter]
-  }
-
-  dataset_ids
+  dataset_ids[keep]
 }
 
 lt_get_ident_for_dataset <- function(dataset_key, metadata_cols) {
