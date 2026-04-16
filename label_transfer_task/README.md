@@ -180,13 +180,12 @@ The pipeline uses dataset-specific identification columns:
 ```r
 get_idents_by_prefix <- function(prefix) {
   switch(prefix,
-    "JoaI"       = "cell.type",
-    "Mitchel"    = "OriginalAnnotationLevel1",
-    "Stephenson" = "OriginalAnnotationLevel2",
-    "BCC"        = "annotation",
-    "LungAtlas"  = "cell_type",
-    "ICBAtlas"   = "cell_type",
-    "celltype"   # default fallback
+    "JoaI"        = "cell.type",
+    "StephensonE" = "OriginalAnnotationLevel1",
+    "BCC"         = "annotation",
+    "LungAtlas"   = "cell_type",
+    "ICBAtlas"    = "cell_type",
+    "celltype"    # default fallback
   )
 }
 ```

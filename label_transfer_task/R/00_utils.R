@@ -119,15 +119,11 @@ get_lt_data_prep <- function(params) {
 get_idents_by_prefix <- function(prefix) {
   switch(prefix,
     "JoaI"        = "cell.type",
-    "Joanito"     = "cell.type",
-    "Lee"         = "cell.type",
-    "Stephenson"  = "OriginalAnnotationLevel2",
+    "StephensonE" = "OriginalAnnotationLevel1",
     "BCC"         = "annotation",
     "LungAtlas"   = "cell_type",
     "ICBAtlas"    = "cell_type",
-    "Yerly"       = "annotation",
-    "Ganier"      = "annotation",
-    "celltype"    # Default fallback
+    "celltype"    # default fallback
   )
 }
 
