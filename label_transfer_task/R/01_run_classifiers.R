@@ -56,7 +56,7 @@ is_dataset_completed <- function(dataset_dir, strict = FALSE) {
 #' @param params Pipeline parameters
 #'
 #' @return Updated metadata with classifier predictions or NULL if failed
-classify_dataset <- function(dataset_dir, dataset_name, params) {
+classify_dataset <- function(dataset_dir, dataset_name, params, ncores = 1) {
   
   message_step("CLASSIFY", sprintf("Processing dataset: %s", dataset_name))
   
@@ -95,6 +95,7 @@ classify_dataset <- function(dataset_dir, dataset_name, params) {
   classifiers <- get_lt_classifiers(params)
   
   # Load classifier functions
+  ncores <- ncores  # make available to classifiers.R
   source(proj_path("label_transfer_task/classifiers/classifiers.R"), local = environment())
   
   # Run each classifier
@@ -114,13 +115,7 @@ classify_dataset <- function(dataset_dir, dataset_name, params) {
       clf_func <- get(clf_func_name, envir = environment())
       
       # Special handling for some classifiers
-      result <- if (clf_name == "ProjecTILs") {
-        # ProjecTILs requires special setup and training
-        message("EXTERNAL")
-        NA  # Mark for manual/external processing
-      } else {
-        # Standard R-based classifiers
-        clf_func(ref_counts, ref_labels, query_counts)
+      result <- clf_func(ref_counts, ref_labels, query_counts)
       }
       
       if (is.na(result)) {
@@ -291,7 +286,7 @@ run_all_classifiers <- function(base_dir = NULL, params = NULL) {
     message_step("DATASET", sprintf("[%d/%d] %s", i, length(dataset_dirs), dataset_name))
     
     result <- tryCatch(
-      classify_dataset(dataset_dir, dataset_name, params),
+      classify_dataset(dataset_dir, dataset_name, params, ncores = get_lt_n_cores(params)),
       error = function(e) {
         message_step("ERROR", sprintf("Dataset failed: %s", e$message))
         NULL

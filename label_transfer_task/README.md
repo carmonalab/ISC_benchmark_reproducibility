@@ -93,7 +93,6 @@ classifiers:
     - LDA
     - SeuratTransfer
     - DecisionTree
-    - ProjecTILs             # External tool
     - scPred
     - Random                 # Baseline
 ```
@@ -139,10 +138,6 @@ label_transfer_task/
 12. **scPred** - Single-cell prediction (scPred)
 13. **Random** - Random baseline
 14. **Ensemble** - Majority voting from top classifiers
-
-### External Tools (1)
-
-- **ProjecTILs** - Requires external installation (marked for manual processing)
 
 ## Data Format
 

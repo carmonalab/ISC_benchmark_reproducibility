@@ -130,7 +130,6 @@ get_available_classifiers <- function() {
     "LDA",
     "SeuratTransfer",
     "DecisionTree",
-    "ProjecTILs",
     "scPred",
     "Random",
     "Ensemble"
