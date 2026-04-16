@@ -195,7 +195,15 @@ list_label_transfer_datasets_from_isc <- function(params = NULL) {
     length(unique(md$sample)) >= min_samples
   }, logical(1))
 
-  dataset_ids[keep]
+  dataset_ids <- dataset_ids[keep]
+
+  # Optional filter from config
+  filter <- params$datasets_filter
+  if (!is.null(filter) && length(filter) > 0) {
+    dataset_ids <- dataset_ids[dataset_ids %in% filter]
+  }
+
+  dataset_ids
 }
 
 lt_get_ident_for_dataset <- function(dataset_key, metadata_cols) {
