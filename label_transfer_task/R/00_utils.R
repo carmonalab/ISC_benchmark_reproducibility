@@ -11,7 +11,7 @@ lt_data_processed_dir <- function(replicate = NULL) {
   if (is.null(replicate)) {
     return(base)
   }
-  ensure_dir(file.path(base, paste0("rep", replicate)))
+  file.path(base, paste0("rep", replicate))
 }
 
 lt_isc_processed_dir <- function() {
@@ -255,10 +255,16 @@ prepare_label_transfer_split <- function(dataset_id, replicate, params) {
     stop("Package 'SeuratObject' is required to extract counts")
   }
 
-  counts <- SeuratObject::GetAssayData(
-    obj,
-    assay = SeuratObject::DefaultAssay(obj),
-    slot = "counts"
+  counts <- tryCatch(
+    SeuratObject::GetAssayData(
+      obj,
+      assay = SeuratObject::DefaultAssay(obj),
+      layer = "counts"
+    ),
+    error = function(e) {
+      # Fallback for older Seurat v4 objects
+      SeuratObject::GetAssayData(obj, assay = SeuratObject::DefaultAssay(obj), slot = "counts")
+    }
   )
 
   md <- obj@meta.data
