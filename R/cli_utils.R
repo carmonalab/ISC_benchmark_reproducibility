@@ -60,6 +60,7 @@ message_step <- function(step_name, ...) {
 #' # Returns: c("tissue.sample", "pre-post", "2D.3D")
 #' }
 normalize_metadata_name <- function(x) {
+  if (is.factor(x)) x <- as.character(x)
   if (!is.character(x)) return(x)
   
   # Replace non-alphanumeric (except . and -) with dots
