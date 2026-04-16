@@ -294,7 +294,7 @@ Original implementations used as templates:
 
 ### "No processed datasets found"
 - Run `../data_processing/_targets.R` first to generate preprocessed files
-- Check: `ls ../data/processed/isc/`
+- Check: `ls ../data/processed/`
 
 ### Tasks failing silently
 - Check result `.yaml` files: `cat results/isc_benchmark/dataset_id/task_ident/metadata.yaml`
@@ -327,7 +327,7 @@ Each task is implemented as a function in the `ISC_TASK_CATALOG` list in `R/01_i
 #### Task Runtime Pattern
 
 Each task execution (in `run_isc_benchmark_on_dataset()`):
-1. Loads a processed Seurat object from `../data/processed/isc/<dataset>.rds`
+1. Loads a processed Seurat object from `../data/processed/<dataset>.rds`
 2. Applies the perturbation (e.g., shuffle labels) to get `obj_perturbed`
 3. Calls `compute_isc_metrics(obj_original, obj_perturbed, ...)`
 4. Saves results + metadata + session info to `results/task_results/`
@@ -401,7 +401,7 @@ Rscript -e 'targets::tar_make()'
 ```
 
 This will:
-- Load processed datasets from `../data/processed/isc/`
+- Load processed datasets from `../data/processed/`
 - Create grid: datasets × tasks × replicates
 - Run all ~400 ISC benchmark tasks (parallelizable; see below)
 - Aggregate results to `results/aggregated/isc_metrics_aggregated.csv`
@@ -468,7 +468,7 @@ Ensure you run from `ISC_benchmark/` or that the project root contains `.Rproj` 
 
 ### Some tasks skipped
 
-Check `../data/processed/isc/<dataset>.rds.yaml` — if `isc: false`, that dataset is excluded.
+Check `../data/processed/<dataset>.rds.yaml` — if `isc: false`, that dataset is excluded.
 
 ## Integration with scTypeEval
 

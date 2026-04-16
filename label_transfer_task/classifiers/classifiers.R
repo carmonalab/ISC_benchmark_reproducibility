@@ -24,7 +24,7 @@ suppressPackageStartupMessages({
   require(scPred)
 })
 
-ncores <- 8
+# ncores is provided by the calling environment (set in run_label_transfer_classifier via config)
 
 # ============================================================================
 # HELPER FUNCTION: LOG-NORMALIZE COUNTS (SPARSE-AWARE)

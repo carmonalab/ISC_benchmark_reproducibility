@@ -15,7 +15,7 @@ lt_data_processed_dir <- function(replicate = NULL) {
 }
 
 lt_isc_processed_dir <- function() {
-  proj_path("data/processed/isc")
+  proj_path("data/processed")
 }
 
 lt_results_root <- function() {
@@ -138,7 +138,7 @@ get_idents_by_prefix <- function(prefix) {
 validate_label_transfer_participation <- function(dataset_id) {
   # Check if dataset participates in label_transfer task
   meta_path <- file.path(
-    proj_path("data/processed/isc"),
+    proj_path("data/processed"),
     paste0(dataset_id, ".rds.yaml")
   )
   

@@ -25,7 +25,8 @@ run_label_transfer_classifier_targets <- function(
     rep = 1,
     data_dir = NULL,
     output_dir = NULL,
-    seed = NULL) {
+    seed = NULL,
+    ncores = 1) {
 
   if (is.null(seed)) {
     stop("Missing required argument: seed (should be provided from config)")
@@ -55,16 +56,18 @@ run_label_transfer_classifier_targets <- function(
   reference <- readRDS(reference_file)
   
   # Load classifier functions
-  source(proj_path("label_transfer_task/classifiers/classifiers.R"), local = TRUE)
+  local_env <- new.env(parent = environment())
+  local_env$ncores <- ncores
+  source(proj_path("label_transfer_task/classifiers/classifiers.R"), local = local_env)
   
   # Get classifier function
   clf_func_name <- paste0("classify_", classifier_name)
-  if (!exists(clf_func_name)) {
+  if (!exists(clf_func_name, envir = local_env)) {
     warning("Classifier function not found: ", clf_func_name)
     return(NULL)
   }
   
-  clf_func <- get(clf_func_name)
+  clf_func <- get(clf_func_name, envir = local_env)
   
   # Run classifier
   predictions <- tryCatch({

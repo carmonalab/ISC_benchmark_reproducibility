@@ -89,8 +89,8 @@ check_prerequisites() {
   fi
   
   # Check processed data
-  if [[ ! -d "$PROJECT_DIR/data/processed/isc" ]]; then
-    log_message "ERROR" "Processed data directory not found: data/processed/isc"
+  if [[ ! -d "$PROJECT_DIR/data/processed" ]]; then
+    log_message "ERROR" "Processed data directory not found: data/processed"
     log_message "ERROR" "Run data_processing pipeline first"
     exit 1
   fi

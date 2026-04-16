@@ -66,7 +66,7 @@ get_isc_config <- function() {
   config <- read_yaml("config/isc_benchmark_parameters.yaml")
   
   # Set absolute paths (relative to ISC_benchmark directory)
-  config$processed_data_dir <- normalizePath("../data/processed/isc")
+  config$processed_data_dir <- normalizePath("../data/processed")
   config$output$dir <- normalizePath("../results/isc_benchmark")
   config$dataset_idents_file <- normalizePath("config/dataset_idents.yaml")
   

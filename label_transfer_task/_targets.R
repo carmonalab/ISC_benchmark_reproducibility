@@ -113,7 +113,8 @@ list(
         rep = lt_grid$replicate,
         data_dir = lt_data_processed_dir(lt_grid$replicate),
         output_dir = lt_raw_results_dir(),
-        seed = seed_global + lt_grid$replicate - 1
+        seed = seed_global + lt_grid$replicate - 1,
+        ncores = n_cores
       )
     },
     format = "file",

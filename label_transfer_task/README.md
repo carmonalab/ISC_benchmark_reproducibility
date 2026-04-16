@@ -29,7 +29,7 @@ Rscript label_transfer_task/R/00_prepare_splits.R
 ```
 
 This:
-- Loads processed datasets from `data/processed/isc/`
+- Loads processed datasets from `data/processed/`
 - Filters for datasets with ≥10 samples
 - Creates `n_replicates` independent sample-level splits
 - Splits each into query (70% samples) and reference (30% samples)
@@ -390,7 +390,7 @@ Ensure `data_processing/` has been run first to generate query/reference pairs.
 
 ### Some datasets missing
 
-Check `../data/processed/isc/<dataset>.rds.yaml` — if `label_transfer: false`, that dataset is excluded.
+Check `../data/processed/<dataset>.rds.yaml` — if `label_transfer: false`, that dataset is excluded.
 
 ## Integration with scTypeEval
 

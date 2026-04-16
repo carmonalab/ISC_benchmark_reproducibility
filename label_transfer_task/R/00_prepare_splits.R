@@ -8,7 +8,7 @@
 #'   Consistency_metrics_benchmark/OPS/manual_classifiers/process_datasets.R
 #'
 #' Key features:
-#'   - Loads Seurat objects from data/processed/isc/
+#'   - Loads Seurat objects from data/processed/
 #'   - Extracts counts and metadata using scTypeEval::load_singleCell_object
 #'   - Stratified sample-level split (seed from label_transfer_parameters.yaml)
 #'   - Supports multiple split replicates (n_replicates) with different seeds
@@ -20,7 +20,7 @@
 #'
 #' Requirements:
 #'   - Run from project root: cd /path/to/ISC_benchmark_reproducibility
-#'   - ISC processed datasets already in data/processed/isc/
+#'   - ISC processed datasets already in data/processed/
 #'   - R packages: dplyr, scTypeEval, Seurat, BiocParallel
 #'
 
@@ -66,8 +66,8 @@ n_cores <- get_lt_n_cores(params)
 main <- function() {
   # Verify we're in correct directory
   if (!file.exists(proj_path("data_processing/config/datasets.yaml")) ||
-      !dir.exists(proj_path("data/processed/isc"))) {
-    stop("Project data not found. Expected to find data_processing/config/datasets.yaml and data/processed/isc under the project root.")
+      !dir.exists(proj_path("data/processed"))) {
+    stop("Project data not found. Expected to find data_processing/config/datasets.yaml and data/processed under the project root.")
   }
   
   message_time(strrep("=", 70))
