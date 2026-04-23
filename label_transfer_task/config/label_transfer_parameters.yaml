@@ -9,20 +9,13 @@ seed: 22                    # Reproducible seed for sample splitting
 n_cores: 16                  # Number of cores for parallel processing
 n_replicates: 1            # Number of split replicates (different query/reference splits)
 
-datasets_filter:
-  - ICBAtlas_Alvarez_Breckenridge_Pre
-  - ICBAtlas_Bassez_Post
-  - ICBAtlas_Bassez_Pre
-  - ICBAtlas_Jerby_Arnon_Post
-  - ICBAtlas_Tirosh_Post
-  - ICBAtlas_Yost_Post
-  - ICBAtlas_Yost_Pre
+# datasets_filter: (commented out = run all datasets)
 
 # ============================================================================
 # DATASET PREPARATION & SPLITTING
 # ============================================================================
 
-# Sample splitting parameters (matching Consistency_metrics_benchmark)
+# Sample splitting parameters for creating query and reference sets from each dataset
 data_preparation:
   min_samples: 10           # Minimum samples required for a dataset
   prop_query: 0.7           # Proportion of samples for query/test set (30% reference)
