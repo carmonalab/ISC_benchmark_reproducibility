@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=ISC_label_transfer
 #SBATCH --partition=shared-cpu # Adjust to your HPC partition
-#SBATCH --time=06:00:00
+#SBATCH --time=24:00:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
 #SBATCH --output=label_transfer_task/logs/label_transfer_%j.log
 #SBATCH --error=label_transfer_task/logs/label_transfer_%j.err
