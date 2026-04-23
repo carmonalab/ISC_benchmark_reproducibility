@@ -152,7 +152,9 @@ compute_lt_query_consistency <- function(dataset_id,
                                          results_dir = NULL,
                                          output_dir = NULL,
                                          sample_col = "sample",
-                                         ncores = 1) {
+                                         ncores = 1,
+                                         reference_dataset_id = NULL,
+                                         query_dataset_id = NULL) {
   if (is.null(data_dir)) data_dir <- lt_data_processed_dir(rep)
   if (is.null(results_dir)) results_dir <- lt_raw_results_dir()
   if (is.null(output_dir)) output_dir <- lt_consistency_dir()
@@ -232,6 +234,13 @@ compute_lt_query_consistency <- function(dataset_id,
       split = "query"
     )
 
+  if (!is.null(reference_dataset_id)) {
+    cons$reference_dataset_id <- reference_dataset_id
+  }
+  if (!is.null(query_dataset_id)) {
+    cons$query_dataset_id <- query_dataset_id
+  }
+
   out_file <- file.path(
     output_dir,
     sprintf("%s_%s_rep%d_query_consistency.rds", dataset_id, classifier_name, rep)
@@ -246,7 +255,9 @@ compute_lt_reference_consistency <- function(dataset_id,
                                              data_dir = NULL,
                                              output_dir = NULL,
                                              sample_col = "sample",
-                                             ncores = 1) {
+                                             ncores = 1,
+                                             reference_dataset_id = NULL,
+                                             query_dataset_id = NULL) {
   if (is.null(data_dir)) data_dir <- lt_data_processed_dir(rep)
   if (is.null(output_dir)) output_dir <- lt_consistency_dir()
 
@@ -299,6 +310,13 @@ compute_lt_reference_consistency <- function(dataset_id,
       replicate = rep,
       split = "reference"
     )
+
+  if (!is.null(reference_dataset_id)) {
+    cons$reference_dataset_id <- reference_dataset_id
+  }
+  if (!is.null(query_dataset_id)) {
+    cons$query_dataset_id <- query_dataset_id
+  }
 
   out_file <- file.path(
     output_dir,

@@ -1,0 +1,27 @@
+# label_transfer_task/config/label_transfer_between_parameters.yaml
+# Between-dataset label-transfer benchmark configuration
+
+seed: 22
+n_cores: 16
+n_replicates: 1
+
+# Optional filter of pair IDs generated from specs (reference__TO__query).
+# Leave commented to run all eligible pairs.
+# pairs_filter:
+#   - "JoaI_CRC.SG1_Tumor__TO__JoaI_KUL3_Tumor"
+
+classifiers:
+  methods:
+    - "SingleR"
+    - "LogisticRegression"
+    - "XGBoost"
+    - "MLP"
+    - "RandomForest"
+    - "SVM"
+    - "kNN"
+    - "NaiveBayes"
+    - "LDA"
+    - "SeuratTransfer"
+    - "DecisionTree"
+    - "scPred"
+    - "Random"

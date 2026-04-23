@@ -26,7 +26,9 @@ run_label_transfer_classifier_targets <- function(
     data_dir = NULL,
     output_dir = NULL,
     seed = NULL,
-    ncores = 1) {
+  ncores = 1,
+  reference_dataset_id = NULL,
+  query_dataset_id = NULL) {
 
   if (is.null(seed)) {
     stop("Missing required argument: seed (should be provided from config)")
@@ -100,6 +102,13 @@ run_label_transfer_classifier_targets <- function(
                  mean(predictions == cell_type, na.rm = TRUE),
       seed = seed
     )
+
+  if (!is.null(reference_dataset_id)) {
+    result_df$reference_dataset_id <- reference_dataset_id
+  }
+  if (!is.null(query_dataset_id)) {
+    result_df$query_dataset_id <- query_dataset_id
+  }
   
   # Save result
   output_file <- file.path(
