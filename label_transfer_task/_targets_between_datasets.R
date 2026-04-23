@@ -6,8 +6,6 @@ suppressPackageStartupMessages({
   library(tidyverse)
 })
 
-tar_option_set(store = "results/_targets_between")
-
 source("../R/shared_helpers.R")
 source(proj_path("R/cli_utils.R"))
 
