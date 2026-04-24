@@ -19,7 +19,7 @@ data/raw/
 data/processed/
 
 # Results / figures (re-generated)
-results/
+results*/
 
 # Audits / documentation (not synced)
 audits/
