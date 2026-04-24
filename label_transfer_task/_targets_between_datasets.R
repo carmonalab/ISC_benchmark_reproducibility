@@ -77,6 +77,14 @@ list(
   ),
 
   tar_target(
+    lt_between_ensemble_grid,
+    tidyr::crossing(
+      lt_between_pairs,
+      replicate = seq_len(lt_between_n_replicates)
+    )
+  ),
+
+  tar_target(
     lt_between_classifier_results,
     {
       invisible(lt_between_prepared_pairs)
@@ -100,24 +108,18 @@ list(
   tar_target(
     lt_between_ensemble_results,
     {
-      # Create Ensemble grid (one per pair/replicate)
-      between_ensemble_grid <- expand_grid(
-        pair_id = lt_between_pairs$pair_id,
-        reference_dataset_id = lt_between_pairs$reference_dataset_id,
-        query_dataset_id = lt_between_pairs$query_dataset_id,
-        replicate = seq_len(lt_between_n_replicates)
-      )
+      invisible(lt_between_classifier_results)
       
       run_ensemble_classifier_between_datasets(
-        pair_id = between_ensemble_grid$pair_id,
-        reference_dataset_id = between_ensemble_grid$reference_dataset_id,
-        query_dataset_id = between_ensemble_grid$query_dataset_id,
-        rep = between_ensemble_grid$replicate,
+        pair_id = lt_between_ensemble_grid$pair_id,
+        reference_dataset_id = lt_between_ensemble_grid$reference_dataset_id,
+        query_dataset_id = lt_between_ensemble_grid$query_dataset_id,
+        rep = lt_between_ensemble_grid$replicate,
         output_dir = lt_between_raw_results_dir()
       )
     },
     format = "file",
-    pattern = map(between_ensemble_grid, lt_between_classifier_results),
+    pattern = map(lt_between_ensemble_grid),
     iteration = "list"
   ),
 
@@ -144,28 +146,20 @@ list(
   tar_target(
     lt_between_ensemble_consistency,
     {
-      # Create Ensemble grid (one per pair/replicate) for consistency evaluation
-      between_ensemble_grid <- expand_grid(
-        pair_id = lt_between_pairs$pair_id,
-        reference_dataset_id = lt_between_pairs$reference_dataset_id,
-        query_dataset_id = lt_between_pairs$query_dataset_id,
-        replicate = seq_len(lt_between_n_replicates)
-      )
-      
       compute_lt_query_consistency(
-        dataset_id = between_ensemble_grid$pair_id,
+        dataset_id = lt_between_ensemble_grid$pair_id,
         classifier_name = "Ensemble",
-        rep = between_ensemble_grid$replicate,
+        rep = lt_between_ensemble_grid$replicate,
         result_path = lt_between_ensemble_results,
         data_dir = lt_between_data_processed_dir(),
         output_dir = lt_between_consistency_dir(),
         ncores = lt_between_n_cores,
-        reference_dataset_id = between_ensemble_grid$reference_dataset_id,
-        query_dataset_id = between_ensemble_grid$query_dataset_id
+        reference_dataset_id = lt_between_ensemble_grid$reference_dataset_id,
+        query_dataset_id = lt_between_ensemble_grid$query_dataset_id
       )
     },
     format = "file",
-    pattern = map(between_ensemble_grid, lt_between_ensemble_results),
+    pattern = map(lt_between_ensemble_grid, lt_between_ensemble_results),
     iteration = "list"
   ),
 

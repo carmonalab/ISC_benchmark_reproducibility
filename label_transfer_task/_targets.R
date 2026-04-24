@@ -98,6 +98,16 @@ list(
       )
     }
   ),
+
+  tar_target(
+    lt_ensemble_grid,
+    {
+      expand_grid(
+        dataset_id = lt_dataset_ids,
+        replicate = seq_len(n_replicates)
+      )
+    }
+  ),
   
   # ========================================================================
   # LABEL-TRANSFER EXECUTION
@@ -132,22 +142,16 @@ list(
       # Wait for all individual classifiers to complete
       invisible(lt_classifier_results)
       
-      # Create Ensemble grid (one per dataset/replicate)
-      ensemble_grid <- expand_grid(
-        dataset_id = lt_dataset_ids,
-        replicate = seq_len(n_replicates)
-      )
-      
       run_ensemble_classifier_targets(
-        dataset_id = ensemble_grid$dataset_id,
-        rep = ensemble_grid$replicate,
+        dataset_id = lt_ensemble_grid$dataset_id,
+        rep = lt_ensemble_grid$replicate,
         results_dir = lt_raw_results_dir(),
         output_dir = lt_raw_results_dir(),
-        seed = seed_global + ensemble_grid$replicate - 1
+        seed = seed_global + lt_ensemble_grid$replicate - 1
       )
     },
     format = "file",
-    pattern = map(ensemble_grid),
+    pattern = map(lt_ensemble_grid),
     iteration = "list"
   ),
 
@@ -178,24 +182,18 @@ list(
   tar_target(
     lt_ensemble_consistency,
     {
-      # Create Ensemble grid (one per dataset/replicate)
-      ensemble_grid <- expand_grid(
-        dataset_id = lt_dataset_ids,
-        replicate = seq_len(n_replicates)
-      )
-      
       compute_lt_query_consistency(
-        dataset_id = ensemble_grid$dataset_id,
+        dataset_id = lt_ensemble_grid$dataset_id,
         classifier_name = "Ensemble",
-        rep = ensemble_grid$replicate,
+        rep = lt_ensemble_grid$replicate,
         result_path = lt_ensemble_results,
-        data_dir = lt_data_processed_dir(ensemble_grid$replicate),
+        data_dir = lt_data_processed_dir(lt_ensemble_grid$replicate),
         output_dir = lt_consistency_dir(),
         ncores = n_cores
       )
     },
     format = "file",
-    pattern = map(ensemble_grid, lt_ensemble_results),
+    pattern = map(lt_ensemble_grid, lt_ensemble_results),
     iteration = "list"
   ),
 
