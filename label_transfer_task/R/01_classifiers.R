@@ -145,3 +145,191 @@ get_available_classifiers <- function() {
     "Ensemble"
   )
 }
+
+# ============================================================================
+# ENSEMBLE: Majority voting after all classifiers complete
+# ============================================================================
+
+#' Run Ensemble meta-classifier (majority voting)
+#'
+#' Aggregates predictions from all individual classifiers (except Random baseline)
+#' and uses majority voting to assign final labels.
+#'
+#' @param dataset_id Dataset identifier
+#' @param rep Replicate number
+#' @param results_dir Directory containing individual classifier results
+#' @param output_dir Directory to save Ensemble results
+#' @param seed Random seed
+#'
+#' @return Path to saved Ensemble result file
+run_ensemble_classifier_targets <- function(
+    dataset_id,
+    rep = 1,
+    results_dir = NULL,
+    output_dir = NULL,
+    seed = NULL) {
+
+  if (is.null(results_dir)) results_dir <- lt_raw_results_dir()
+  if (is.null(output_dir)) output_dir <- lt_raw_results_dir()
+  if (is.null(seed)) seed <- 22
+  
+  set.seed(as.integer(seed))
+  
+  # Load classifier functions
+  local_env <- new.env(parent = environment())
+  source(proj_path("label_transfer_task/classifiers/classifiers.R"), local = local_env)
+  
+  # Find all classifier results for this dataset/rep, excluding Random and Ensemble
+  pattern <- sprintf("%s_.*_rep%d\\.rds$", dataset_id, rep)
+  all_files <- list.files(results_dir, pattern = pattern, full.names = TRUE)
+  
+  # Load all predictions
+  predictions_list <- list()
+  first_result <- NULL
+  for (file in all_files) {
+    result <- tryCatch(readRDS(file), error = function(e) NULL)
+    if (!is.null(result) && nrow(result) > 0) {
+      classifier_name <- basename(file) %>%
+        stringr::str_replace(sprintf("%s_", dataset_id), "") %>%
+        stringr::str_replace(sprintf("_rep%d\\.rds", rep), "")
+      
+      # Exclude Random baseline and previous Ensemble attempts
+      if (!classifier_name %in% c("Random", "Ensemble")) {
+        predictions_list[[classifier_name]] <- result$prediction
+        if (is.null(first_result)) first_result <- result
+      }
+    }
+  }
+  
+  if (length(predictions_list) == 0) {
+    message("  [Ensemble] No individual classifier results found, skipping.")
+    return(NA_character_)
+  }
+  
+  # Call existing classify_Ensemble function
+  message(sprintf("  [Ensemble] Aggregating %d classifiers...", length(predictions_list)))
+  
+  ensemble_pred <- tryCatch(
+    get("classify_Ensemble", envir = local_env)(predictions_list),
+    error = function(e) {
+      message("  [Ensemble] Voting failed: ", e$message)
+      NA
+    }
+  )
+  
+  # Create result dataframe matching first_result structure
+  result_df <- first_result %>%
+    dplyr::select(-all_of(c("classifier", "prediction", "accuracy", "seed"))) %>%
+    dplyr::mutate(
+      classifier = "Ensemble",
+      prediction = unname(ensemble_pred),
+      accuracy = if (all(is.na(ensemble_pred))) NA else 
+                 mean(ensemble_pred == cell_type, na.rm = TRUE),
+      seed = as.integer(seed)
+    )
+  
+  # Save result
+  output_file <- file.path(
+    output_dir,
+    sprintf("%s_Ensemble_rep%d.rds", dataset_id, rep)
+  )
+  saveRDS(result_df, output_file)
+  message(sprintf("    ✓ Ensemble result saved to %s", basename(output_file)))
+  
+  return(output_file)
+}
+
+# ============================================================================
+# ENSEMBLE: Majority voting for between-dataset transfers
+# ============================================================================
+
+#' Run Ensemble meta-classifier for between-dataset transfers
+#'
+#' Aggregates predictions from all classifiers (except Random and Ensemble) 
+#' for a specific between-dataset transfer pair using the existing classify_Ensemble function.
+#'
+#' @param pair_id Between-dataset pair identifier (e.g., "source_target")
+#' @param reference_dataset_id Reference dataset ID
+#' @param query_dataset_id Query dataset ID
+#' @param rep Replicate number
+#' @param output_dir Directory to save Ensemble results
+#'
+#' @return Path to saved Ensemble result file
+run_ensemble_classifier_between_datasets <- function(
+    pair_id,
+    reference_dataset_id,
+    query_dataset_id,
+    rep = 1,
+    output_dir = NULL) {
+
+  if (is.null(output_dir)) {
+    output_dir <- lt_between_raw_results_dir()
+  }
+
+  # Load classifier functions
+  local_env <- new.env(parent = environment())
+  source(proj_path("label_transfer_task/classifiers/classifiers.R"), local = local_env)
+
+  # Find all classifier results for this pair/rep, excluding Random and Ensemble
+  pattern <- sprintf("%s_.*_rep%d\\.rds$", pair_id, rep)
+  all_files <- list.files(output_dir, pattern = pattern, full.names = TRUE)
+  
+  # Load all predictions
+  predictions_list <- list()
+  first_result <- NULL
+  
+  for (file in all_files) {
+    result <- tryCatch(readRDS(file), error = function(e) NULL)
+    if (!is.null(result) && nrow(result) > 0) {
+      classifier_name <- basename(file) %>%
+        stringr::str_replace(sprintf("%s_", pair_id), "") %>%
+        stringr::str_replace(sprintf("_rep%d\\.rds", rep), "")
+      
+      # Exclude Random baseline and previous Ensemble attempts
+      if (!classifier_name %in% c("Random", "Ensemble")) {
+        predictions_list[[classifier_name]] <- result$prediction
+        if (is.null(first_result)) first_result <- result
+      }
+    }
+  }
+
+  if (length(predictions_list) == 0) {
+    message("  [Ensemble] No individual classifier results found for pair ", pair_id, ", skipping.")
+    return(NA_character_)
+  }
+
+  # Call existing classify_Ensemble function
+  message(sprintf("  [Ensemble] Aggregating %d classifiers for pair %s...", 
+                  length(predictions_list), pair_id))
+  
+  ensemble_pred <- tryCatch(
+    get("classify_Ensemble", envir = local_env)(predictions_list),
+    error = function(e) {
+      message("  [Ensemble] Voting failed for pair ", pair_id, ": ", e$message)
+      NA
+    }
+  )
+
+  # Create result data frame (same structure as individual classifiers)
+  result_df <- first_result %>%
+    dplyr::select(-all_of(c("classifier", "prediction", "accuracy", "seed"))) %>%
+    dplyr::mutate(
+      classifier = "Ensemble",
+      prediction = unname(ensemble_pred),
+      accuracy = if (all(is.na(ensemble_pred))) NA else 
+                 mean(ensemble_pred == cell_type, na.rm = TRUE),
+      seed = NA_integer_,
+      reference_dataset_id = reference_dataset_id,
+      query_dataset_id = query_dataset_id
+    )
+
+  # Save result
+  output_file <- file.path(
+    output_dir,
+    sprintf("%s_Ensemble_rep%d.rds", pair_id, rep)
+  )
+  saveRDS(result_df, output_file)
+  message(sprintf("    ✓ Between-dataset Ensemble result saved to %s", basename(output_file)))
+
+  return(output_file)
+}

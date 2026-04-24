@@ -123,6 +123,35 @@ list(
   ),
 
   # ========================================================================
+  # ENSEMBLE META-CLASSIFIER: Runs after all individual classifiers complete
+  # ========================================================================
+
+  tar_target(
+    lt_ensemble_results,
+    {
+      # Wait for all individual classifiers to complete
+      invisible(lt_classifier_results)
+      
+      # Create Ensemble grid (one per dataset/replicate)
+      ensemble_grid <- expand_grid(
+        dataset_id = lt_dataset_ids,
+        replicate = seq_len(n_replicates)
+      )
+      
+      run_ensemble_classifier_targets(
+        dataset_id = ensemble_grid$dataset_id,
+        rep = ensemble_grid$replicate,
+        results_dir = lt_raw_results_dir(),
+        output_dir = lt_raw_results_dir(),
+        seed = seed_global + ensemble_grid$replicate - 1
+      )
+    },
+    format = "file",
+    pattern = map(ensemble_grid),
+    iteration = "list"
+  ),
+
+  # ========================================================================
   # CONSISTENCY METRICS
   #   - Query split: consistency on predicted labels + F1 vs ground truth
   #   - Reference split: consistency on ground truth only
@@ -147,6 +176,30 @@ list(
   ),
 
   tar_target(
+    lt_ensemble_consistency,
+    {
+      # Create Ensemble grid (one per dataset/replicate)
+      ensemble_grid <- expand_grid(
+        dataset_id = lt_dataset_ids,
+        replicate = seq_len(n_replicates)
+      )
+      
+      compute_lt_query_consistency(
+        dataset_id = ensemble_grid$dataset_id,
+        classifier_name = "Ensemble",
+        rep = ensemble_grid$replicate,
+        result_path = lt_ensemble_results,
+        data_dir = lt_data_processed_dir(ensemble_grid$replicate),
+        output_dir = lt_consistency_dir(),
+        ncores = n_cores
+      )
+    },
+    format = "file",
+    pattern = map(ensemble_grid, lt_ensemble_results),
+    iteration = "list"
+  ),
+
+  tar_target(
     lt_reference_consistency,
     {
       compute_lt_reference_consistency(
@@ -165,7 +218,7 @@ list(
   tar_target(
     lt_consistency_aggregated,
     {
-      list(lt_query_consistency, lt_reference_consistency)
+      list(lt_query_consistency, lt_ensemble_consistency, lt_reference_consistency)
       out <- aggregate_lt_consistency_results(
         consistency_dir = lt_consistency_dir(),
         output_file = file.path(
