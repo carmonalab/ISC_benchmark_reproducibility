@@ -34,8 +34,8 @@ dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 Load dataf from results (within dataset splitting) and results_between (prediciton between different datasets but same annotation)
 ```{r load_data}
 paths <- 
-  c("intra-dataset" = "results/aggregated/label_transfer_consistency_detailed.csv",
-    "inter-dataset" = "results_between/aggregated/label_transfer_between_consistency_detailed.csv")
+  c("intra_dataset" = "results/aggregated/label_transfer_consistency_detailed.csv",
+    "inter_dataset" = "results_between/aggregated/label_transfer_between_consistency_detailed.csv")
 res <- lapply(paths, read.csv)
 # Preview
 lapply(res, head)
@@ -46,70 +46,72 @@ lapply(res, head)
 # Calculate rankings to determine color palette
 # Step 1: Calculate mean product per dataset and classifier (across cell types)
 # Step 2: Calculate geometric mean across datasets
-rankings_for_palette <- cons_combined %>%
-  filter(!is.na(f1) & !is.na(product) & classifier != "true_labels") %>%
-  group_by(dataset, classifier) %>%
-  summarise(
-    mean_product_per_dataset = mean(product, na.rm = TRUE),
-    .groups = "drop"
-  ) %>%
-  group_by(classifier) %>%
-  summarise(
-    geom_mean_product = exp(mean(log(mean_product_per_dataset), na.rm = TRUE)),
-    .groups = "drop"
-  ) %>%
-  mutate(rank = rank(-geom_mean_product, ties.method = "average")) %>%
-  arrange(rank)
-
-# Create a unified, elegant, color-blind friendly palette
-# Integrating highly distinguishable top 3 best and top 3 worst colors
-n_classifiers <- nrow(rankings_for_palette)
-
-# Define the 6 distinct colors for top 3 best and top 3 worst
-colors_top3_best <- c("#0173B2", "#029E73", "#B19CD9")  # Deep blue, forest green, malva/violet
-colors_top3_worst <- c("#DE8F05", "#FFD700", "#882255")  # Orange, gold, purple-red
-
-if (n_classifiers <= 6) {
-  # If 6 or fewer classifiers, use the 6 distinct colors
-  gradient_colors <- c(colors_top3_best, colors_top3_worst)[1:n_classifiers]
-} else {
-  # For more than 6 classifiers, create a palette that:
-  # - Uses top 3 best colors for the best performers
-  # - Interpolates intermediate colors
-  # - Uses top 3 worst colors for the worst performers
+rankings_palette <- lapply(res, function(cons_combined){
+  rankings_for_palette <- cons_combined %>%
+    filter(!is.na(f1) & !is.na(product),
+           classifier != "ground_truth") %>%
+    group_by(dataset_id, classifier) %>%
+    summarise(
+      mean_product_per_dataset = mean(product, na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    group_by(classifier) %>%
+    summarise(
+      geom_mean_product = exp(mean(log(mean_product_per_dataset), na.rm = TRUE)),
+      mean_product = mean(mean_product_per_dataset, na.rm = T),
+      .groups = "drop"
+    ) %>%
+    mutate(rank = rank(-geom_mean_product, ties.method = "average")) %>%
+    arrange(rank)
   
-  # Generate intermediate colors using color interpolation
-  # From best (blue) to worst (red)
-  intermediate_palette <- colorRampPalette(c("#0173B2", "#E0E0E0", "#882255"))(n_classifiers - 6)
+  print(rankings_for_palette)
   
-  # Combine: top 3 best + intermediate + top 3 worst
-  gradient_colors <- c(
-    colors_top3_best,
-    intermediate_palette[1:(n_classifiers - 6)],
-    colors_top3_worst
-  )
-}
-
-# Create named palette
-classifier_colors <- setNames(gradient_colors, rankings_for_palette$classifier)
-
-# Identify top 6 classifiers
-top_3_best <- rankings_for_palette$classifier[1:3]
-top_3_worst <- tail(rankings_for_palette$classifier, 3)
-top_6_classifiers <- c(top_3_best, top_3_worst)
-
-# For f1_vs_product_mean plot: highlight top 6, gray out the rest
-classifier_colors_highlight <- classifier_colors
-classifier_colors_highlight[!names(classifier_colors_highlight) %in% top_6_classifiers] <- "#808080"
-
-print("Unified color palette by ranking:")
-print(classifier_colors)
-print("\nTop 3 best classifiers:")
-print(top_3_best)
-print("\nTop 3 worst classifiers:")
-print(top_3_worst)
-
-
+  # Create a unified, elegant, color-blind friendly palette
+  # Integrating highly distinguishable top 3 best and top 3 worst colors
+  n_classifiers <- nrow(rankings_for_palette)
+  
+  # Define the 6 distinct colors for top 3 best and top 3 worst
+  colors_top3_best <- c("#0173B2", "#029E73", "#B19CD9")  # Deep blue, forest green, malva/violet
+  colors_top3_worst <- c("#DE8F05", "#FFD700", "#882255")  # Orange, gold, purple-red
+  
+  if (n_classifiers <= 6) {
+    # If 6 or fewer classifiers, use the 6 distinct colors
+    gradient_colors <- c(colors_top3_best, colors_top3_worst)[1:n_classifiers]
+  } else {
+    # For more than 6 classifiers, create a palette that:
+    # - Uses top 3 best colors for the best performers
+    # - Interpolates intermediate colors
+    # - Uses top 3 worst colors for the worst performers
+    
+    # Generate intermediate colors using color interpolation
+    # From best (blue) to worst (red)
+    intermediate_palette <- colorRampPalette(c("#0173B2", "#E0E0E0", "#882255"))(n_classifiers - 6)
+    
+    # Combine: top 3 best + intermediate + top 3 worst
+    gradient_colors <- c(
+      colors_top3_best,
+      intermediate_palette[1:(n_classifiers - 6)],
+      colors_top3_worst
+    )
+  }
+  
+  # Create named palette
+  classifier_colors <- setNames(gradient_colors, rankings_for_palette$classifier)
+  
+  # Identify top 6 classifiers
+  top_3_best <- rankings_for_palette$classifier[1:3]
+  top_3_worst <- tail(rankings_for_palette$classifier, 3)
+  top_6_classifiers <- c(top_3_best, top_3_worst)
+  
+  # For f1_vs_product_mean plot: highlight top 6, gray out the rest
+  classifier_colors_highlight <- classifier_colors
+  classifier_colors_highlight[!names(classifier_colors_highlight) %in% top_6_classifiers] <- "#808080"
+  
+  return(classifier_colors)
+  
+})
+  
+  
 ```
 
 
@@ -118,65 +120,70 @@ print(top_3_worst)
 Add in the plot R2 and p-val
 ```{r f1_vs_product_mean}
 # Calculate mean F1 and product per dataset and classifier
-mean_metrics <- cons_combined %>%
-  filter(!is.na(f1) & !is.na(product)) %>%
-  filter(classifier != "true_labels") %>%
-  mutate(classifier = factor(classifier,
-                             levels = c(rankings_for_palette$classifier))) %>% 
-  group_by(dataset, classifier) %>%
-  summarise(
-    mean_f1 = mean(f1, na.rm = TRUE),
-    mean_product = mean(product, na.rm = TRUE),
-    .groups = "drop"
-  )
+scatter_mean_cor <- lapply(names(res), function(r){
+  top_6 <- c(head(names(rankings_palette[[r]]), 3),
+             tail(names(rankings_palette[[r]]), 3))
+  mean_metrics <- res[[r]] %>%
+    filter(!is.na(f1) & !is.na(product)) %>%
+    filter(classifier != "ground_truth") %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(names(rankings_palette[[r]])))) %>% 
+    group_by(dataset_id, classifier) %>%
+    summarise(
+      mean_f1 = mean(f1, na.rm = TRUE),
+      mean_product = mean(product, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Add highlight status to data (for filtering in legend)
+  mean_metrics <- mean_metrics %>%
+    mutate(is_highlighted = classifier %in% top_6)
+  
+  # Calculate correlation
+  cor_test_mean <- cor.test(mean_metrics$mean_f1, mean_metrics$mean_product)
+  r2_mean <- cor_test_mean$estimate^2
+  pval_mean <- cor_test_mean$p.value
+  
+  # Create plot
+  p2 <- ggplot(mean_metrics, aes(x = mean_f1, y = mean_product)) +
+    # First layer: gray dots for non-highlighted classifiers (drawn first, so in back)
+    geom_point(data = mean_metrics %>% filter(!is_highlighted), 
+               aes(color = classifier), alpha = 0.4, size = 1.5) +
+    # Second layer: colored dots for highlighted classifiers (drawn last, so in front)
+    geom_point(data = mean_metrics %>% filter(is_highlighted), 
+               aes(color = classifier), alpha = 0.7, size = 1.5) +
+    scale_x_continuous(limits = c(0, 1)) +
+    scale_y_continuous(limits = c(0, 1)) +
+    geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) +
+    scale_color_manual(values = rankings_palette[[r]]) +
+    labs(
+      title = r,
+      subtitle = sprintf("R² = %.3f, p-value = %.2e", r2_mean, pval_mean),
+      x = "Mean F1 Score",
+      y = "Mean ISC Predictions",
+      color = "Classifier"
+    ) +
+    ggpubr::theme_classic2() +
+    theme(
+      legend.position = "right",
+      legend.title = element_blank()
+    )
+  
+  # Custom legend: only show highlighted classifiers
+  # Get unique highlighted classifiers from the data
+  highlighted_classifiers <- unique(mean_metrics$classifier[mean_metrics$is_highlighted])
+  p2 <- p2 + 
+    scale_color_manual(
+      values = rankings_palette[[r]][names(rankings_palette[[r]]) %in% top_6],
+      breaks = names(rankings_palette[[r]][names(rankings_palette[[r]]) %in% top_6])
+    )
+  
+  return(p2)
+  
+})
 
-# Add highlight status to data (for filtering in legend)
-mean_metrics <- mean_metrics %>%
-  mutate(is_highlighted = classifier %in% top_6_classifiers)
 
-# Calculate correlation
-cor_test_mean <- cor.test(mean_metrics$mean_f1, mean_metrics$mean_product)
-r2_mean <- cor_test_mean$estimate^2
-pval_mean <- cor_test_mean$p.value
-
-# Create plot
-p2 <- ggplot(mean_metrics, aes(x = mean_f1, y = mean_product)) +
-  # First layer: gray dots for non-highlighted classifiers (drawn first, so in back)
-  geom_point(data = mean_metrics %>% filter(!is_highlighted), 
-             aes(color = classifier), alpha = 0.4, size = 1.5) +
-  # Second layer: colored dots for highlighted classifiers (drawn last, so in front)
-  geom_point(data = mean_metrics %>% filter(is_highlighted), 
-             aes(color = classifier), alpha = 0.7, size = 1.5) +
-  geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) +
-  scale_color_manual(values = classifier_colors_highlight) +
-  labs(
-    #title = "Mean F1 vs. Mean Consistency Product per Dataset",
-    subtitle = sprintf("R² = %.3f, p-value = %.2e", r2_mean, pval_mean),
-    x = "Mean F1 Score",
-    y = "Mean ISC Predictions",
-    color = "Classifier"
-  ) +
-  ggpubr::theme_classic2() +
-  theme(
-    legend.position = "right",
-    legend.title = element_blank()
-  )
-
-# Custom legend: only show highlighted classifiers
-# Get unique highlighted classifiers from the data
-highlighted_classifiers <- unique(mean_metrics$classifier[mean_metrics$is_highlighted])
-p2 <- p2 + 
-  scale_color_manual(
-    values = classifier_colors_highlight,
-    breaks = highlighted_classifiers
-  )
-
-print(p2)
-
-p2.1 <- p2 +
-  facet_wrap(~classifier)
-print(p2.1)
-
+ggarrange(plotlist = scatter_mean_cor)
 ```
 
 ## Export plots
@@ -200,9 +207,12 @@ ggsave(
 # Calculate overall rankings
 # Step 1: Calculate mean metrics per dataset and classifier (across cell types)
 # Step 2: Calculate geometric mean across datasets
-rankings <- cons_combined %>%
-  filter(!is.na(f1) & !is.na(product) & classifier != "true_labels") %>%
-  group_by(dataset, classifier) %>%
+
+scatter_ranking <- lapply(names(res), function(r){
+rankings <- res[[r]] %>%
+  filter(!is.na(f1) & !is.na(product),
+         classifier != "ground_truth") %>%
+  group_by(dataset_id, classifier) %>%
   summarise(
     mean_f1_per_dataset = mean(f1, na.rm = TRUE),
     mean_product_per_dataset = mean(product, na.rm = TRUE),
@@ -220,7 +230,7 @@ rankings <- cons_combined %>%
     rank_difference = abs(rank_f1 - rank_product)
   ) %>%
   mutate(classifier = factor(classifier,
-                             levels = c(rankings_for_palette$classifier))) %>%
+                             levels = c(names(rankings_palette[[1]])))) %>%
   arrange(rank_product)
 
 print(rankings)
@@ -239,22 +249,6 @@ rankings_long <- rankings %>%
                          rank_f1 = "F1 Rank", 
                          rank_product = "Product Rank"))
 
-p5 <- ggplot(rankings_long, aes(x = metric, y = rank, group = classifier, color = classifier)) +
-  geom_line(size = 1.2, alpha = 0.7) +
-  geom_point(size = 3) +
-  scale_y_reverse() +
-  scale_color_manual(values = classifier_colors) +
-  labs(
-    title = "Classifier Ranking: F1 vs. Consistency Score",
-    subtitle = sprintf("Spearman ρ = %.3f (p = %.2e)", rank_cor$estimate, rank_cor$p.value),
-    x = "",
-    y = "Rank (1 = Best)",
-    color = "Classifier"
-  ) +
-  theme(legend.position = "right")
-
-print(p5)
-
 # Ranking agreement table
 p6 <- ggplot(rankings, aes(x = rank_product, y = rank_f1)) +
   geom_point(aes(color = classifier),
@@ -263,11 +257,12 @@ p6 <- ggplot(rankings, aes(x = rank_product, y = rank_f1)) +
   ggrepel::geom_label_repel(aes(label = classifier,
                                 color = classifier),
                            size = 5) +
-  scale_color_manual(values = classifier_colors) +
+  scale_color_manual(values = rankings_palette[[1]]) +
   scale_x_reverse(breaks = 1:nrow(rankings)) +
   scale_y_reverse(breaks = 1:nrow(rankings)) +
   labs(
     title = "Ranking Agreement: ISC vs F1",
+    subtitle = r,
     x = "ISC Rank",
     y = "F1 Rank",
     color = "Classifier"
@@ -276,7 +271,11 @@ p6 <- ggplot(rankings, aes(x = rank_product, y = rank_f1)) +
   ggpubr::theme_classic2() +
   theme(legend.position = "none") 
 
-print(p6)
+return(p6)
+
+})
+
+ggarrange(plotlist = scatter_ranking)
 ```
 
 ## ranking mean
@@ -286,97 +285,103 @@ Per-dataset ranking of classifiers based on product score, then average rank acr
 # Parameter: use geometric mean (TRUE) or arithmetic mean (FALSE)
 use_geom_mean <- TRUE
 
-# Step 1: Calculate mean metrics per dataset and classifier (across cell types)
-dataset_metrics_mean <- cons_combined %>%
-  filter(!is.na(f1) & !is.na(product) & classifier != "true_labels") %>%
-  group_by(dataset, classifier) %>%
-  summarise(
-    mean_f1 = mean(f1, na.rm = TRUE),
-    mean_product = mean(product, na.rm = TRUE),
-    .groups = "drop"
-  )
+per_dataset_ranking <- lapply(names(res), function(r){
+  # Step 1: Calculate mean metrics per dataset and classifier (across cell types)
+  dataset_metrics_mean <- res[[r]] %>%
+    filter(!is.na(f1) & !is.na(product),
+           classifier != "ground_truth") %>%
+    group_by(dataset_id, classifier) %>%
+    summarise(
+      mean_f1 = mean(f1, na.rm = TRUE),
+      mean_product = mean(product, na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Step 2: Compute ranking of classifiers per dataset for both metrics
+  dataset_rankings <- dataset_metrics_mean %>%
+    group_by(dataset_id) %>%
+    mutate(
+      rank_f1 = rank(-mean_f1, ties.method = "average"),
+      rank_product = rank(-mean_product, ties.method = "average")
+    ) %>%
+    ungroup()
+  
+  # Step 3: Calculate mean rank per classifier across datasets
+  # Use either arithmetic mean or geometric mean based on parameter
+  mean_rank_per_classifier <- dataset_rankings %>%
+    group_by(classifier) %>%
+    summarise(
+      mean_rank_f1 = if (use_geom_mean) exp(mean(log(rank_f1), na.rm = TRUE)) else mean(rank_f1, na.rm = TRUE),
+      mean_rank_product = if (use_geom_mean) exp(mean(log(rank_product), na.rm = TRUE)) else mean(rank_product, na.rm = TRUE),
+      sd_rank_f1 = sd(rank_f1, na.rm = TRUE),
+      sd_rank_product = sd(rank_product, na.rm = TRUE),
+      n_datasets = n(),
+      .groups = "drop"
+    ) %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(names(rankings_palette[[r]])))) %>%
+    arrange(mean_rank_product)
+  
+  mean_type <- if (use_geom_mean) "Geometric Mean" else "Arithmetic Mean"
+  cat(sprintf("\nMean rank per classifier across datasets (%s):\n", mean_type))
+  print(mean_rank_per_classifier)
+  
+  # Calculate correlation between F1 rank and product rank
+  rank_cor_dataset <- cor.test(mean_rank_per_classifier$mean_rank_f1, mean_rank_per_classifier$mean_rank_product, method = "spearman")
+  
+  cat(sprintf("\nSpearman correlation between F1 and Product rankings (per-dataset): %.3f (p = %.2e)\n", 
+              rank_cor_dataset$estimate, rank_cor_dataset$p.value))
+  
+  # Visualize ranking comparison
+  rankings_long_dataset <- mean_rank_per_classifier %>%
+    select(classifier, mean_rank_f1, mean_rank_product) %>%
+    pivot_longer(cols = c(mean_rank_f1, mean_rank_product), names_to = "metric", values_to = "rank") %>%
+    mutate(metric = recode(metric, 
+                           mean_rank_f1 = "F1 Rank", 
+                           mean_rank_product = "Product Rank"))
+  
+  p_dataset_rank <- ggplot(rankings_long_dataset, aes(x = metric, y = rank, group = classifier, color = classifier)) +
+    geom_line(size = 1.2, alpha = 0.7) +
+    geom_point(size = 3) +
+    scale_y_reverse() +
+    scale_color_manual(values = rankings_palette[[1]]) +
+    labs(
+      title = "Classifier Ranking per Dataset: F1 vs. Consistency Score",
+      subtitle = sprintf("Spearman ρ = %.3f (p = %.2e) [%s]", rank_cor_dataset$estimate, rank_cor_dataset$p.value, mean_type),
+      x = "",
+      y = "Mean Rank (1 = Best)",
+      color = "Classifier"
+    ) +
+    theme(legend.position = "right")
+  
+  print(p_dataset_rank)
+  
+  # Ranking agreement table per dataset
+  p_dataset_rank_agreement <- ggplot(mean_rank_per_classifier, aes(x = mean_rank_product, y = mean_rank_f1)) +
+    geom_point(aes(color = classifier),
+               size = 4) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
+    ggrepel::geom_label_repel(aes(label = classifier,
+                                  color = classifier),
+                              size = 5) +
+    scale_color_manual(values = rankings_palette[[1]]) +
+    scale_x_reverse() +
+    scale_y_reverse() +
+    labs(
+      title = r,
+      subtitle = sprintf("Ranking Agreement per Dataset: ISC vs F1 [%s]", mean_type),
+      x = "Mean ISC Rank",
+      y = "Mean F1 Rank",
+      color = "Classifier"
+    ) +
+    coord_fixed() +
+    ggpubr::theme_classic2() +
+    theme(legend.position = "none") 
+  
+  return(p_dataset_rank_agreement)
+})
 
-# Step 2: Compute ranking of classifiers per dataset for both metrics
-dataset_rankings <- dataset_metrics_mean %>%
-  group_by(dataset) %>%
-  mutate(
-    rank_f1 = rank(-mean_f1, ties.method = "average"),
-    rank_product = rank(-mean_product, ties.method = "average")
-  ) %>%
-  ungroup()
-
-# Step 3: Calculate mean rank per classifier across datasets
-# Use either arithmetic mean or geometric mean based on parameter
-mean_rank_per_classifier <- dataset_rankings %>%
-  group_by(classifier) %>%
-  summarise(
-    mean_rank_f1 = if (use_geom_mean) exp(mean(log(rank_f1), na.rm = TRUE)) else mean(rank_f1, na.rm = TRUE),
-    mean_rank_product = if (use_geom_mean) exp(mean(log(rank_product), na.rm = TRUE)) else mean(rank_product, na.rm = TRUE),
-    sd_rank_f1 = sd(rank_f1, na.rm = TRUE),
-    sd_rank_product = sd(rank_product, na.rm = TRUE),
-    n_datasets = n(),
-    .groups = "drop"
-  ) %>%
-  mutate(classifier = factor(classifier,
-                             levels = c(rankings_for_palette$classifier))) %>%
-  arrange(mean_rank_product)
-
-mean_type <- if (use_geom_mean) "Geometric Mean" else "Arithmetic Mean"
-cat(sprintf("\nMean rank per classifier across datasets (%s):\n", mean_type))
-print(mean_rank_per_classifier)
-
-# Calculate correlation between F1 rank and product rank
-rank_cor_dataset <- cor.test(mean_rank_per_classifier$mean_rank_f1, mean_rank_per_classifier$mean_rank_product, method = "spearman")
-
-cat(sprintf("\nSpearman correlation between F1 and Product rankings (per-dataset): %.3f (p = %.2e)\n", 
-            rank_cor_dataset$estimate, rank_cor_dataset$p.value))
-
-# Visualize ranking comparison
-rankings_long_dataset <- mean_rank_per_classifier %>%
-  select(classifier, mean_rank_f1, mean_rank_product) %>%
-  pivot_longer(cols = c(mean_rank_f1, mean_rank_product), names_to = "metric", values_to = "rank") %>%
-  mutate(metric = recode(metric, 
-                         mean_rank_f1 = "F1 Rank", 
-                         mean_rank_product = "Product Rank"))
-
-p_dataset_rank <- ggplot(rankings_long_dataset, aes(x = metric, y = rank, group = classifier, color = classifier)) +
-  geom_line(size = 1.2, alpha = 0.7) +
-  geom_point(size = 3) +
-  scale_y_reverse() +
-  scale_color_manual(values = classifier_colors) +
-  labs(
-    title = "Classifier Ranking per Dataset: F1 vs. Consistency Score",
-    subtitle = sprintf("Spearman ρ = %.3f (p = %.2e) [%s]", rank_cor_dataset$estimate, rank_cor_dataset$p.value, mean_type),
-    x = "",
-    y = "Mean Rank (1 = Best)",
-    color = "Classifier"
-  ) +
-  theme(legend.position = "right")
-
-print(p_dataset_rank)
-
-# Ranking agreement table per dataset
-p_dataset_rank_agreement <- ggplot(mean_rank_per_classifier, aes(x = mean_rank_product, y = mean_rank_f1)) +
-  geom_point(aes(color = classifier),
-             size = 4) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
-  ggrepel::geom_label_repel(aes(label = classifier,
-                                color = classifier),
-                           size = 5) +
-  scale_color_manual(values = classifier_colors) +
-  scale_x_reverse() +
-  scale_y_reverse() +
-  labs(
-    title = sprintf("Ranking Agreement per Dataset: ISC vs F1 [%s]", mean_type),
-    x = "Mean ISC Rank",
-    y = "Mean F1 Rank",
-    color = "Classifier"
-  ) +
-  coord_fixed() +
-  ggpubr::theme_classic2() +
-  theme(legend.position = "none") 
-
-print(p_dataset_rank_agreement)
+ggarrange(plotlist = per_dataset_ranking)
 ```
 
 
@@ -404,67 +409,138 @@ ggsave(
 Make a geom_point plot showing the mean of F1 in predictions for each consistency in reference, adding error bar plots to show the variability of the different predictions.
 
 ```{r reference_consistency}
+excl <- c("ground_truth", "Ensemble", "Random")
 # filter for only references
+cons_ref <- lapply(names(res), function(r){
+  # Summarise prediction F1 per dataset, classifier, and cell type
+  class_levs <- names(rankings_palette[[r]])[!names(rankings_palette[[r]]) %in% excl]
+  top_6 <- c(head(class_levs, 3), tail(class_levs,3))
+  pred_summary <- res[[r]] %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(class_levs))) %>% 
+    filter(classifier != "ground_truth",
+           !is.na(f1),
+           classifier %in% top_6) %>% 
+    select(cell_type, dataset_id, f1, classifier)
+  
+  cons_ref <- res[[r]] %>%
+    filter(classifier == "ground_truth",
+           !is.na(product)) %>% 
+    select(cell_type, dataset_id, product)
+  
+  # Join reference consistency with prediction F1
+  joined <- pred_summary %>%
+    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
+    filter(!is.na(product)) %>% 
+    group_by(dataset_id, cell_type)
+  
+  # Correlation per classifier (mean F1 vs reference product)
+  cor_table <- joined %>%
+    group_by(classifier) %>%
+    summarise(
+      r = cor(f1, product, use = "complete.obs"),
+      r2 = r^2,
+      p_value = cor.test(f1, product)$p.value,
+      n_pairs = sum(!is.na(f1) & !is.na(product)),
+      .groups = "drop"
+    ) %>%
+    ungroup() %>% 
+    # Apply FDR correction for multiple testing
+    mutate(
+      p_value_adjusted = p.adjust(p_value, method = "BH"),
+      label = sprintf("R² = %.3f\np = %.2e", r2, p_value)
+    )
+  
+  cat("\nCorrelation (F1 vs reference consistency product) per classifier:\n")
+  print(cor_table)
+  
+  # Plot: F1 vs reference consistency product with facets and correlation stats
+  p_ref <- joined %>% 
+    ggplot(aes(x = product, y = f1)) +
+    geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
+    geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+    scale_color_manual(values = rankings_palette[[1]]) +
+    geom_label(data = cor_table, 
+               aes(x = Inf, y = -Inf, label = label),
+               fill = "white",
+               alpha = 0.4,
+               hjust = 1.1, vjust = -0.5, size = 3.5, 
+               inherit.aes = FALSE) +
+    labs(
+      title = r,
+      subtitle = "Train ISC vs Prediction F1, per cell type",
+      x = "ISC Train",
+      y = "F1 (predictions)"
+    ) +
+    ggpubr::theme_classic2() +
+    theme(legend.position = "right") +
+    facet_wrap(~classifier)
+  
+  return(p_ref)
+})
 
-# Summarise prediction F1 per dataset, classifier, and cell type
-pred_summary <- cons_combined %>%
-  mutate(classifier = factor(classifier,
-                             levels = c(rankings_for_palette$classifier))) %>% 
-  filter(classifier != "true_labels",
-         !is.na(f1),
-         classifier %in% top_6_classifiers) %>% 
-  select(cell_type, dataset, f1, classifier)
-
-# Join reference consistency with prediction F1
-joined <- pred_summary %>%
-  left_join(cons_ref, by = c("dataset", "cell_type")) %>%
-  filter(!is.na(product)) %>% 
-  group_by(dataset, cell_type)
-
-# Correlation per classifier (mean F1 vs reference product)
-cor_table <- joined %>%
-  group_by(classifier) %>%
-  summarise(
-    r = cor(f1, product, use = "complete.obs"),
-    r2 = r^2,
-    p_value = cor.test(f1, product)$p.value,
-    n_pairs = sum(!is.na(f1) & !is.na(product)),
-    .groups = "drop"
-  ) %>%
-  ungroup() %>% 
-  # Apply FDR correction for multiple testing
-  mutate(
-    p_value_adjusted = p.adjust(p_value, method = "BH"),
-    label = sprintf("R² = %.3f\np = %.2e", r2, p_value)
-  )
-
-cat("\nCorrelation (F1 vs reference consistency product) per classifier:\n")
-print(cor_table)
-
-# Plot: F1 vs reference consistency product with facets and correlation stats
-p_ref <- joined %>% 
-  ggplot(aes(x = product, y = f1)) +
-  geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
-  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
-  scale_color_manual(values = classifier_colors) +
-  geom_label(data = cor_table, 
-            aes(x = Inf, y = -Inf, label = label),
-            fill = "white",
-            alpha = 0.4,
-            hjust = 1.1, vjust = -0.5, size = 3.5, 
-            inherit.aes = FALSE) +
-  labs(
-    title = "Train ISC vs Prediction F1, per cell type",
-    x = "ISC Train",
-    y = "F1 (predictions)"
-  ) +
-  ggpubr::theme_classic2() +
-  theme(legend.position = "right") +
-  facet_wrap(~classifier)
-
-print(p_ref)
-
+ggarrange(plotlist = cons_ref)
 ```
+
+## categorize ISC
+
+```{r}
+excl <- c("ground_truth", "Ensemble", "Random")
+ths <- 0.7
+# filter for only references
+cons_ref_cat <- lapply(names(res), function(r){
+  # Summarise prediction F1 per dataset, classifier, and cell type
+  class_levs <- names(rankings_palette[[r]])[!names(rankings_palette[[r]]) %in% excl]
+  top_6 <- c(head(class_levs, 3), tail(class_levs,3))
+  pred_summary <- res[[r]] %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(class_levs))) %>% 
+    filter(classifier != "ground_truth",
+           !is.na(f1),
+           classifier %in% top_6) %>% 
+    select(cell_type, dataset_id, f1, classifier)
+  
+  cons_ref <- res[[r]] %>%
+    filter(classifier == "ground_truth",
+           !is.na(product)) %>% 
+    select(cell_type, dataset_id, product) %>% 
+    mutate(consistency = ifelse(product > ths,
+                              "consistent",
+                              "inconsistent"))
+  
+  # Join reference consistency with prediction F1
+  joined <- pred_summary %>%
+    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
+    filter(!is.na(product)) %>% 
+    group_by(dataset_id, cell_type)
+  
+  
+  
+  # Plot: F1 vs reference consistency product with facets and correlation stats
+  p_ref <- joined %>% 
+    ggplot(aes(x = consistency, y = f1)) +
+    geom_jitter(alpha = 0.3, color = "grey", width = 0.15) +
+    geom_boxplot(aes(color = classifier),
+                 fill = NA,
+                 outlier.colour = NA,
+                 show.legend = FALSE) +
+    scale_color_manual(values = rankings_palette[[1]]) +
+    labs(
+      title = r,
+      subtitle = paste0("F1 in consistent (ISC>", ths,
+                        "), and incosistent cell types in train set"),
+      x = "ISC category",
+      y = "F1 (predictions)"
+    ) +
+    ggpubr::theme_classic2() +
+    facet_wrap(~classifier)
+  
+  return(p_ref)
+})
+
+ggarrange(plotlist = cons_ref_cat)
+```
+
 
 ## Export plots
 ```{r}
