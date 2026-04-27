@@ -41,6 +41,15 @@ res <- lapply(paths, read.csv)
 lapply(res, head)
 ```
 
+which ISC metric to use
+
+```{r}
+isc <- c("X2label_silhouette...Pseudobulk.Cosine",
+         "silhouette...recip_classif.Match",
+         "product" )[3]
+```
+
+
 # Generate ranking-based color palette
 ```{r create_color_palette}
 # Calculate rankings to determine color palette
@@ -48,11 +57,11 @@ lapply(res, head)
 # Step 2: Calculate geometric mean across datasets
 rankings_palette <- lapply(res, function(cons_combined){
   rankings_for_palette <- cons_combined %>%
-    filter(!is.na(f1) & !is.na(product),
+    filter(!is.na(f1) & !is.na(.data[[isc]]),
            classifier != "ground_truth") %>%
     group_by(dataset_id, classifier) %>%
     summarise(
-      mean_product_per_dataset = mean(product, na.rm = TRUE),
+      mean_product_per_dataset = mean(.data[[isc]], na.rm = TRUE),
       .groups = "drop"
     ) %>%
     group_by(classifier) %>%
@@ -119,19 +128,20 @@ rankings_palette <- lapply(res, function(cons_combined){
 # Show mean F1 vs mean product
 Add in the plot R2 and p-val
 ```{r f1_vs_product_mean}
+
 # Calculate mean F1 and product per dataset and classifier
 scatter_mean_cor <- lapply(names(res), function(r){
   top_6 <- c(head(names(rankings_palette[[r]]), 3),
              tail(names(rankings_palette[[r]]), 3))
   mean_metrics <- res[[r]] %>%
-    filter(!is.na(f1) & !is.na(product)) %>%
+    filter(!is.na(f1) & !is.na(.data[[isc]])) %>%
     filter(classifier != "ground_truth") %>%
     mutate(classifier = factor(classifier,
                                levels = c(names(rankings_palette[[r]])))) %>% 
     group_by(dataset_id, classifier) %>%
     summarise(
       mean_f1 = mean(f1, na.rm = TRUE),
-      mean_product = mean(product, na.rm = TRUE),
+      mean_product = mean(.data[[isc]], na.rm = TRUE),
       .groups = "drop"
     )
   
@@ -152,15 +162,15 @@ scatter_mean_cor <- lapply(names(res), function(r){
     # Second layer: colored dots for highlighted classifiers (drawn last, so in front)
     geom_point(data = mean_metrics %>% filter(is_highlighted), 
                aes(color = classifier), alpha = 0.7, size = 1.5) +
-    scale_x_continuous(limits = c(0, 1)) +
-    scale_y_continuous(limits = c(0, 1)) +
+    scale_x_continuous(limits = c(-0.1, 1)) +
+    scale_y_continuous(limits = c(-0.1, 1)) +
     geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) +
     scale_color_manual(values = rankings_palette[[r]]) +
     labs(
       title = r,
       subtitle = sprintf("R² = %.3f, p-value = %.2e", r2_mean, pval_mean),
       x = "Mean F1 Score",
-      y = "Mean ISC Predictions",
+      y = paste0("Mean ISC Predictions (", isc, ")"),
       color = "Classifier"
     ) +
     ggpubr::theme_classic2() +
