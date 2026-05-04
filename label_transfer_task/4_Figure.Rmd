@@ -125,7 +125,8 @@ rankings_palette <- lapply(res, function(cons_combined){
 
 
 
-# Show mean F1 vs mean product
+# Per dataset/classifier
+Show mean F1 vs mean product 
 Add in the plot R2 and p-val
 ```{r f1_vs_product_mean}
 
@@ -209,6 +210,101 @@ ggsave(
   device = "pdf"
 )
 ```
+
+# Per classifier
+Show mean F1 vs mean product 
+Add in the plot R2 and p-val
+```{r f1_vs_product_perClassifier}
+
+# Create custom axis transformation: 25% of space for [-0.1, 0.7], 75% for [0.7, 1]
+compressed_axis_trans <- scales::trans_new(
+  name = "compressed",
+  transform = function(x) {
+    ifelse(x <= 0.7,
+           (x + 0.1) / 3.2,           # [-0.1, 0.7] → [0, 0.25]
+           0.25 + (x - 0.7) * 2.5)    # [0.7, 1] → [0.25, 1]
+  },
+  inverse = function(x) {
+    ifelse(x <= 0.25,
+           x * 3.2 - 0.1,             # [0, 0.25] → [-0.1, 0.7]
+           (x - 0.25) / 2.5 + 0.7)    # [0.25, 1] → [0.7, 1]
+  }
+)
+
+# Calculate mean F1 and product per dataset and classifier
+scatter_mean_cor <- lapply(names(res), function(r){
+  mean_metrics <- res[[r]] %>%
+    filter(!is.na(f1) & !is.na(.data[[isc]])) %>%
+    filter(classifier != "ground_truth") %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(names(rankings_palette[[1]])))) %>% 
+    group_by(classifier) %>%
+    summarise(
+      mean_f1 = mean(f1, na.rm = TRUE),
+      mean_product = mean(.data[[isc]], na.rm = TRUE),
+      .groups = "drop"
+    )
+  
+  # Calculate correlation
+  cor_test_mean <- cor.test(mean_metrics$mean_f1, mean_metrics$mean_product)
+  r2_mean <- cor_test_mean$estimate^2
+  pval_mean <- cor_test_mean$p.value
+  
+  # Create plot
+  p2 <- ggplot(mean_metrics,
+               aes(x = mean_f1, y = mean_product)) +
+    geom_smooth(method = "lm",
+                color = "black",
+                linetype = "dashed",
+                se = TRUE,
+                alpha = 0.2) +
+    geom_point(aes(color = classifier),
+               size = 2,
+               show.legend = F) +
+    ggrepel::geom_label_repel(aes(label = classifier,
+                                  color = classifier),
+                              size = 2,
+                              show.legend = F,
+                              max.overlaps = 20) +
+    scale_color_manual(values = rankings_palette[[1]]) +
+    scale_x_continuous(limits = c(-0.1, 0.9), trans = compressed_axis_trans) +
+    scale_y_continuous(limits = c(-0.1, 0.9), trans = compressed_axis_trans) +
+    
+    scale_color_manual(values = rankings_palette[[1]]) +
+    labs(
+      title = gsub("_", "-", r),
+      subtitle = sprintf("R² = %.3f, p-value = %.2e", r2_mean, pval_mean),
+      x = "F1 Score in test",
+      y = paste0("ISC in test (", isc, ")"),
+      color = "Classifier"
+    ) +
+    ggpubr::theme_classic2()
+  
+  return(p2)
+  
+})
+
+
+ggarrange(plotlist = scatter_mean_cor)
+```
+
+```{r}
+# Save as PDF
+pdf_file <- file.path(fig_dir, paste0("LabelProjection_perClassifier_", "mean_scatter.pdf"))
+
+pdf(pdf_file, width = 4, height = 4)
+for(a in scatter_mean_cor) print(a)
+dev.off()
+```
+
+
+# Plot multiple ISC
+Plot only correlation lines for 1) product (as earlier), 2) global ISC, 3) lobal ISC
+
+```{r}
+
+```
+
 
 
 # Compare ranking of classifiers either using F1 or product and how they agree in the ranking
