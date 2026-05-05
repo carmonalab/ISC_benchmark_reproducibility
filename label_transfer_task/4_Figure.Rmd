@@ -297,9 +297,68 @@ dev.off()
 # Plot multiple ISC
 Plot only correlation lines for 1) product (as earlier), 2) global ISC, 3) lobal ISC
 
-```{r}
-
+```{r isc_names}
+iscs <- c("X2label_silhouette...Pseudobulk.Cosine",
+         "silhouette...recip_classif.Match",
+         "product" )
 ```
+
+```{r corr_different_isc}
+# Calculate mean F1 and product per dataset and classifier
+scatter_mean_cor <- lapply(names(res), function(r){
+  mean_metrics <- res[[r]] %>%
+    filter(!is.na(f1) & !is.na(.data[[isc]])) %>%
+    filter(classifier != "ground_truth") %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(names(rankings_palette[[r]])))) %>% 
+    group_by(dataset_id, classifier) %>%
+    summarise(
+      mean_f1 = mean(f1, na.rm = TRUE),
+      across(all_of(iscs), ~ mean(.x, na.rm = TRUE), .names = "{.col}"),
+      .groups = "drop"
+    ) %>% 
+    pivot_longer(-c(dataset_id, classifier, mean_f1),
+                 names_to = "metric",
+                 values_to = "score") %>% 
+    mutate(metric = factor(metric,
+                           levels = iscs,
+                           labels = c("ISC Global",
+                                      "ISC Local",
+                                      "ISC Product"))
+    )
+  
+  corrs <- mean_metrics %>% 
+    group_by(metric) %>% 
+    summarize(r2_mean = cor.test(mean_f1, score)$estimate^2,
+              pval_mean = cor.test(mean_f1, score)$p.value)
+  # Create plot
+  p2 <- ggplot(mean_metrics, aes(y = mean_f1, x = score)) +
+    geom_smooth(aes(color = metric,
+                    fill = metric),
+                method = "lm",
+                alpha = 0.4,
+                linetype = "dashed",
+                se = TRUE) +
+    labs(
+      title = r,
+      y = "F1 Score Test",
+      x = "ISC Test",
+      color = "ISC metric"
+    ) +
+    ggpubr::theme_classic2() +
+    theme(
+      legend.position = "right"
+    )
+
+  
+  return(p2)
+  
+})
+
+
+ggarrange(plotlist = scatter_mean_cor)
+```
+
 
 
 
@@ -380,7 +439,7 @@ return(p6)
 ggarrange(plotlist = scatter_ranking)
 ```
 
-## ranking mean
+# ranking mean
 Per-dataset ranking of classifiers based on product score, then average rank across datasets
 
 ```{r ranking_per_dataset}
