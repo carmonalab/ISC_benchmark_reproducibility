@@ -301,11 +301,16 @@ Plot only correlation lines for 1) product (as earlier), 2) global ISC, 3) lobal
 iscs <- c("X2label_silhouette...Pseudobulk.Cosine",
          "silhouette...recip_classif.Match",
          "product" )
+isc_colors <- c(
+  "ISC Global" = "#0173B2",   # blue
+  "ISC Local" = "#DE8F05",    # orange
+  "ISC Product" = "#029E73"   # green
+)
 ```
 
 ```{r corr_different_isc}
 # Calculate mean F1 and product per dataset and classifier
-scatter_mean_cor <- lapply(names(res), function(r){
+smooth_cor <- lapply(names(res), function(r){
   mean_metrics <- res[[r]] %>%
     filter(!is.na(f1) & !is.na(.data[[isc]])) %>%
     filter(classifier != "ground_truth") %>%
@@ -329,25 +334,41 @@ scatter_mean_cor <- lapply(names(res), function(r){
   
   corrs <- mean_metrics %>% 
     group_by(metric) %>% 
-    summarize(r2_mean = cor.test(mean_f1, score)$estimate^2,
-              pval_mean = cor.test(mean_f1, score)$p.value)
+    summarize(
+      r2_mean = signif(cor(mean_f1, score, use = "complete.obs")^2, 2),
+      pval_mean = formatC(cor.test(mean_f1, score)$p.value, format = "e", digits = 1),
+      .groups = "drop"
+    )
+  
+    # Custom legend labels
+  legend_labels <- setNames(
+    sprintf("%s\nR²=%.2f\np=%.1e", corrs$metric, corrs$r2_mean, as.numeric(corrs$pval_mean)),
+    corrs$metric
+  )
   # Create plot
-  p2 <- ggplot(mean_metrics, aes(y = mean_f1, x = score)) +
-    geom_smooth(aes(color = metric,
-                    fill = metric),
-                method = "lm",
-                alpha = 0.4,
-                linetype = "dashed",
-                se = TRUE) +
+  p2 <- ggplot(mean_metrics, aes(y = mean_f1, x = score,
+                                 color = metric,
+                                 fill = metric)) +
+    geom_smooth(
+      method = "lm",
+      se = TRUE,
+      linetype = "solid",
+      alpha = 0.4,
+      aes(fill = metric),
+      show.legend = T
+    ) +
+    scale_color_manual(values = isc_colors, labels = legend_labels, name = "ISC metric") +
+    scale_fill_manual(values = isc_colors, guide = "none") +
     labs(
       title = r,
       y = "F1 Score Test",
       x = "ISC Test",
-      color = "ISC metric"
     ) +
+    guides(fill = "none") +
     ggpubr::theme_classic2() +
     theme(
-      legend.position = "right"
+      legend.position = "bottom",
+      legend.title = element_blank()
     )
 
   
@@ -356,9 +377,15 @@ scatter_mean_cor <- lapply(names(res), function(r){
 })
 
 
-ggarrange(plotlist = scatter_mean_cor)
+ggarrange(plotlist = smooth_cor)
 ```
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LabelProjection_multipleISC_corr", ".pdf"))
 
+pdf(pdf_file, width = 4, height = 5)
+for(a in smooth_cor) print(a)
+dev.off()
+```
 
 
 
