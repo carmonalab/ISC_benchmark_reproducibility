@@ -200,15 +200,11 @@ ggarrange(plotlist = scatter_mean_cor)
 ## Export plots
 
 ```{r}
-# Save as PDF
-pdf_file <- file.path(fig_dir, paste0("LabelProjection_", "mean_scatter.pdf"))
-ggsave(
-  pdf_file,
-  plot = p2,
-  width = 4,
-  height = 3,
-  device = "pdf"
-)
+pdf_file <- file.path(fig_dir, paste0("LabelProjection_perClassifier_dataset_", "mean_scatter.pdf"))
+
+pdf(pdf_file, width = 5, height = 4)
+for(a in scatter_mean_cor) print(a)
+dev.off()
 ```
 
 # Per classifier
@@ -514,19 +510,20 @@ ggsave(
 
 Make a geom_point plot showing the mean of F1 in predictions for each consistency in reference, adding error bar plots to show the variability of the different predictions.
 
+## correlation
+
 ```{r reference_consistency}
 excl <- c("ground_truth", "Ensemble", "Random")
 # filter for only references
 cons_ref <- lapply(names(res), function(r){
   # Summarise prediction F1 per dataset, classifier, and cell type
-  class_levs <- names(rankings_palette[[r]])[!names(rankings_palette[[r]]) %in% excl]
-  top_6 <- c(head(class_levs, 3), tail(class_levs,3))
+  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
   pred_summary <- res[[r]] %>%
     mutate(classifier = factor(classifier,
                                levels = c(class_levs))) %>% 
     filter(classifier != "ground_truth",
            !is.na(f1),
-           classifier %in% top_6) %>% 
+           ) %>% 
     select(cell_type, dataset_id, f1, classifier)
   
   cons_ref <- res[[r]] %>%
@@ -586,6 +583,14 @@ cons_ref <- lapply(names(res), function(r){
 })
 
 ggarrange(plotlist = cons_ref)
+```
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LabelProjection_referenceISC_scatter", ".pdf"))
+
+pdf(pdf_file, width = 8, height = 6)
+for(a in cons_ref) print(a)
+dev.off()
 ```
 
 ## categorize ISC
@@ -660,5 +665,178 @@ ggsave(
   device = "pdf"
 )
 
+```
+
+## contigency plot
+
+```{r density_contigency}
+ths_f1 <- 0.7
+ths_isc <- 0.5
+xcl <- c("ground_truth", "Ensemble", "Random")
+# filter for only references
+cons_ref_contingency <- lapply(names(res), function(r){
+  # Summarise prediction F1 per dataset, classifier, and cell type
+  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
+  pred_summary <- res[[r]] %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(class_levs))) %>% 
+    filter(classifier != "ground_truth",
+           !is.na(f1),
+           ) %>% 
+    select(cell_type, dataset_id, f1, classifier)
+  
+  cons_ref <- res[[r]] %>%
+    filter(classifier == "ground_truth",
+           !is.na(product)) %>% 
+    select(cell_type, dataset_id, product)
+  
+  # Join reference consistency with prediction F1
+  joined <- pred_summary %>%
+    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
+    filter(!is.na(product)) %>% 
+    group_by(dataset_id, cell_type)
+
+
+  
+  # Compute quadrant counts (threshold = 0.5 on both axes)
+  quadrant_counts <- joined %>%
+    ungroup() %>%
+    mutate(quadrant = case_when(
+      product >= ths_isc & f1 >= ths_f1 ~ "top-right",
+      product <  ths_isc & f1 >= ths_f1 ~ "top-left",
+      product >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
+      TRUE                        ~ "bottom-left"
+    )) %>%
+    count(quadrant) %>%
+    mutate(
+      x = case_when(quadrant == "top-right"    ~ 0.75,
+                    quadrant == "top-left"      ~ 0.25,
+                    quadrant == "bottom-right"  ~ 0.75,
+                    quadrant == "bottom-left"   ~ 0.25),
+      y = case_when(quadrant == "top-right"    ~ 0.85,
+                    quadrant == "top-left"      ~ 0.85,
+                    quadrant == "bottom-right"  ~ 0.25,
+                    quadrant == "bottom-left"   ~ 0.25),
+      #label = n
+      label = paste0(sprintf("%.1f", 100 * n / sum(n)), "%")
+    )
+
+  # Plot: bin2d density + quadrant percentages
+  p_ref <- joined %>%
+    ggplot(aes(x = product, y = f1)) +
+    geom_bin2d(bins = 50, show.legend = T) +
+    scale_fill_viridis_c(option = "magma", trans = "sqrt") +
+    geom_vline(xintercept = ths_isc, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
+    geom_hline(yintercept = ths_f1, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
+    geom_label(data = quadrant_counts,
+              aes(x = x, y = y, label = label),
+              inherit.aes = FALSE,
+              size = 6,
+              fill = "grey90",
+              color = "black",
+              alpha = 0.9) +
+    scale_x_continuous(limits = c(0, 1)) +
+    scale_y_continuous(limits = c(0, 1)) +
+    labs(
+      title = gsub("_", "-", r),
+      subtitle = "Train ISC vs Prediction F1, per cell type",
+      x = "ISC Train",
+      y = "F1 score Test"
+    ) +
+    ggpubr::theme_classic2() +
+    theme(legend.position = "right")
+  
+  return(p_ref)
+})
+
+ggarrange(plotlist = cons_ref_contingency)
+```
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LabelProjection_referenceISC_contigency", ".pdf"))
+
+pdf(pdf_file, width = 4.5, height = 4)
+for(a in cons_ref_contingency) print(a)
+dev.off()
+```
+
+
+```{r upper_left_quadrant_depletion}
+# Test whether upper-left quadrant is depleted vs 25% null expectation
+quadrant_stats_plots <- lapply(names(res), function(r){
+  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
+
+  pred_summary <- res[[r]] %>%
+    mutate(classifier = factor(classifier, levels = c(class_levs))) %>%
+    filter(classifier != "ground_truth", !is.na(f1)) %>%
+    select(cell_type, dataset_id, f1, classifier)
+
+  cons_ref <- res[[r]] %>%
+    filter(classifier == "ground_truth", !is.na(product)) %>%
+    select(cell_type, dataset_id, product)
+
+  joined <- pred_summary %>%
+    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
+    filter(!is.na(product))
+
+  quad_tbl <- joined %>%
+    mutate(quadrant = case_when(
+      product >= ths_isc & f1 >= ths_f1 ~ "top-right",
+      product <  ths_isc & f1 >= ths_f1 ~ "top-left",
+      product >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
+      TRUE                              ~ "bottom-left"
+    )) %>%
+    count(quadrant, .drop = FALSE)
+
+  all_quadrants <- c("top-left", "top-right", "bottom-left", "bottom-right")
+  quad_tbl <- dplyr::full_join(
+    tibble::tibble(quadrant = all_quadrants),
+    quad_tbl,
+    by = "quadrant"
+  ) %>%
+    mutate(n = ifelse(is.na(n), 0L, n))
+
+  n_total <- sum(quad_tbl$n)
+  n_ul <- quad_tbl$n[quad_tbl$quadrant == "top-left"]
+  bt <- binom.test(x = n_ul, n = n_total, p = 0.25, alternative = "less")
+
+  quad_tbl <- quad_tbl %>%
+    rowwise() %>%
+    mutate(
+      prop = n / n_total,
+      ci_low = binom.test(n, n_total)$conf.int[1],
+      ci_high = binom.test(n, n_total)$conf.int[2]
+    ) %>%
+    ungroup() %>%
+    mutate(
+      quadrant = factor(quadrant, levels = all_quadrants),
+      is_top_left = quadrant == "top-left"
+    )
+
+  p_quad <- ggplot(quad_tbl, aes(x = quadrant, y = prop, fill = is_top_left)) +
+    geom_col(width = 0.7) +
+    geom_errorbar(aes(ymin = ci_low, ymax = ci_high), width = 0.15) +
+    geom_hline(yintercept = 0.25, linetype = "dashed", color = "#00FFFF", linewidth = 0.7) +
+    geom_text(aes(label = paste0(sprintf("%.1f", 100 * prop), "%")),
+              vjust = -0.4,
+              size = 3.6) +
+    scale_fill_manual(values = c("TRUE" = "#F94144", "FALSE" = "grey75"), guide = "none") +
+    scale_y_continuous(limits = c(0, 1), labels = scales::percent_format(accuracy = 1)) +
+    labs(
+      title = gsub("_", "-", r),
+      subtitle = paste0(
+        "Upper-left depletion vs 25% null: p = ",
+        format.pval(bt$p.value, digits = 3, eps = 1e-4),
+        " (one-sided binomial)"
+      ),
+      x = "Quadrant",
+      y = "Proportion of points"
+    ) +
+    ggpubr::theme_classic2()
+
+  p_quad
+})
+
+ggarrange(plotlist = quadrant_stats_plots)
 ```
 
