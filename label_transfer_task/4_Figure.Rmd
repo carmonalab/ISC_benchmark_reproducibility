@@ -156,7 +156,7 @@ scatter_mean_cor <- lapply(names(res), function(r){
   pval_mean <- cor_test_mean$p.value
   
   # Create plot
-  p2 <- ggplot(mean_metrics, aes(x = mean_f1, y = mean_product)) +
+  p2 <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_product)) +
     # First layer: gray dots for non-highlighted classifiers (drawn first, so in back)
     geom_point(data = mean_metrics %>% filter(!is_highlighted), 
                aes(color = classifier), alpha = 0.4, size = 1.5) +
@@ -170,8 +170,8 @@ scatter_mean_cor <- lapply(names(res), function(r){
     labs(
       title = r,
       subtitle = sprintf("R² = %.3f, p-value = %.2e", r2_mean, pval_mean),
-      x = "Mean F1 Score",
-      y = paste0("Mean ISC Predictions (", isc, ")"),
+      y = "F1 Score Test",
+      x = paste0("ISC Test (", isc, ")"),
       color = "Classifier"
     ) +
     ggpubr::theme_classic2() +
@@ -248,7 +248,7 @@ scatter_mean_cor <- lapply(names(res), function(r){
   
   # Create plot
   p2 <- ggplot(mean_metrics,
-               aes(x = mean_f1, y = mean_product)) +
+               aes(y = mean_f1, x = mean_product)) +
     geom_smooth(method = "lm",
                 color = "black",
                 linetype = "dashed",
@@ -270,8 +270,8 @@ scatter_mean_cor <- lapply(names(res), function(r){
     labs(
       title = gsub("_", "-", r),
       subtitle = sprintf("R² = %.3f, p-value = %.2e", r2_mean, pval_mean),
-      x = "F1 Score in test",
-      y = paste0("ISC in test (", isc, ")"),
+      y = "F1 Score Test",
+      x = paste0("ISC Test (", isc, ")"),
       color = "Classifier"
     ) +
     ggpubr::theme_classic2()
@@ -588,7 +588,7 @@ ggarrange(plotlist = cons_ref)
 ```{r}
 pdf_file <- file.path(fig_dir, paste0("LabelProjection_referenceISC_scatter", ".pdf"))
 
-pdf(pdf_file, width = 8, height = 6)
+pdf(pdf_file, width = 8*1.1, height = 6*1.1)
 for(a in cons_ref) print(a)
 dev.off()
 ```
