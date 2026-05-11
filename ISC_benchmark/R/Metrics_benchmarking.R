@@ -449,7 +449,7 @@ wr_nsamples <- function(count_matrix,
                                   verbose = verbose)
       sc_gl <- run_hvg(sc_gl,
                        ncores = ncores)
-                                         dplyr::mutate(rate = as.numeric(as.character(strsplit(ann, "_")[[1]][3])),
+      gl <- sc_gl@gene_lists
    } else {
       gl <- gene_list
    }
