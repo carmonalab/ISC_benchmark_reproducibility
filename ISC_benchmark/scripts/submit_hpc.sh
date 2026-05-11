@@ -17,7 +17,7 @@ set -euo pipefail
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
 REPO_DIR="$( git -C "$SCRIPT_DIR" rev-parse --show-toplevel )"
-LOG_DIR="$SCRIPT_DIR/logs"
+LOG_DIR="$PROJECT_DIR/logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 SLURM_PARTITION="${SLURM_PARTITION:-shared-cpu}"
