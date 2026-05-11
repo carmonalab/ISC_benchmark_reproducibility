@@ -95,21 +95,38 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   }
   
   # ========== STEP 3: Execute task ==========
-  # ========== STEP 2b: Load/compute baseline (rate = 1) for tasks that use rates ==========
-  # Tasks 1, 2, 5, 6 all include rate=1 (no perturbation).  Computing it once and
-  # recycling across tasks avoids 3–4 redundant scTypeEval calls per dataset/ident.
-  TASKS_WITH_RATES <- c("missclassify", "SplitCelltype", "Nsamples", "NCell")
-  baseline_df <- NULL
-  if (task_name %in% TASKS_WITH_RATES) {
-    baseline_cache_path <- file.path(output_dir,
-                                     paste0("baseline_isc_", ident_col, ".rds"))
-    baseline_df <- tryCatch(
-      get_or_compute_baseline(obj_prepared, config, baseline_cache_path),
+  # ========== STEP 2b: Load/compute baseline scTypeEval object for tasks 1-6 ==========
+  # One full-dataset ISC computation (wrapper_dissimilarity, no perturbation) is
+  # shared across ALL tasks 1-6.  Tasks 1,2,5,6 get a rate=1 df; tasks 3,4 get
+  # the sc object to derive their own labelled baseline row.
+  TASKS_WITH_BASELINE <- c("missclassify", "SplitCelltype", "Nsamples", "NCell",
+                            "Nct", "cellular_complexity")
+  baseline_sc  <- NULL
+  baseline_df  <- NULL
+
+  if (task_name %in% TASKS_WITH_BASELINE) {
+    sc_cache_path  <- file.path(output_dir, paste0("baseline_sc_",  ident_col, ".rds"))
+    df_cache_path  <- file.path(output_dir, paste0("baseline_isc_", ident_col, ".rds"))
+
+    baseline_sc <- tryCatch(
+      get_or_compute_full_isc(obj_prepared, config, sc_cache_path),
       error = function(e) {
-        message_step("BASELINE", sprintf("Baseline computation failed (%s); rate=1 will be recomputed inside the task", e$message))
+        message_step("BASELINE", sprintf("Full ISC computation failed (%s); tasks 3/4 will run without cached baseline", e$message))
         NULL
       }
     )
+
+    # Tasks 1,2,5,6 also need the labelled df form
+    TASKS_WITH_RATES <- c("missclassify", "SplitCelltype", "Nsamples", "NCell")
+    if (task_name %in% TASKS_WITH_RATES && !is.null(baseline_sc)) {
+      baseline_df <- tryCatch(
+        get_or_compute_baseline(obj_prepared, config, sc_cache_path, df_cache_path),
+        error = function(e) {
+          message_step("BASELINE", sprintf("Baseline df extraction failed (%s); rate=1 will be recomputed inside the task", e$message))
+          NULL
+        }
+      )
+    }
   }
 
   # ========== STEP 3: Execute task ==========
@@ -149,11 +166,13 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
       "Nct" = {
-        wr_result <<- run_task_Nct(obj_prepared, config, task_config, task_output_dir)
+        wr_result <<- run_task_Nct(obj_prepared, config, task_config, task_output_dir,
+                                    baseline_sc = baseline_sc)
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
       "cellular_complexity" = {
-        wr_result <<- run_task_cellular_complexity(obj_prepared, config, task_config, task_output_dir)
+        wr_result <<- run_task_cellular_complexity(obj_prepared, config, task_config, task_output_dir,
+                                                   baseline_sc = baseline_sc)
         # Extract metrics from each complexity level
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
@@ -170,7 +189,9 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       "batch_effects" = {
         specs_file <- file.path(proj_root(), "data_processing", "config", "specs_datasets.csv")
         wr_result <<- run_task_batch_effects(obj_prepared, config, task_config, task_output_dir,
-                                             specs_path = specs_file)
+                                             specs_path    = specs_file,
+                                             results_root  = config$output$dir,
+                                             dataset_stems = dataset_stems)
         if (!is.null(wr_result)) {
           task_metrics <<- wr_result %>%
             mutate(task = task_name,
@@ -180,8 +201,10 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       },
       "biological_perturbations" = {
         specs_file <- file.path(proj_root(), "data_processing", "config", "specs_datasets.csv")
-        wr_result <<- run_task_biological_perturbations(obj_prepared, config, task_config, 
-                                                        task_output_dir, specs_path = specs_file)
+        wr_result <<- run_task_biological_perturbations(obj_prepared, config, task_config,
+                                                        task_output_dir, specs_path = specs_file,
+                                                        results_root  = config$output$dir,
+                                                        dataset_stems = dataset_stems)
         if (!is.null(wr_result)) {
           task_metrics <<- wr_result %>%
             mutate(task = task_name,
