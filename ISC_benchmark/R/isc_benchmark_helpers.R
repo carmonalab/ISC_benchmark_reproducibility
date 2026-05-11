@@ -23,8 +23,8 @@ suppressPackageStartupMessages({
 })
 
 # Source benchmarking wrappers (wr_* functions) from local vendored scripts.
-source("R/01_assays_utils.R")
-source("R/01_Metrics_benchmarking.R")
+source("R/assays_utils.R")
+source("R/Metrics_benchmarking.R")
 
 
 

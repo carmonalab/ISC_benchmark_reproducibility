@@ -40,7 +40,7 @@ library(tidyr)
 source("../R/shared_helpers.R")
 source(proj_path("R/cli_utils.R"))
 source("R/isc_benchmark_helpers.R")
-source("R/01_isc_tasks.R")
+source("R/isc_tasks.R")
 
 # ============================================================================
 # TARGETS PIPELINE CONFIGURATION
