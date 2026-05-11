@@ -82,8 +82,9 @@ get_isc_config <- function() {
 #' Returns a table suitable for tar_map with dataset_id, dataset_file, ident_cols
 #'
 #' @param config Configuration list
+#' @param selected_dataset_ids Optional character vector of dataset IDs to keep
 #' @return Data frame: dataset_id, dataset_file, ident_cols (as comma-separated string)
-get_dataset_idents <- function(config) {
+get_dataset_idents <- function(config, selected_dataset_ids = NULL) {
   
   # Load ident definitions
   ident_mapping <- read_yaml(config$dataset_idents_file)$idents
@@ -136,7 +137,47 @@ get_dataset_idents <- function(config) {
   }
   
   # Combine into single data frame
-  do.call(rbind, dataset_info)
+  dataset_info <- do.call(rbind, dataset_info)
+
+  if (!is.null(selected_dataset_ids)) {
+    selected_dataset_ids <- unique(trimws(selected_dataset_ids))
+    selected_dataset_ids <- selected_dataset_ids[nzchar(selected_dataset_ids)]
+
+    if (length(selected_dataset_ids) > 0) {
+      missing_ids <- setdiff(selected_dataset_ids, dataset_info$dataset_id)
+      if (length(missing_ids) > 0) {
+        stop(
+          "Requested dataset(s) not available in processed inputs: ",
+          paste(missing_ids, collapse = ", ")
+        )
+      }
+
+      dataset_info <- dataset_info[match(selected_dataset_ids, dataset_info$dataset_id), , drop = FALSE]
+    }
+  }
+
+  dataset_info
+}
+
+#' Read requested dataset IDs from the environment
+#'
+#' Supports comma-separated selections via ISC_DATASET_IDS or single-dataset
+#' test runs via ISC_DATASET_ID / ISC_TEST_DATASET.
+#'
+#' @return Character vector of requested dataset IDs, or NULL for all datasets
+get_requested_dataset_ids <- function() {
+  requested <- c(
+    Sys.getenv("ISC_DATASET_IDS", unset = ""),
+    Sys.getenv("ISC_DATASET_ID", unset = ""),
+    Sys.getenv("ISC_TEST_DATASET", unset = "")
+  )
+
+  requested <- requested[nzchar(requested)]
+  if (length(requested) == 0) {
+    return(NULL)
+  }
+
+  unique(trimws(unlist(strsplit(paste(requested, collapse = ","), ",", fixed = TRUE))))
 }
 
 #' Get active task names from config
@@ -174,7 +215,7 @@ list(
   # Get dataset-ident mappings (tracks dataset_idents.yaml changes)
   tar_target(
     datasets_idents,
-    get_dataset_idents(config),
+    get_dataset_idents(config, selected_dataset_ids = get_requested_dataset_ids()),
     cue = tar_cue(file = "config/dataset_idents.yaml")
   ),
   
