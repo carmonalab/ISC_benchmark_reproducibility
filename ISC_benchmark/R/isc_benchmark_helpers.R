@@ -26,6 +26,16 @@ suppressPackageStartupMessages({
 source("R/assays_utils.R")
 source("R/Metrics_benchmarking.R")
 
+#' Get default gene blacklist (TCR, Immunoglobulins, Y-genes) from scTypeEval
+get_default_blacklist <- function() {
+  data("black_list", package = "scTypeEval", envir = environment())
+  unlist(list(
+    black_list$TCR,
+    black_list$Immunoglobulins,
+    black_list$Ygenes
+  ))
+}
+
 
 
 # ============================================================================

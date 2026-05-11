@@ -39,6 +39,11 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   set.seed(config$seed)
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
 
+  # Use default blacklist (TCR, Ig, Y-genes) if none specified in config
+  if (is.null(config$common$black_list)) {
+    config$common$black_list <- get_default_blacklist()
+  }
+
   
   message_step("Running ISC_BENCHMARK",
                sprintf("dataset=%s, task=%s, ident=%s", dataset_id, task_name, ident_col))
