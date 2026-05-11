@@ -133,7 +133,11 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     task_config <- config[[task_config_key]][["isc_params"]]
     metric_config <- config[[task_config_key]][["type"]]
     
-    if (is.null(task_config)) {
+    # Tasks 7/8 use the full sub-config directly and have no isc_params block;
+    # only require isc_params for the tasks that actually use task_config.
+    tasks_requiring_isc_params <- c("missclassify", "SplitCelltype", "Nct",
+                                    "cellular_complexity", "Nsamples", "NCell")
+    if (is.null(task_config) && task_name %in% tasks_requiring_isc_params) {
       stop("Task configuration not found: ", task_config_key)
     }
     
