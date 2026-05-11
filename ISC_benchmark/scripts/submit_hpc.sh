@@ -20,11 +20,11 @@ REPO_DIR="$( git -C "$SCRIPT_DIR" rev-parse --show-toplevel )"
 LOG_DIR="$SCRIPT_DIR/logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-SLURM_PARTITION="${SLURM_PARTITION:-normal}"
+SLURM_PARTITION="${SLURM_PARTITION:-shared-cpu}"
 SLURM_NODES="${SLURM_NODES:-1}"
 SLURM_CPUS="${SLURM_CPUS:-16}"
 SLURM_MEM="${SLURM_MEM:-256G}"
-SLURM_TIME="${SLURM_TIME:-24:00:00}"
+SLURM_TIME="${SLURM_TIME:-12:00:00}"
 
 DATASET_TASKS=(missclassify SplitCelltype Nct cellular_complexity Nsamples NCell)
 CROSS_DATASET_TASKS=(batch_effects biological_perturbations)
@@ -185,18 +185,10 @@ run_dataset_locally() {
   cd "$PROJECT_DIR"
   ISC_DATASET_ID="$dataset_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
-activate <- file.path(project_root, "renv", "activate.R")
-if (file.exists(activate)) {
-  source(activate)
-}
-if (requireNamespace("renv", quietly = TRUE)) {
-  renv::load(project = project_root)
-}
-
 r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
-if (dir.exists(renv_lib)) {
-  .libPaths(unique(c(renv_lib, .libPaths())))
+project_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(project_lib)) {
+  .libPaths(unique(c(project_lib, .libPaths())))
 }
 
 cat("[INFO] .libPaths():\n")
@@ -220,18 +212,10 @@ run_family_locally() {
   cd "$PROJECT_DIR"
   ISC_DATASET_FAMILIES="$family_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
-activate <- file.path(project_root, "renv", "activate.R")
-if (file.exists(activate)) {
-  source(activate)
-}
-if (requireNamespace("renv", quietly = TRUE)) {
-  renv::load(project = project_root)
-}
-
 r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
-if (dir.exists(renv_lib)) {
-  .libPaths(unique(c(renv_lib, .libPaths())))
+project_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(project_lib)) {
+  .libPaths(unique(c(project_lib, .libPaths())))
 }
 
 cat("[INFO] .libPaths():\n")
@@ -300,18 +284,10 @@ echo "================================="
 
 Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
-activate <- file.path(project_root, "renv", "activate.R")
-if (file.exists(activate)) {
-  source(activate)
-}
-if (requireNamespace("renv", quietly = TRUE)) {
-  renv::load(project = project_root)
-}
-
 r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
-if (dir.exists(renv_lib)) {
-  .libPaths(unique(c(renv_lib, .libPaths())))
+project_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(project_lib)) {
+  .libPaths(unique(c(project_lib, .libPaths())))
 }
 
 cat("[INFO] .libPaths():\n")
