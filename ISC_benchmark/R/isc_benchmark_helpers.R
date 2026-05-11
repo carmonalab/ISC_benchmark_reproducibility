@@ -143,12 +143,12 @@ get_or_compute_full_isc <- function(obj_prepared, config, cache_path) {
     active_ident = obj_prepared$ident
   )
 
-  sample_col  <- config$common$sample_col  %||_% "sample"
-  ndim        <- config$common$ndim        %||_% 30L
-  reduction   <- if (is.null(config$common$reduction)) TRUE else isTRUE(config$common$reduction)
-  norm_method <- config$common$normalization_method %||_% "Log1p"
-  min_samples <- config$common$min_samples %||_% 5L
-  min_cells   <- config$common$min_cells   %||_% 10L
+  sample_col  <- config$common$sample_col
+  ndim        <- config$common$ndim
+  reduction   <- config$common$reduction
+  norm_method <- config$common$normalization_method
+  min_samples <- config$common$min_samples
+  min_cells   <- config$common$min_cells
   diss_method <- config$common$dissimilarity_method
 
   sc <- wrapper_dissimilarity(
@@ -169,9 +169,6 @@ get_or_compute_full_isc <- function(obj_prepared, config, cache_path) {
   message_step("ISC_CACHE", sprintf("Cached scTypeEval object to %s", basename(cache_path)))
   sc
 }
-
-# Null-coalescing helper (avoids dependency on rlang)
-`%||_%` <- function(a, b) if (is.null(a)) b else a
 
 #' Extract rate=1 consistency df from a cached scTypeEval object
 #'
@@ -295,12 +292,12 @@ run_cached_subset_scTypeEval <- function(count_matrix,
   }
 
   # --- Compute ---
-  sample_col  <- config$common$sample_col  %||_% "sample"
-  ndim        <- config$common$ndim        %||_% 30L
-  reduction   <- if (is.null(config$common$reduction)) TRUE else isTRUE(config$common$reduction)
-  norm_method <- config$common$normalization_method %||_% "Log1p"
-  min_samples <- config$common$min_samples %||_% 5L
-  min_cells   <- config$common$min_cells   %||_% 10L
+  sample_col  <- config$common$sample_col
+  ndim        <- config$common$ndim
+  reduction   <- config$common$reduction
+  norm_method <- config$common$normalization_method
+  min_samples <- config$common$min_samples
+  min_cells   <- config$common$min_cells
   diss_method <- config$common$dissimilarity_method
 
   sc <- scTypeEval::create_scTypeEval(
