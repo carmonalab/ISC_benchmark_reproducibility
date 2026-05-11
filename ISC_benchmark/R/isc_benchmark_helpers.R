@@ -160,7 +160,7 @@ get_or_compute_full_isc <- function(obj_prepared, config, cache_path) {
   min_cells   <- config$common$min_cells
   diss_method <- config$common$dissimilarity_method
 
-  sc <- wrapper_dissimilarity(
+  sc <- scTypeEval::wrapper_scTypeEval(
     sc,
     ident                = obj_prepared$ident,
     sample               = sample_col,
@@ -315,7 +315,7 @@ run_cached_subset_scTypeEval <- function(count_matrix,
     active_ident = ident
   )
 
-  result <- wrapper_dissimilarity(
+  result <- scTypeEval::wrapper_scTypeEval(
     sc,
     ident                = ident,
     sample               = sample_col,

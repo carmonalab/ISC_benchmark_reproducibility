@@ -129,56 +129,7 @@ geo_mean_se <- function(x) {
 }
 
 
-wrapper_dissimilarity <- function(scTypeEval,
-                                  ident,
-                                  sample,
-                                  gene_list,
-                                  reduction = TRUE,
-                                  ndim = 30,
-                                  normalization_method = "Log1p",
-                                  dissimilarity_method = c("WasserStein", "Pseudobulk:Euclidean",
-                                                           "Pseudobulk:Cosine", "Pseudobulk:Pearson",
-                                                           "recip_classif:Match", "recip_classif:Score"),
-                                  min_samples = 5,
-                                  min_cells = 10,
-                                  bparam = BiocParallel::SerialParam(),
-                                  verbose = TRUE){
-   
-   scTypeEval <- run_processing_data(scTypeEval,
-                                    ident = ident,
-                                    sample = sample,
-                                    normalization_method = normalization_method,
-                                    min_samples = min_samples,
-                                    min_cells = min_cells,
-                                    verbose = verbose)
 
-   if(is.null(gene_list)){
-         scTypeEval <- run_hvg(scTypeEval,
-                              aggregation = "single-cell",
-                              bparam = bparam,
-                              verbose = verbose)
-   } else {
-      scTypeEval <- add_gene_list(scTypeEval, gene_list)
-   }                                 
-   
-   
-   if(reduction){
-      scTypeEval <- run_pca(scTypeEval,
-                            ndim = ndim)
-   }
-   
-   for(m in dissimilarity_method){
-      if(verbose){message(">.  Running ", m, "\n")}
-      scTypeEval <- run_dissimilarity(scTypeEval,
-                                      reduction = reduction,
-                                      method = m,
-                                      bparam = bparam,
-                                      verbose = verbose)
-   }
-   
-   return(scTypeEval)
-   
-}
 
 wrapper_plots <- function(scTypeEval,
                           reduction_slot = "all", 
@@ -320,7 +271,7 @@ wr_missclasify <- function(count_matrix,
                     function(ann){
                        tryCatch(
                           {
-                             sc_tmp <- wrapper_dissimilarity(sc,
+                             sc_tmp <- scTypeEval::wrapper_scTypeEval(sc,
                                                              ident = ann,
                                                              sample = sample,
                                                              gene_list = gl,
@@ -472,7 +423,7 @@ wr_nsamples <- function(count_matrix,
                                                          gene_lists = gl,
                                                          black_list = black_list)
                              
-                             sc_tmp <- wrapper_dissimilarity(sc_tmp,
+                             sc_tmp <- scTypeEval::wrapper_scTypeEval(sc_tmp,
                                                              ident = ident,
                                                              sample = sample,
                                                              gene_list = gl,
@@ -617,7 +568,7 @@ wr_nct <- function(count_matrix,
                                                          metadata = md,
                                                          gene_lists = gl,
                                                          black_list = black_list)
-                             sc_tmp <- wrapper_dissimilarity(sc_tmp,
+                           sc_tmp <- scTypeEval::wrapper_scTypeEval(sc_tmp,
                                                              ident = ident,
                                                              sample = sample,
                                                              gene_list = gl,
@@ -781,7 +732,7 @@ wr_ncell <- function(count_matrix,
                                                          gene_lists = gl,
                                                          black_list = black_list)
                              
-                             sc_tmp <- wrapper_dissimilarity(sc_tmp,
+                             sc_tmp <- scTypeEval::wrapper_scTypeEval(sc_tmp,
                                                              ident = ident,
                                                              sample = sample,
                                                              gene_list = gl,
@@ -959,7 +910,7 @@ wr_merge_ct <- function(count_matrix,
                     function(ann){
                        tryCatch(
                           {
-                             sc_tmp <- wrapper_dissimilarity(sc,
+                           sc_tmp <- scTypeEval::wrapper_scTypeEval(sc,
                                                              ident = ann,
                                                              sample = sample,
                                                              gene_list = gl,
@@ -1113,7 +1064,7 @@ wr_split_cell_type <- function(count_matrix,
                     function(ann){
                        tryCatch(
                           {
-                             sc_tmp <- wrapper_dissimilarity(sc,
+                             sc_tmp <- scTypeEval::wrapper_scTypeEval(sc,
                                                              ident = ann,
                                                              sample = sample,
                                                              gene_list = gl,
