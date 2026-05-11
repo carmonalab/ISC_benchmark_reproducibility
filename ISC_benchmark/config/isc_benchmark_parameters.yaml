@@ -157,7 +157,7 @@ task_Nct:
   
   isc_params:
     # Sample 30 random combinations of cell types (from original wr.Nct)
-    down_sample_combinations: 30          # Number of random cell type subsets to try
+    down_sample_comb: 30                  # Number of random cell type subsets to try
 
 # Task 4: Robustness to cellular complexity (high vs low variability)
 task_cellular_complexity:
@@ -208,7 +208,7 @@ task_batch_effects:
   description: "Compare ISC values computed within individual experimental batches to
    those obtained after combining batches within the same annotation framework."
   category: "robustness_batch"
-  type: "constant"
+  type: "drop"
   
   # Batch column name in metadata (e.g., "batch", "sequencing_run", "plate")
   batch_col: "batch"                   # Metadata column containing batch identifiers
@@ -220,7 +220,7 @@ task_biological_perturbations:
   description: "Stratified datasets by biological condition within the same
    batch and computed ISC separately within each condition"
   category: "robustness_biological"
-  type: "constant"
+  type: "drop"
   
   # Condition column name in metadata (e.g., "treatment", "disease_status", "timepoint")
   condition_col: "condition"           # Metadata column containing biological conditions
