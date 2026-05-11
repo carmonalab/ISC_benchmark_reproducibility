@@ -10,10 +10,7 @@
 #
 # Each task calls scTypeEval wr_* functions and extracts metrics
 
-
 source("R/isc_benchmark_helpers.R")
-# Load functions for benchmarking
-source("R/02_scTypeEval_helpers.R")
 
 # ============================================================================
 # TASK EXECUTION ORCHESTRATOR

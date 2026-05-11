@@ -22,12 +22,11 @@ suppressPackageStartupMessages({
   library(BiocParallel)
 })
 
-# Source benchmarking wrappers (wr_* functions) from scTypeEval inst/benchmarking
-local({
-  bench_file <- system.file("benchmarking", "Metrics_benchmarking.R", package = "scTypeEval")
-  if (!nzchar(bench_file)) stop("scTypeEval benchmarking scripts not found")
-  source(bench_file, local = parent.env(environment()))
-})
+# Source benchmarking wrappers (wr_* functions) from local vendored scripts.
+source("R/01_assays_utils.R")
+source("R/01_Metrics_benchmarking.R")
+
+
 
 # ============================================================================
 # DATA PREPARATION FOR scTypeEval
