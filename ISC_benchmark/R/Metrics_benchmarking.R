@@ -528,9 +528,9 @@ wr_nct <- function(count_matrix,
    
    
    # Generate combinations of lengths 2 to n-1
-   cts <- sample_variable_length_combinations(allcts,
-                                              num_samples = down_sample_comb,
-                                              seed = seed)
+   cts <- scTypeEval:::sample_variable_length_combinations(allcts,
+                                                            num_samples = down_sample_comb,
+                                                            seed = seed)
    # add all cell types
    if(run_baseline){
       allelements <- paste(allcts, collapse = "-")
@@ -779,7 +779,7 @@ wr_ncell <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
-   ctype_name <- purge_label(ctype)
+   ctype_name <- scTypeEval:::purge_label(ctype)
    
    if(!is.null(dir)){
       saveRDS(df_res,
@@ -854,19 +854,19 @@ wr_merge_ct <- function(count_matrix,
       gl <- gene_list
    }
    
-   gene_list <- check_genelist(sc, gene_list, verbose = verbose)
-   black_list <- check_blacklist(sc, black_list, verbose = verbose)
-   mat_ident <- general_filtering(sc@data[["single-cell"]],
-                                   black_list = black_list,
-                                   gene_list = gene_list,
-                                   verbose = verbose)
+   gene_list <- scTypeEval:::check_genelist(sc, gene_list, verbose = verbose)
+   black_list <- scTypeEval:::check_blacklist(sc, black_list, verbose = verbose)
+   mat_ident <- scTypeEval:::general_filtering(sc@data[["single-cell"]],
+                                                black_list = black_list,
+                                                gene_list = gene_list,
+                                                verbose = verbose)
    mat <- mat_ident@matrix
    
    idents <- as.character(mat_ident@ident)
    # keep only celltypes fulfulling min_samples and min_cells conditions
    metadata <- metadata[colnames(mat),]
    
-   original_vector <- factor(purge_label(metadata[[ident]]))
+   original_vector <- factor(scTypeEval:::purge_label(metadata[[ident]]))
    j <- length(unique(original_vector))
    new_name <- paste("J", j, ident, sep = "_")
    metadata[[new_name]] <- original_vector
@@ -879,8 +879,8 @@ wr_merge_ct <- function(count_matrix,
    }
    
    while(length(unique(idents))>2){
-      centroids <- compute_centroids(norm_mat = mat,
-                                     ident = idents)
+      centroids <- scTypeEval:::compute_centroids(norm_mat = mat,
+                                                   ident = idents)
       dist <- get_distance(norm_mat = centroids,
                            distance_method = distance_method,
                            verbose = FALSE)
@@ -948,7 +948,7 @@ wr_merge_ct <- function(count_matrix,
                              return(res)
                           },
                           error = function(e){
-                             message("\n-X- scTypeEval failed for", ann, "\n, e")
+                             message("\n-X- scTypeEval failed for", ann, "\n", e)
                           }
                        )
                     })
@@ -1112,7 +1112,7 @@ wr_split_cell_type <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
-   ctype_name <- purge_label(ctype)
+   ctype_name <- scTypeEval:::purge_label(ctype)
    
    if(!is.null(dir)){
       saveRDS(df_res,
