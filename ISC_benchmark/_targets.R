@@ -313,62 +313,59 @@ list(
   ),
   
   # ========== DYNAMIC TARGETS: Per dataset × task × ident ==========
-  # Each target is one independent task execution
-  # expand_grid creates all combinations, nested tar_map handles ident arrays
-  
+  # Each target is one independent task execution.
+  # Build a flat static mapping table to avoid nested tar_map symbol resolution issues.
   tar_map(
-    values = expand_grid(datasets_idents, task_name = active_tasks),
-    
-    # Create per-ident targets (one per cell type annotation)
-    tar_map(
-      values = list(ident_col = parse_ident_cols(ident_cols)),
-      
-      # Individual task execution target
-      # Each represents one complete unit of work suitable for HPC job submission
-      tar_target(
-        name = task_result,
-        command = {
-          # Logging
-          timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-          job_id <- sprintf("%s:%s:%s", dataset_id, ident_col, task_name)
-          cat(sprintf("[%s] Starting job %s\n", timestamp, job_id))
-          
-          # Create output directory
-          output_dir <- file.path(config$output$dir, dataset_id)
-          dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-          
-          # Execute single task
-          result <- tryCatch({
-            run_isc_benchmark_on_dataset(
-              dataset_id = dataset_id,
-              ident_col = ident_col,
-              task_name = task_name,
-              dataset_path = dataset_file,
-              dataset_stems = dataset_stems,
-              config = config,
-              output_dir = output_dir
-            )
-          }, error = function(e) {
-            # Return error data frame on failure
-            data.frame(
-              dataset_id = dataset_id,
-              ident = ident_col,
-              task = task_name,
-              status = "failed",
-              error = as.character(e$message),
-              n_results = 0,
-              stringsAsFactors = FALSE
-            )
-          })
-          
-          # Log completion
-          cat(sprintf("[%s] Completed job %s - status: %s\n",
-                      timestamp, job_id, result$status[1]))
-          
-          result
-        },
-        error = "continue"  # Continue pipeline even if one task fails
-      )
+    values = {
+      grid <- tidyr::expand_grid(datasets_idents, task_name = active_tasks)
+      grid <- tidyr::separate_longer_delim(grid, ident_cols, delim = ",")
+      grid$ident_col <- trimws(grid$ident_cols)
+      grid <- dplyr::filter(grid, nzchar(ident_col))
+      grid
+    },
+    tar_target(
+      name = task_result,
+      command = {
+        # Logging
+        timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+        job_id <- sprintf("%s:%s:%s", dataset_id, ident_col, task_name)
+        cat(sprintf("[%s] Starting job %s\n", timestamp, job_id))
+
+        # Create output directory
+        output_dir <- file.path(config$output$dir, dataset_id)
+        dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+        # Execute single task
+        result <- tryCatch({
+          run_isc_benchmark_on_dataset(
+            dataset_id = dataset_id,
+            ident_col = ident_col,
+            task_name = task_name,
+            dataset_path = dataset_file,
+            dataset_stems = dataset_stems,
+            config = config,
+            output_dir = output_dir
+          )
+        }, error = function(e) {
+          # Return error data frame on failure
+          data.frame(
+            dataset_id = dataset_id,
+            ident = ident_col,
+            task = task_name,
+            status = "failed",
+            error = as.character(e$message),
+            n_results = 0,
+            stringsAsFactors = FALSE
+          )
+        })
+
+        # Log completion
+        cat(sprintf("[%s] Completed job %s - status: %s\n",
+                    timestamp, job_id, result$status[1]))
+
+        result
+      },
+      error = "continue"  # Continue pipeline even if one task fails
     )
   ),
   
