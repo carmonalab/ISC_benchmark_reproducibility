@@ -84,6 +84,14 @@ get_isc_config <- function() {
 #' @param config Configuration list
 #' @param selected_dataset_ids Optional character vector of dataset IDs to keep
 #' @return Data frame: dataset_id, dataset_file, ident_cols (as comma-separated string)
+normalize_dataset_family <- function(dataset_id) {
+  family <- sub("_.*$", "", dataset_id)
+  if (family == "StephensonE") {
+    return("Stephenson")
+  }
+  family
+}
+
 get_dataset_idents <- function(config, selected_dataset_ids = NULL) {
   
   # Load ident definitions
@@ -102,29 +110,29 @@ get_dataset_idents <- function(config, selected_dataset_ids = NULL) {
   
   # Extract dataset IDs (prefixes before last underscore+suffix)
   basename_only <- basename(files)
-  prefixes <- unique(sub("_[^_]+\\.rds$", "", basename_only))
+  dataset_ids <- unique(sub("\.rds$", "", basename_only))
   
   # Build dataset table
-  dataset_info <- lapply(prefixes, function(prefix) {
-    # First file for this dataset (any from the batch splits)
-    prefix_files <- files[grep(paste0("^", prefix, "_"), basename_only)]
+  dataset_info <- lapply(dataset_ids, function(dataset_id) {
+    dataset_file <- files[match(paste0(dataset_id, ".rds"), basename_only)]
     
-    if (length(prefix_files) == 0) {
-      warning("No files found for prefix: ", prefix)
+    if (length(dataset_file) == 0 || is.na(dataset_file)) {
+      warning("No file found for dataset: ", dataset_id)
       return(NULL)
     }
     
-    # Get ident columns for this dataset
-    ident_cols <- ident_mapping[[prefix]]
+    family_id <- normalize_dataset_family(dataset_id)
+    ident_cols <- ident_mapping[[family_id]]
     
     if (is.null(ident_cols)) {
-      warning("No ident columns defined in config for: ", prefix)
+      warning("No ident columns defined in config for: ", family_id)
       return(NULL)
     }
     
     data.frame(
-      dataset_id = prefix,
-      dataset_file = prefix_files[1],
+      dataset_id = dataset_id,
+      dataset_file = dataset_file,
+      dataset_family = family_id,
       ident_cols = paste(ident_cols, collapse = ","),
       stringsAsFactors = FALSE
     )
