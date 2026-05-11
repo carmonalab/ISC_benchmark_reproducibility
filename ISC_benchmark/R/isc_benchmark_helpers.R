@@ -1003,6 +1003,12 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
 #'
 #' @return Data frame with metrics, rates, and degradation scores
 extract_task_metrics <- function(wr_result, task_name, metric_type) {
+  if (is.null(wr_result)) {
+    stop("Task '", task_name, "' returned NULL results")
+  }
+  if (!is.data.frame(wr_result) || nrow(wr_result) == 0) {
+    stop("Task '", task_name, "' returned no rows to score")
+  }
   
   # Use scTypeEval's built-in plotting function to extract metrics
   # This returns a tidy data frame suitable for analysis

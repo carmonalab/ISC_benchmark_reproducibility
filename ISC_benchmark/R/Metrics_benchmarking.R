@@ -1,6 +1,11 @@
 
 downsample_factor_level <- function(df, factor_col, level, threshold, seed = 22) {
    set.seed(seed) # Set seed for reproducibility
+   threshold <- suppressWarnings(as.numeric(threshold))[1]
+   if (!is.finite(threshold) || is.na(threshold)) {
+      return(df)
+   }
+   threshold <- max(0, floor(threshold))
    
    # Split the dataframe into the target level and the rest
    target_df <- df |> dplyr::filter(!!rlang::sym(factor_col) == level)
@@ -377,7 +382,16 @@ wr_nsamples <- function(count_matrix,
    
    # number of samples
    ss <- unique(metadata[[sample]])
+   rates <- suppressWarnings(as.numeric(unlist(rates)))
+   rates <- rates[is.finite(rates) & !is.na(rates)]
+   if(length(rates) == 0){
+      stop("No valid numeric rates supplied to wr_nsamples")
+   }
    nsamples <- floor(length(ss) * rates)
+   nsamples <- unique(nsamples[nsamples >= 1 & nsamples <= length(ss)])
+   if(length(nsamples) == 0){
+      stop("No valid sample sizes generated from rates in wr_nsamples")
+   }
    nss <- list()
    
    for(s in names(sds)){
@@ -470,6 +484,9 @@ wr_nsamples <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
+   if(is.null(df_res) || nrow(df_res) == 0){
+      stop("wr_nsamples produced no valid result rows")
+   }
    
    if(!is.null(dir)){
       saveRDS(df_res,
@@ -686,6 +703,16 @@ wr_ncell <- function(count_matrix,
    # get number of cells from ctype
    nb <- table(metadata[[ident]])
    nb <- nb[ctype]
+   nb <- suppressWarnings(as.numeric(nb))[1]
+   if(!is.finite(nb) || is.na(nb) || nb <= 0){
+      stop("Invalid number of cells for selected cell type in wr_ncell")
+   }
+
+   rates <- suppressWarnings(as.numeric(unlist(rates)))
+   rates <- rates[is.finite(rates) & !is.na(rates)]
+   if(length(rates) == 0){
+      stop("No valid numeric rates supplied to wr_ncell")
+   }
    
    
    # get the gene list, the same for every run
@@ -708,18 +735,22 @@ wr_ncell <- function(count_matrix,
       gl <- gene_list
    }
    
-   combi <- expand.grid(names(sds), rates)
+   combi <- expand.grid(rep_id = names(sds), rate = rates, stringsAsFactors = FALSE)
    
    df_res <- lapply(seq_len(nrow(combi)),
                     function(i){
                        tryCatch(
                           {
                              ## run scTypeEval
-                             s <- combi[i,][1] |> as.numeric()
-                             ns <- combi[i,][2] |> as.numeric()
+                             s <- suppressWarnings(as.numeric(combi$rep_id[i]))
+                             ns <- suppressWarnings(as.numeric(combi$rate[i]))
+                             if(!is.finite(s) || is.na(s) || !is.finite(ns) || is.na(ns)){
+                                stop("Invalid replicate/rate combination in wr_ncell")
+                             }
                              # create scTypeEval object with the number of samples
                              # subset cell type
                              th <- floor(ns*nb)
+                             th <- max(0, th)
                              # subset metadata for specific cell
                              md <- downsample_factor_level(metadata,
                                                            ident,
@@ -779,6 +810,9 @@ wr_ncell <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
+   if(is.null(df_res) || nrow(df_res) == 0){
+      stop("wr_ncell produced no valid result rows")
+   }
    ctype_name <- scTypeEval:::purge_label(ctype)
    
    if(!is.null(dir)){
