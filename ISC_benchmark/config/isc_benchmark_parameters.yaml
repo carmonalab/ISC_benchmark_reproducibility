@@ -101,7 +101,7 @@ common:
   hclust_method: "ward.D2"             # Hierarchical clustering method
   
   # Output options
-  save_plots: true                      # Save diagnostic plots
+  save_plots: false                      # Save diagnostic plots
   verbose: true                         # Detailed messages
   progressbar: false                    # Progress bars for BiocParallel
 
@@ -223,11 +223,4 @@ task_biological_perturbations:
   type: "drop"
   
   # Condition column name in metadata (e.g., "treatment", "disease_status", "timepoint")
-  condition_col: "condition"           # Metadata column containing biological conditions
-
-# ============================================================================
-# OUTPUT CONFIGURATION
-# ============================================================================
-output:
-  save_plots: false                      # Save diagnostic plots
-  plot_format: "pdf"                    # Plot format: png, pdf, or both
+  condition_col: "condition"           # Metadata column containing biological conditions                # Plot format: png, pdf, or both
