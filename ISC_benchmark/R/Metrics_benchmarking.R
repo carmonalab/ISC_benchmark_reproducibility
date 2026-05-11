@@ -477,7 +477,7 @@ wr_nsamples <- function(count_matrix,
                                                              reduction = reduction,
                                                              ndim = ndim,
                                                              normalization_method = normalization_method,
-            df_res <- do.call(rbind, df_res)
+                                                             dissimilarity_method = dissimilarity_method,
                                                              min_samples = min_samples,
                                                              min_cells = min_cells,
                                                              bparam = param,
