@@ -87,9 +87,6 @@ get_isc_config <- function() {
 #' @return Data frame with dataset_id, dataset_file, dataset_family, dataset_stems, ident_cols
 normalize_dataset_family <- function(dataset_id) {
   family <- sub("_.*$", "", dataset_id)
-  if (family == "StephensonE") {
-    return("Stephenson")
-  }
   family
 }
 

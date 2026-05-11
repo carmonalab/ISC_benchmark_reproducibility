@@ -99,9 +99,6 @@ read_dataset_ids() {
     [[ -z "$processed_id" ]] && continue
 
     local_family="${processed_id%%_*}"
-    if [[ "$local_family" == "StephensonE" ]]; then
-      local_family="Stephenson"
-    fi
 
     if [[ -n "${family_lookup[$local_family]:-}" ]]; then
       processed_lookup["$processed_id"]=1
@@ -157,9 +154,6 @@ read_dataset_families() {
   while IFS= read -r dataset_stem; do
     [[ -z "$dataset_stem" ]] && continue
     family_name="${dataset_stem%%_*}"
-    if [[ "$family_name" == "StephensonE" ]]; then
-      family_name="Stephenson"
-    fi
 
     if [[ -n "$requested_raw" && -z "${requested_lookup[$family_name]:-}" ]]; then
       continue
