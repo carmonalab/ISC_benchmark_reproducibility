@@ -65,7 +65,7 @@ ensure_r_environment() {
 }
 
 read_dataset_ids() {
-  cd "$PROJECT_DIR/ISC_benchmark"
+  cd "$PROJECT_DIR"
 
   local requested_raw=""
   local requested_value
@@ -135,7 +135,7 @@ read_dataset_ids() {
 }
 
 read_dataset_families() {
-  cd "$PROJECT_DIR/ISC_benchmark"
+  cd "$PROJECT_DIR"
 
   local requested_raw="${ISC_DATASET_FAMILIES:-},${ISC_DATASET_FAMILY:-}"
   local -a families=()
@@ -181,7 +181,7 @@ run_dataset_locally() {
   log_message "INFO" "Running dataset locally: $dataset_id"
 
   ensure_r_environment
-  cd "$PROJECT_DIR/ISC_benchmark"
+  cd "$PROJECT_DIR"
   ISC_DATASET_ID="$dataset_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
 activate <- file.path(project_root, "renv", "activate.R")
@@ -216,7 +216,7 @@ run_family_locally() {
   log_message "INFO" "Running family locally: $family_id"
 
   ensure_r_environment
-  cd "$PROJECT_DIR/ISC_benchmark"
+  cd "$PROJECT_DIR"
   ISC_DATASET_FAMILIES="$family_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
 activate <- file.path(project_root, "renv", "activate.R")
@@ -286,7 +286,7 @@ if command -v module >/dev/null 2>&1; then
   module load libwebp/1.3.1 2>/dev/null || true
 fi
 
-cd "$PROJECT_DIR/ISC_benchmark"
+cd "$PROJECT_DIR"
 
 echo "========== Job Started =========="
 echo "Time: $(date)"
