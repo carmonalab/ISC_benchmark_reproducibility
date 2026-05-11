@@ -197,8 +197,20 @@ cat("[INFO] ISC_DATASET_ID = ", Sys.getenv("ISC_DATASET_ID"), "\n", sep = "")
 
 library(targets)
 
+selector <- Sys.getenv("ISC_DATASET_ID", unset = "")
+if (!nzchar(selector)) {
+  selector <- Sys.getenv("ISC_DATASET_FAMILIES", unset = "")
+}
+if (!nzchar(selector)) {
+  selector <- "default"
+}
+safe_selector <- gsub("[^A-Za-z0-9._-]", "_", selector)
+store_dir <- file.path("_targets", paste0("store_", safe_selector))
+dir.create(store_dir, showWarnings = FALSE, recursive = TRUE)
+cat("[INFO] targets store = ", store_dir, "\n", sep = "")
+
 message("Starting targets::tar_make(callr_function = NULL) at ", Sys.time())
-targets::tar_make(callr_function = NULL)
+targets::tar_make(callr_function = NULL, store = store_dir)
 message("Finished targets::tar_make(callr_function = NULL) at ", Sys.time())
 RS
 }
@@ -225,8 +237,20 @@ cat("[INFO] ISC_TASKS = ", Sys.getenv("ISC_TASKS"), "\n", sep = "")
 
 library(targets)
 
+selector <- Sys.getenv("ISC_DATASET_ID", unset = "")
+if (!nzchar(selector)) {
+  selector <- Sys.getenv("ISC_DATASET_FAMILIES", unset = "")
+}
+if (!nzchar(selector)) {
+  selector <- "default"
+}
+safe_selector <- gsub("[^A-Za-z0-9._-]", "_", selector)
+store_dir <- file.path("_targets", paste0("store_", safe_selector))
+dir.create(store_dir, showWarnings = FALSE, recursive = TRUE)
+cat("[INFO] targets store = ", store_dir, "\n", sep = "")
+
 message("Starting targets::tar_make(callr_function = NULL) at ", Sys.time())
-targets::tar_make(callr_function = NULL)
+targets::tar_make(callr_function = NULL, store = store_dir)
 message("Finished targets::tar_make(callr_function = NULL) at ", Sys.time())
 RS
 }
@@ -298,8 +322,20 @@ cat("[INFO] ISC_TASKS = ", Sys.getenv("ISC_TASKS"), "\n", sep = "")
 
 library(targets)
 
+selector <- Sys.getenv("ISC_DATASET_ID", unset = "")
+if (!nzchar(selector)) {
+  selector <- Sys.getenv("ISC_DATASET_FAMILIES", unset = "")
+}
+if (!nzchar(selector)) {
+  selector <- "default"
+}
+safe_selector <- gsub("[^A-Za-z0-9._-]", "_", selector)
+store_dir <- file.path("_targets", paste0("store_", safe_selector))
+dir.create(store_dir, showWarnings = FALSE, recursive = TRUE)
+cat("[INFO] targets store = ", store_dir, "\n", sep = "")
+
 message("Starting targets::tar_make(callr_function = NULL) at ", Sys.time())
-targets::tar_make(callr_function = NULL)
+targets::tar_make(callr_function = NULL, store = store_dir)
 message("Finished targets::tar_make(callr_function = NULL) at ", Sys.time())
 RS
 

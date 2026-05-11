@@ -52,8 +52,8 @@ tar_option_set(
     "yaml", "dplyr", "tidyr", "Seurat", "SeuratObject", 
     "Matrix", "scTypeEval", "BiocParallel"
   ),
-  storage = "worker",
-  retrieval = "worker"
+  storage = "main",
+  retrieval = "main"
 )
 
 # ============================================================================
@@ -65,11 +65,22 @@ tar_option_set(
 #' @return List with configuration, paths, and options
 get_isc_config <- function() {
   config <- read_yaml("config/isc_benchmark_parameters.yaml")
+
+  if (is.null(config$paths$data_processed) || is.null(config$paths$results_root)) {
+    stop("Missing required config entries: paths.data_processed and/or paths.results_root")
+  }
+
+  resolve_root_path <- function(path_value, mustWork = TRUE) {
+    if (startsWith(path_value, "/")) {
+      return(normalizePath(path_value, mustWork = mustWork))
+    }
+    normalizePath(proj_path(path_value), mustWork = mustWork)
+  }
   
-  # Set absolute paths (relative to ISC_benchmark directory)
-  config$processed_data_dir <- normalizePath("../data/processed")
-  config$output$dir <- normalizePath("../results/isc_benchmark")
-  config$dataset_idents_file <- normalizePath("config/dataset_idents.yaml")
+  # Set absolute paths from config paths (relative to project root)
+  config$processed_data_dir <- resolve_root_path(config$paths$data_processed, mustWork = TRUE)
+  config$output$dir <- resolve_root_path(config$paths$results_root, mustWork = FALSE)
+  config$dataset_idents_file <- normalizePath("config/dataset_idents.yaml", mustWork = TRUE)
   
   # Create output directories
   dir.create(config$output$dir, showWarnings = FALSE, recursive = TRUE)
@@ -313,60 +324,62 @@ list(
   ),
   
   # ========== DYNAMIC TARGETS: Per dataset × task × ident ==========
-  # Each target is one independent task execution.
-  # Build a flat static mapping table to avoid nested tar_map symbol resolution issues.
-  tar_map(
-    values = {
+  # Build branching rows dynamically from upstream targets.
+  tar_target(
+    task_grid,
+    {
       grid <- tidyr::expand_grid(datasets_idents, task_name = active_tasks)
       grid <- tidyr::separate_longer_delim(grid, ident_cols, delim = ",")
       grid$ident_col <- trimws(grid$ident_cols)
-      grid <- dplyr::filter(grid, nzchar(ident_col))
-      grid
+      dplyr::filter(grid, nzchar(ident_col))
+    }
+  ),
+
+  # Each branch is one independent task execution suitable for HPC jobs.
+  tar_target(
+    task_result,
+    {
+      # Logging
+      timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
+      job_id <- sprintf("%s:%s:%s", task_grid$dataset_id, task_grid$ident_col, task_grid$task_name)
+      cat(sprintf("[%s] Starting job %s\n", timestamp, job_id))
+
+      # Create output directory
+      output_dir <- file.path(config$output$dir, task_grid$dataset_id)
+      dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+
+      # Execute single task
+      result <- tryCatch({
+        run_isc_benchmark_on_dataset(
+          dataset_id = task_grid$dataset_id,
+          ident_col = task_grid$ident_col,
+          task_name = task_grid$task_name,
+          dataset_path = task_grid$dataset_file,
+          dataset_stems = task_grid$dataset_stems,
+          config = config,
+          output_dir = output_dir
+        )
+      }, error = function(e) {
+        # Return error data frame on failure
+        data.frame(
+          dataset_id = task_grid$dataset_id,
+          ident = task_grid$ident_col,
+          task = task_grid$task_name,
+          status = "failed",
+          error = as.character(e$message),
+          n_results = 0,
+          stringsAsFactors = FALSE
+        )
+      })
+
+      # Log completion
+      cat(sprintf("[%s] Completed job %s - status: %s\n",
+                  timestamp, job_id, result$status[1]))
+
+      result
     },
-    tar_target(
-      name = task_result,
-      command = {
-        # Logging
-        timestamp <- format(Sys.time(), "%Y-%m-%d %H:%M:%S")
-        job_id <- sprintf("%s:%s:%s", dataset_id, ident_col, task_name)
-        cat(sprintf("[%s] Starting job %s\n", timestamp, job_id))
-
-        # Create output directory
-        output_dir <- file.path(config$output$dir, dataset_id)
-        dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
-
-        # Execute single task
-        result <- tryCatch({
-          run_isc_benchmark_on_dataset(
-            dataset_id = dataset_id,
-            ident_col = ident_col,
-            task_name = task_name,
-            dataset_path = dataset_file,
-            dataset_stems = dataset_stems,
-            config = config,
-            output_dir = output_dir
-          )
-        }, error = function(e) {
-          # Return error data frame on failure
-          data.frame(
-            dataset_id = dataset_id,
-            ident = ident_col,
-            task = task_name,
-            status = "failed",
-            error = as.character(e$message),
-            n_results = 0,
-            stringsAsFactors = FALSE
-          )
-        })
-
-        # Log completion
-        cat(sprintf("[%s] Completed job %s - status: %s\n",
-                    timestamp, job_id, result$status[1]))
-
-        result
-      },
-      error = "continue"  # Continue pipeline even if one task fails
-    )
+    pattern = map(task_grid),
+    error = "continue"  # Continue pipeline even if one task fails
   ),
   
   # ========== AGGREGATION TARGETS ==========
@@ -375,13 +388,8 @@ list(
   tar_target(
     all_results,
     {
-      # Combine all task_result targets (targets framework handles pattern matching)
-      all_task_results <- tar_read_raw_list(
-        grep("^task_result_", tar_progress()$name, value = TRUE)
-      )
-      
-      # Bind into single data frame
-      combined <- do.call(rbind, all_task_results)
+      # Bind all branched task_result outputs
+      combined <- dplyr::bind_rows(task_result)
       rownames(combined) <- NULL
       
       message(sprintf("\nAggregated %d task results", nrow(combined)))
