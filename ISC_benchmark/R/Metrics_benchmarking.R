@@ -153,12 +153,12 @@ wrapper_dissimilarity <- function(scTypeEval,
                                     verbose = verbose)
 
    if(is.null(gene_list)){
-         scTypeEval <- run_hvg(sc,scTypeEval
+         scTypeEval <- run_hvg(scTypeEval,
                               aggregation = "single-cell",
                               BPPARAM = bparam,
                               verbose = verbose)
    } else {
-      scTypeEval <- add_gene_list(scTypeEval, gene_list))
+      scTypeEval <- add_gene_list(scTypeEval, gene_list)
    }                                 
    
    
