@@ -84,14 +84,6 @@ get_isc_config <- function() {
 #' @param config Configuration list
 #' @param selected_dataset_ids Optional character vector of dataset IDs to keep
 #' @return Data frame: dataset_id, dataset_file, ident_cols (as comma-separated string)
-normalize_dataset_family <- function(dataset_id) {
-  family <- sub("_.*$", "", dataset_id)
-  if (family == "StephensonE") {
-    return("Stephenson")
-  }
-  family
-}
-
 get_dataset_idents <- function(config, selected_dataset_ids = NULL) {
   
   # Load ident definitions
@@ -121,8 +113,8 @@ get_dataset_idents <- function(config, selected_dataset_ids = NULL) {
       return(NULL)
     }
     
-    family_id <- normalize_dataset_family(dataset_id)
-    ident_cols <- ident_mapping[[family_id]]
+    # Get ident columns for this dataset
+    ident_cols <- ident_mapping[[prefix]]
     
     if (is.null(ident_cols)) {
       warning("No ident columns defined in config for: ", family_id)
