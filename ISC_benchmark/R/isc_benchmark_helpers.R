@@ -41,6 +41,10 @@ local({
 #' @param obj Seurat object
 #' @param ident_col Cell type annotation column
 #' @param config Configuration list (from YAML)
+# ============================================================================
+# BASELINE ISC (rate = 1 / single, unperturbed) CACHING
+# ============================================================================
+
 #'
 #' @return List with count_matrix, metadata, and metadata_filtered
 prepare_scTypeEval_object <- function(obj, ident_col, config) {
@@ -99,6 +103,91 @@ load_and_merge_processed_datasets <- function(dataset_stems, config) {
     add.cell.ids = dataset_stems
   )
   merged
+}
+
+# ==========================================================================
+# BASELINE ISC (rate = 1) CACHING
+# ==========================================================================
+
+.baseline_task_labels <- list(
+  missclassify = "Missclassification",
+  SplitCelltype = "SplitCelltype",
+  Nsamples = "NSamples",
+  NCell = "NCell"
+)
+
+#' Compute or load the unperturbed baseline ISC result
+#'
+#' This runs wr_missclasify once at rate = 1 and caches the output on disk so
+#' tasks 1, 2, 5, and 6 can reuse the same baseline for a given dataset/ident.
+get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
+  if (file.exists(cache_path)) {
+    message_step("BASELINE", sprintf("Loading cached baseline from %s", basename(cache_path)))
+    return(readRDS(cache_path))
+  }
+
+  message_step("BASELINE", "Computing unperturbed baseline (rate = 1)")
+
+  params <- c(
+    obj_prepared,
+    config$common,
+    list(
+      rates = 1,
+      replicates = 1,
+      dir = NULL,
+      save_plots = FALSE
+    )
+  )
+
+  baseline_df <- do.call(wr_missclasify, params)
+  saveRDS(baseline_df, cache_path)
+
+  message_step("BASELINE", sprintf("Cached baseline to %s", basename(cache_path)))
+  baseline_df
+}
+
+#' Re-label a baseline dataframe for a specific task
+baseline_for_task <- function(baseline_df, task_name) {
+  task_label <- .baseline_task_labels[[task_name]]
+  if (is.null(task_label)) {
+    stop("Unknown baseline task: ", task_name)
+  }
+
+  baseline_df$task <- task_label
+  baseline_df
+}
+
+#' Run scTypeEval on a cell subset with in-memory caching
+#'
+#' The same single-batch or single-condition subset can appear in multiple
+#' comparisons inside tasks 7 and 8. This helper makes those repeated calls
+#' return the exact same scTypeEval result without recomputation.
+run_cached_subset_scTypeEval <- function(count_matrix,
+                                         metadata,
+                                         cell_idx,
+                                         ident,
+                                         config,
+                                         cache_env,
+                                         cache_key,
+                                         cache_label) {
+  if (exists(cache_key, envir = cache_env, inherits = FALSE)) {
+    message(sprintf("    [cache hit] Reusing ISC for %s", cache_label))
+    return(get(cache_key, envir = cache_env, inherits = FALSE))
+  }
+
+  result <- scTypeEval::wrapper_scTypeEval(
+    count_matrix = count_matrix[, cell_idx, drop = FALSE],
+    metadata = metadata[cell_idx, , drop = FALSE],
+    ident = ident,
+    sample = config$common$sample_col,
+    dissimilarity_method = config$common$dissimilarity_method,
+    reduction = config$common$reduction,
+    ndim = config$common$ndim,
+    verbose = FALSE
+  )
+
+  assign(cache_key, result, envir = cache_env)
+  result
 }
 
 # ============================================================================
@@ -335,9 +424,15 @@ get_ratio <- function(mb, df, col = "batch") {
 # ============================================================================
 
 #' Run Task 1: Sensitivity to cell type signal degradation (label noise)
-run_task_missclassify <- function(obj_prepared, config, task_config, output_dir) {
+run_task_missclassify <- function(obj_prepared, config, task_config, output_dir,
+                                   baseline_df = NULL) {
   message("Running Task 1: Sensitivity to cell type signal degradation (Label Noise)")
   
+  if (!is.null(baseline_df)) {
+    task_config$rates <- task_config$rates[task_config$rates != 1]
+    message("  [baseline reuse] Skipping rate=1; will prepend cached baseline")
+  }
+
   params <- c(
     obj_prepared,
     config$common,
@@ -346,13 +441,24 @@ run_task_missclassify <- function(obj_prepared, config, task_config, output_dir)
   )
   
   wr <- do.call(wr_missclasify, params)
+
+  if (!is.null(baseline_df)) {
+    wr <- rbind(baseline_for_task(baseline_df, "missclassify"), wr)
+  }
+
   wr
 }
 
 #' Run Task 2: Sensitivity to cell type over-partitioning (artificial subtypes)
-run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir) {
+run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir,
+                                    baseline_df = NULL) {
   message("Running Task 2: Sensitivity to cell type over-partitioning")
   
+  if (!is.null(baseline_df)) {
+    task_config$rates <- task_config$rates[task_config$rates != 1]
+    message("  [baseline reuse] Skipping rate=1; will prepend cached baseline")
+  }
+
   params <- c(
     obj_prepared,
     config$common,
@@ -361,6 +467,11 @@ run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir
   )
   
   wr <- do.call(wr_split_cell_type, params)
+
+  if (!is.null(baseline_df)) {
+    wr <- rbind(baseline_for_task(baseline_df, "SplitCelltype"), wr)
+  }
+
   wr
 }
 
@@ -396,9 +507,15 @@ run_task_cellular_complexity <- function(obj_prepared, config, task_config, outp
 }
 
 #' Run Task 5: Robustness to dataset size - samples (varying sample count)
-run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir) {
+run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir,
+                               baseline_df = NULL) {
   message("Running Task 5: Robustness to dataset size (samples)")
   
+  if (!is.null(baseline_df)) {
+    task_config$rates <- task_config$rates[task_config$rates != 1]
+    message("  [baseline reuse] Skipping rate=1; will prepend cached baseline")
+  }
+
   params <- c(
     obj_prepared,
     config$common,
@@ -407,13 +524,24 @@ run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir) {
   )
   
   wr <- do.call(wr_nsamples, params)
+
+  if (!is.null(baseline_df)) {
+    wr <- rbind(baseline_for_task(baseline_df, "Nsamples"), wr)
+  }
+
   wr
 }
 
 #' Run Task 6: Robustness to dataset size - cells (varying cells per cell type)
-run_task_NCell <- function(obj_prepared, config, task_config, output_dir) {
+run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
+                            baseline_df = NULL) {
   message("Running Task 6: Robustness to dataset size (cells)")
   
+  if (!is.null(baseline_df)) {
+    task_config$rates <- task_config$rates[task_config$rates != 1]
+    message("  [baseline reuse] Skipping rate=1; will prepend cached baseline")
+  }
+
   params <- c(
     obj_prepared,
     config$common,
@@ -422,6 +550,11 @@ run_task_NCell <- function(obj_prepared, config, task_config, output_dir) {
   )
   
   wr <- do.call(wr_ncell, params)
+
+  if (!is.null(baseline_df)) {
+    wr <- rbind(baseline_for_task(baseline_df, "NCell"), wr)
+  }
+
   wr
 }
 
@@ -473,80 +606,88 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
   
   tidy_results <- data.frame()
   
+  # Cache single-batch ISC results; the same batch can appear in multiple pairs.
+  single_isc_cache <- new.env(parent = emptyenv())
+
   # Process each batch pair
   for (pair_idx in seq_along(batch_pairs)) {
-    pair <- batch_pairs[[pair_idx]]
-    batch1 <- pair$batch1
-    batch2 <- pair$batch2
-    pair_name <- pair$pair_name
-    dataset_ref <- pair$dataset
-    
-    message(sprintf("  Processing batch pair %d/%d: %s + %s",
-                    pair_idx, length(batch_pairs), batch1, batch2))
-    
-    # Get cells for each batch
-    batch1_cells <- which(metadata[[batch_col]] == batch1)
-    batch2_cells <- which(metadata[[batch_col]] == batch2)
-    
-    if (length(batch1_cells) < 50 || length(batch2_cells) < 50) {
-      message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
-                      length(batch1_cells), length(batch2_cells)))
-      next
-    }
-    
-    # Compute ISC for individual batches
-    isc_batch1 <- scTypeEval::wrapper_scTypeEval(
-      count_matrix = count_matrix[, batch1_cells],
-      metadata = metadata[batch1_cells, , drop = FALSE],
-      ident = obj_prepared$ident,
-      sample = config$common$sample_col,
-      dissimilarity_method = config$common$dissimilarity_methods,
-      reduction = config$common$reduction,
-      ndim = config$common$n_dims,
-      verbose = FALSE
-    )
-    
-    isc_batch2 <- scTypeEval::wrapper_scTypeEval(
-      count_matrix = count_matrix[, batch2_cells],
-      metadata = metadata[batch2_cells, , drop = FALSE],
-      ident = obj_prepared$ident,
-      sample = config$common$sample_col,
-      dissimilarity_method = config$common$dissimilarity_methods,
-      reduction = config$common$reduction,
-      ndim = config$common$n_dims,
-      verbose = FALSE
-    )
-    
-    # Compute ISC for combined batches
-    combined_cells <- c(batch1_cells, batch2_cells)
-    isc_combined <- scTypeEval::wrapper_scTypeEval(
-      count_matrix = count_matrix[, combined_cells],
-      metadata = metadata[combined_cells, , drop = FALSE],
-      ident = obj_prepared$ident,
-      sample = config$common$sample_col,
-      dissimilarity_method = config$common$dissimilarity_methods,
-      reduction = config$common$reduction,
-      ndim = config$common$n_dims,
-      verbose = FALSE
-    )
-    
-    # Convert to tidy format for get_ratio()
-    batch1_tidy <- scTypeEval::get_consistency(isc_batch1) %>%
-      mutate(batch = batch1, dataset = dataset_ref, ident = obj_prepared$ident)
-    
-    batch2_tidy <- scTypeEval::get_consistency(isc_batch2) %>%
-      mutate(batch = batch2, dataset = dataset_ref, ident = obj_prepared$ident)
-    
-    combined_tidy <- scTypeEval::get_consistency(isc_combined) %>%
-      mutate(batch = pair_name, dataset = dataset_ref, ident = obj_prepared$ident)
-    
-    # Combine into single tidy frame for this pair
-    pair_tidy <- rbind(batch1_tidy, batch2_tidy, combined_tidy)
-    
-    # Compute degradation score using get_ratio()
-    pair_scores <- get_ratio(pair_name, pair_tidy, col = "batch")
-    
-    tidy_results <- rbind(tidy_results, pair_scores)
+    tryCatch({
+      pair <- batch_pairs[[pair_idx]]
+      batch1 <- pair$batch1
+      batch2 <- pair$batch2
+      pair_name <- pair$pair_name
+      dataset_ref <- pair$dataset
+      
+      message(sprintf("  Processing batch pair %d/%d: %s + %s",
+                      pair_idx, length(batch_pairs), batch1, batch2))
+      
+      # Get cells for each batch
+      batch1_cells <- which(metadata[[batch_col]] == batch1)
+      batch2_cells <- which(metadata[[batch_col]] == batch2)
+      
+      if (length(batch1_cells) < 50 || length(batch2_cells) < 50) {
+        message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
+                        length(batch1_cells), length(batch2_cells)))
+      } else {
+        # Compute ISC for individual batches using the shared subset cache.
+        isc_batch1 <- run_cached_subset_scTypeEval(
+          count_matrix = count_matrix,
+          metadata = metadata,
+          cell_idx = batch1_cells,
+          ident = obj_prepared$ident,
+          config = config,
+          cache_env = single_isc_cache,
+          cache_key = paste0("batch:", batch1),
+          cache_label = sprintf("batch '%s'", batch1)
+        )
+
+        isc_batch2 <- run_cached_subset_scTypeEval(
+          count_matrix = count_matrix,
+          metadata = metadata,
+          cell_idx = batch2_cells,
+          ident = obj_prepared$ident,
+          config = config,
+          cache_env = single_isc_cache,
+          cache_key = paste0("batch:", batch2),
+          cache_label = sprintf("batch '%s'", batch2)
+        )
+        
+        # Compute ISC for combined batches
+        combined_cells <- c(batch1_cells, batch2_cells)
+        isc_combined <- scTypeEval::wrapper_scTypeEval(
+          count_matrix = count_matrix[, combined_cells],
+          metadata = metadata[combined_cells, , drop = FALSE],
+          ident = obj_prepared$ident,
+          sample = config$common$sample_col,
+          dissimilarity_method = config$common$dissimilarity_method,
+          reduction = config$common$reduction,
+          ndim = config$common$ndim,
+          verbose = FALSE
+        )
+        
+        # Convert to tidy format for get_ratio()
+        batch1_tidy <- scTypeEval::get_consistency(isc_batch1) %>%
+          mutate(batch = batch1, dataset = dataset_ref, ident = obj_prepared$ident)
+        
+        batch2_tidy <- scTypeEval::get_consistency(isc_batch2) %>%
+          mutate(batch = batch2, dataset = dataset_ref, ident = obj_prepared$ident)
+        
+        combined_tidy <- scTypeEval::get_consistency(isc_combined) %>%
+          mutate(batch = pair_name, dataset = dataset_ref, ident = obj_prepared$ident)
+        
+        # Combine into single tidy frame for this pair
+        pair_tidy <- rbind(batch1_tidy, batch2_tidy, combined_tidy)
+        
+        # Compute degradation score using get_ratio()
+        pair_scores <- get_ratio(pair_name, pair_tidy, col = "batch")
+        
+        tidy_results <- rbind(tidy_results, pair_scores)
+      }
+    }, error = function(e) {
+      message(sprintf("    ERROR: Batch pair %d failed (%s). Continuing with next pair.",
+                      pair_idx, e$message))
+      NULL
+    })
   }
   
   # Combine all results
@@ -609,81 +750,89 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   
   tidy_results <- data.frame()
   
+  # Cache single-condition ISC results; the same condition can appear in multiple pairs.
+  single_isc_cache <- new.env(parent = emptyenv())
+
   # Process each condition pair
   for (pair_idx in seq_along(condition_pairs)) {
-    pair <- condition_pairs[[pair_idx]]
-    cond1 <- pair$condition1
-    cond2 <- pair$condition2
-    pair_name <- pair$pair_name
-    dataset_ref <- pair$dataset
-    
-    message(sprintf("  Processing condition pair %d/%d: %s + %s",
-                    pair_idx, length(condition_pairs), cond1, cond2))
-    
-    # Get cells for each condition
-    cond1_cells <- which(metadata[[condition_col]] == cond1)
-    cond2_cells <- which(metadata[[condition_col]] == cond2)
-    
-    if (length(cond1_cells) < 50 || length(cond2_cells) < 50) {
-      message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
-                      length(cond1_cells), length(cond2_cells)))
-      next
-    }
-    
-    # Compute ISC for individual conditions
-    isc_cond1 <- scTypeEval::wrapper_scTypeEval(
-      count_matrix = count_matrix[, cond1_cells],
-      metadata = metadata[cond1_cells, , drop = FALSE],
-      ident = obj_prepared$ident,
-      sample = config$common$sample_col,
-      dissimilarity_method = config$common$dissimilarity_methods,
-      reduction = config$common$reduction,
-      ndim = config$common$n_dims,
-      verbose = FALSE
-    )
-    
-    isc_cond2 <- scTypeEval::wrapper_scTypeEval(
-      count_matrix = count_matrix[, cond2_cells],
-      metadata = metadata[cond2_cells, , drop = FALSE],
-      ident = obj_prepared$ident,
-      sample = config$common$sample_col,
-      dissimilarity_method = config$common$dissimilarity_methods,
-      reduction = config$common$reduction,
-      ndim = config$common$n_dims,
-      verbose = FALSE
-    )
-    
-    # Compute ISC for combined conditions
-    combined_cells <- c(cond1_cells, cond2_cells)
-    isc_combined <- scTypeEval::wrapper_scTypeEval(
-      count_matrix = count_matrix[, combined_cells],
-      metadata = metadata[combined_cells, , drop = FALSE],
-      ident = obj_prepared$ident,
-      sample = config$common$sample_col,
-      dissimilarity_method = config$common$dissimilarity_methods,
-      reduction = config$common$reduction,
-      ndim = config$common$n_dims,
-      verbose = FALSE
-    )
-    
-    # Convert to tidy format for get_ratio()
-    cond1_tidy <- scTypeEval::get_consistency(isc_cond1) %>%
-      mutate(condition = cond1, dataset = dataset_ref, ident = obj_prepared$ident)
-    
-    cond2_tidy <- scTypeEval::get_consistency(isc_cond2) %>%
-      mutate(condition = cond2, dataset = dataset_ref, ident = obj_prepared$ident)
-    
-    combined_tidy <- scTypeEval::get_consistency(isc_combined) %>%
-      mutate(condition = pair_name, dataset = dataset_ref, ident = obj_prepared$ident)
-    
-    # Combine into single tidy frame for this pair
-    # Note: pair_name is like "Healthy-Tumor" from get_perturbation_pairs
-    pair_tidy <- rbind(cond1_tidy, cond2_tidy, combined_tidy)
-    
-    # Compute degradation score using get_ratio()
-    pair_scores <- get_ratio(pair_name, pair_tidy, col = "condition")
-    
-    tidy_results <- rbind(tidy_results, pair_scores)
+    tryCatch({
+      pair <- condition_pairs[[pair_idx]]
+      cond1 <- pair$condition1
+      cond2 <- pair$condition2
+      pair_name <- pair$pair_name
+      dataset_ref <- pair$dataset
+      
+      message(sprintf("  Processing condition pair %d/%d: %s + %s",
+                      pair_idx, length(condition_pairs), cond1, cond2))
+      
+      # Get cells for each condition
+      cond1_cells <- which(metadata[[condition_col]] == cond1)
+      cond2_cells <- which(metadata[[condition_col]] == cond2)
+      
+      if (length(cond1_cells) < 50 || length(cond2_cells) < 50) {
+        message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
+                        length(cond1_cells), length(cond2_cells)))
+      } else {
+        # Compute ISC for individual conditions using the shared subset cache.
+        isc_cond1 <- run_cached_subset_scTypeEval(
+          count_matrix = count_matrix,
+          metadata = metadata,
+          cell_idx = cond1_cells,
+          ident = obj_prepared$ident,
+          config = config,
+          cache_env = single_isc_cache,
+          cache_key = paste0("cond:", cond1),
+          cache_label = sprintf("condition '%s'", cond1)
+        )
+
+        isc_cond2 <- run_cached_subset_scTypeEval(
+          count_matrix = count_matrix,
+          metadata = metadata,
+          cell_idx = cond2_cells,
+          ident = obj_prepared$ident,
+          config = config,
+          cache_env = single_isc_cache,
+          cache_key = paste0("cond:", cond2),
+          cache_label = sprintf("condition '%s'", cond2)
+        )
+        
+        # Compute ISC for combined conditions
+        combined_cells <- c(cond1_cells, cond2_cells)
+        isc_combined <- scTypeEval::wrapper_scTypeEval(
+          count_matrix = count_matrix[, combined_cells],
+          metadata = metadata[combined_cells, , drop = FALSE],
+          ident = obj_prepared$ident,
+          sample = config$common$sample_col,
+          dissimilarity_method = config$common$dissimilarity_method,
+          reduction = config$common$reduction,
+          ndim = config$common$ndim,
+          verbose = FALSE
+        )
+        
+        # Convert to tidy format for get_ratio()
+        cond1_tidy <- scTypeEval::get_consistency(isc_cond1) %>%
+          mutate(condition = cond1, dataset = dataset_ref, ident = obj_prepared$ident)
+        
+        cond2_tidy <- scTypeEval::get_consistency(isc_cond2) %>%
+          mutate(condition = cond2, dataset = dataset_ref, ident = obj_prepared$ident)
+        
+        combined_tidy <- scTypeEval::get_consistency(isc_combined) %>%
+          mutate(condition = pair_name, dataset = dataset_ref, ident = obj_prepared$ident)
+        
+        # Combine into single tidy frame for this pair
+        # Note: pair_name is like "Healthy-Tumor" from get_perturbation_pairs
+        pair_tidy <- rbind(cond1_tidy, cond2_tidy, combined_tidy)
+        
+        # Compute degradation score using get_ratio()
+        pair_scores <- get_ratio(pair_name, pair_tidy, col = "condition")
+        
+        tidy_results <- rbind(tidy_results, pair_scores)
+      }
+    }, error = function(e) {
+      message(sprintf("    ERROR: Condition pair %d failed (%s). Continuing with next pair.",
+                      pair_idx, e$message))
+      NULL
+    })
   }
   
   # Combine all results

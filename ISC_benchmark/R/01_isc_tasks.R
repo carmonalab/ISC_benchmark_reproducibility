@@ -47,18 +47,35 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
                sprintf("dataset=%s, task=%s, ident=%s", dataset_id, task_name, ident_col))
   
   # ========== STEP 1: Load dataset ==========
-  if (task_name %in% c("batch_effects", "biological_perturbations")) {
-    obj <- load_and_merge_processed_datasets(dataset_stems, config)
-    message_step("LOAD", sprintf("Merged dataset family loaded: %d cells, %d genes from %d stem(s)",
-                                  ncol(obj), nrow(obj),
-                                  length(unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE)))))))
-  } else {
-    if (!file.exists(dataset_path)) {
-      stop("Dataset not found: ", dataset_path)
+  obj <- tryCatch({
+    if (task_name %in% c("batch_effects", "biological_perturbations")) {
+      loaded_obj <- load_and_merge_processed_datasets(dataset_stems, config)
+      message_step("LOAD", sprintf("Merged dataset family loaded: %d cells, %d genes from %d stem(s)",
+                                    ncol(loaded_obj), nrow(loaded_obj),
+                                    length(unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE)))))))
+      loaded_obj
+    } else {
+      if (!file.exists(dataset_path)) {
+        stop("Dataset not found: ", dataset_path)
+      }
+      loaded_obj <- readRDS(dataset_path)
+      message_step("LOAD", sprintf("Dataset loaded: %d cells, %d genes", ncol(loaded_obj), nrow(loaded_obj)))
+      loaded_obj
     }
-    
-    obj <- readRDS(dataset_path)
-    message_step("LOAD", sprintf("Dataset loaded: %d cells, %d genes", ncol(obj), nrow(obj)))
+  }, error = function(e) {
+    message_step("ERROR", sprintf("Dataset loading failed: %s", e$message))
+    NULL
+  })
+
+  if (is.null(obj)) {
+    return(data.frame(
+      dataset_id = dataset_id,
+      ident = ident_col,
+      task = task_name,
+      status = "failed",
+      error = "load_failed",
+      n_results = 0
+    ))
   }
   
   # ========== STEP 2: Prepare for scTypeEval ==========
@@ -80,6 +97,24 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     ))
   }
   
+  # ========== STEP 3: Execute task ==========
+  # ========== STEP 2b: Load/compute baseline (rate = 1) for tasks that use rates ==========
+  # Tasks 1, 2, 5, 6 all include rate=1 (no perturbation).  Computing it once and
+  # recycling across tasks avoids 3–4 redundant scTypeEval calls per dataset/ident.
+  TASKS_WITH_RATES <- c("missclassify", "SplitCelltype", "Nsamples", "NCell")
+  baseline_df <- NULL
+  if (task_name %in% TASKS_WITH_RATES) {
+    baseline_cache_path <- file.path(output_dir,
+                                     paste0("baseline_isc_", ident_col, ".rds"))
+    baseline_df <- tryCatch(
+      get_or_compute_baseline(obj_prepared, config, baseline_cache_path),
+      error = function(e) {
+        message_step("BASELINE", sprintf("Baseline computation failed (%s); rate=1 will be recomputed inside the task", e$message))
+        NULL
+      }
+    )
+  }
+
   # ========== STEP 3: Execute task ==========
   task_output_dir <- file.path(output_dir, sprintf("%s_%s", task_name, ident_col))
   
@@ -107,11 +142,13 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     # Dispatch to appropriate task function
     switch(task_name,
       "missclassify" = {
-        wr_result <<- run_task_missclassify(obj_prepared, config, task_config, task_output_dir)
+        wr_result <<- run_task_missclassify(obj_prepared, config, task_config, task_output_dir,
+                                             baseline_df = baseline_df)
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
       "SplitCelltype" = {
-        wr_result <<- run_task_SplitCelltype(obj_prepared, config, task_config, task_output_dir)
+        wr_result <<- run_task_SplitCelltype(obj_prepared, config, task_config, task_output_dir,
+                                              baseline_df = baseline_df)
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
       "Nct" = {
@@ -124,11 +161,13 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
       "Nsamples" = {
-        wr_result <<- run_task_Nsamples(obj_prepared, config, task_config, task_output_dir)
+        wr_result <<- run_task_Nsamples(obj_prepared, config, task_config, task_output_dir,
+                                         baseline_df = baseline_df)
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
       "NCell" = {
-        wr_result <<- run_task_NCell(obj_prepared, config, task_config, task_output_dir)
+        wr_result <<- run_task_NCell(obj_prepared, config, task_config, task_output_dir,
+                                      baseline_df = baseline_df)
         task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
       },
       "batch_effects" = {
@@ -164,16 +203,33 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   
   # ========== STEP 4: Save results ==========
   if (!is.null(task_metrics)) {
-    save_task_results(
-      results = task_metrics,
-      wr_object = wr_result,
-      task_name = task_name,
-      dataset_id = dataset_id,
-      ident = ident_col,
-      output_dir = task_output_dir,
-      config = config,
-      save_wr = config$output$save_wr_objects
-    )
+    save_ok <- tryCatch({
+      save_task_results(
+        results = task_metrics,
+        wr_object = wr_result,
+        task_name = task_name,
+        dataset_id = dataset_id,
+        ident = ident_col,
+        output_dir = task_output_dir,
+        config = config,
+        save_wr = config$output$save_wr_objects
+      )
+      TRUE
+    }, error = function(e) {
+      message_step("ERROR", sprintf("Saving results failed: %s", e$message))
+      FALSE
+    })
+
+    if (!save_ok) {
+      return(data.frame(
+        dataset_id = dataset_id,
+        ident = ident_col,
+        task = task_name,
+        status = "failed",
+        error = "save_failed",
+        n_results = 0
+      ))
+    }
     
     # Clean up
     rm(obj, obj_prepared, wr_result)
