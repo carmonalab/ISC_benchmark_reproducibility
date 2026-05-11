@@ -145,13 +145,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     
     # Extract task-specific configuration from main config
     task_config_key <- paste0("task_", task_name)
-    
-    # Most tasks have isc_params subkey; batch/perturbation tasks don't
-    if (task_config_key %in% c("task_batch_effects", "task_biological_perturbations")) {
-      task_config <- config[[task_config_key]]
-    } else {
-      task_config <- config[[task_config_key]][["isc_params"]]
-    }
+    task_config <- config[[task_config_key]][["isc_params"]]
     metric_config <- config[[task_config_key]][["type"]]
     
     if (is.null(task_config)) {
@@ -193,7 +187,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       },
       "batch_effects" = {
         specs_file <- file.path(proj_root(), "data_processing", "config", "specs_datasets.csv")
-        wr_result <<- run_task_batch_effects(obj_prepared, config, task_config, task_output_dir,
+        wr_result <<- run_task_batch_effects(obj_prepared, config, config[["task_batch_effects"]], task_output_dir,
                                              specs_path    = specs_file,
                                              results_root  = config$output$dir,
                                              dataset_stems = dataset_stems)
@@ -206,7 +200,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       },
       "biological_perturbations" = {
         specs_file <- file.path(proj_root(), "data_processing", "config", "specs_datasets.csv")
-        wr_result <<- run_task_biological_perturbations(obj_prepared, config, task_config,
+        wr_result <<- run_task_biological_perturbations(obj_prepared, config, config[["task_biological_perturbations"]],
                                                         task_output_dir, specs_path = specs_file,
                                                         results_root  = config$output$dir,
                                                         dataset_stems = dataset_stems)
