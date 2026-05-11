@@ -70,7 +70,7 @@ common:
   ndim: 30                            # Number of PCA dimensions
   
   # Sample/cell filtering
-  sample_col: "sample"                  # Sample identifier column in metadata
+  sample: "sample"                  # Sample identifier column in metadata
   min_samples: 5                        # Minimum samples per split
   min_cells: 10                         # Minimum cells per sample
   

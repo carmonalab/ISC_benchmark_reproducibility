@@ -152,7 +152,7 @@ get_or_compute_full_isc <- function(obj_prepared, config, cache_path) {
     active_ident = obj_prepared$ident
   )
 
-  sample_col  <- config$common$sample_col
+  sample_col  <- config$common$sample
   ndim        <- config$common$ndim
   reduction   <- config$common$reduction
   norm_method <- config$common$normalization_method
@@ -301,7 +301,7 @@ run_cached_subset_scTypeEval <- function(count_matrix,
   }
 
   # --- Compute ---
-  sample_col  <- config$common$sample_col
+  sample_col  <- config$common$sample
   ndim        <- config$common$ndim
   reduction   <- config$common$reduction
   norm_method <- config$common$normalization_method
