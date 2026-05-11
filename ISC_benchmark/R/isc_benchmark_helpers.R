@@ -118,33 +118,28 @@ load_and_merge_processed_datasets <- function(dataset_stems, config) {
 # ==========================================================================
 #
 # Design:
-#   1. get_or_compute_full_isc()   – computes/loads a scTypeEval OBJECT for the
-#      full dataset (no perturbation). Cached to baseline_sc_<ident>.rds.
-#      This object is the single source of truth for ALL task baselines.
+#   1. get_or_compute_baseline()   – computes/loads the full-dataset baseline
+#      consistency dataframe (rate=1) once and caches it as baseline_isc_<ident>.rds.
 #
-#   2. get_or_compute_baseline()   – extracts the rate=1 consistency df from the
-#      sc object for tasks 1, 2, 5, 6 (missclassify / split / Nsamples / NCell).
-#      Cached result in baseline_isc_<ident>.rds.
+#   2. baseline_for_task()         – relabels baseline df for tasks 1, 2, 5, 6.
+#   3. baseline_for_Nct()          – relabels baseline df for task 3.
+#   4. baseline_for_mergeCT()      – relabels baseline df for task 4.
 #
-#   3. baseline_for_Nct()          – labels the sc object result for task 3.
-#   4. baseline_for_mergeCT()      – labels the sc object result for task 4.
-#
-#   5. Tasks 7/8: individual batch/condition sc objects are also disk-cached at
-#      baseline_sc_<ident>.rds inside the per-stem output directory, so if tasks
-#      1–6 already ran for that stem the result is reused; otherwise it is
-#      computed on the fly and cached for future runs.
+#   5. Tasks 7/8: individual and merged subset scTypeEval objects are cached in
+#      per-task output directories as subset_sc_* / merged_sc_* files.
 
-#' Compute or load the unperturbed scTypeEval object for the full dataset
+#' Compute or load unified baseline consistency dataframe for all tasks
 #'
-#' Runs wrapper_dissimilarity once and caches the scTypeEval object so it can
-#' be used to derive baselines for all tasks without repeated computation.
-get_or_compute_full_isc <- function(obj_prepared, config, cache_path) {
+#' Runs wrapper_scTypeEval once on full dataset and extracts consistency dataframe.
+#' This single dataframe is used as baseline for all tasks (1-6).
+#' Caches only the consistency dataframe, not the full scTypeEval object.
+get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
   if (file.exists(cache_path)) {
-    message_step("ISC_CACHE", sprintf("Loading cached scTypeEval from %s", basename(cache_path)))
+    message_step("BASELINE", sprintf("Loading cached baseline df from %s", basename(cache_path)))
     return(readRDS(cache_path))
   }
 
-  message_step("ISC_CACHE", "Computing full-dataset scTypeEval ISC...")
+  message_step("BASELINE", "Computing full-dataset consistency baseline...")
 
   sc <- scTypeEval::create_scTypeEval(
     matrix = obj_prepared$count_matrix,
@@ -174,35 +169,16 @@ get_or_compute_full_isc <- function(obj_prepared, config, cache_path) {
     verbose              = FALSE
   )
 
-  saveRDS(sc, cache_path)
-  message_step("ISC_CACHE", sprintf("Cached scTypeEval object to %s", basename(cache_path)))
-  sc
-}
-
-#' Extract rate=1 consistency df from a cached scTypeEval object
-#'
-#' Produces a data frame identical in structure to what wr_missclasify returns at
-#' rate = 1, so tasks 1, 2, 5, 6 can prepend it without recomputation.
-get_or_compute_baseline <- function(obj_prepared, config, sc_cache_path, df_cache_path) {
-  # Return cached df directly if available
-  if (file.exists(df_cache_path)) {
-    message_step("BASELINE", sprintf("Loading cached baseline df from %s", basename(df_cache_path)))
-    return(readRDS(df_cache_path))
-  }
-
-  sc <- get_or_compute_full_isc(obj_prepared, config, sc_cache_path)
-
-  message_step("BASELINE", "Extracting rate=1 baseline from scTypeEval object")
   baseline_df <- scTypeEval::get_consistency(sc) |>
     dplyr::mutate(
       rate           = 1,
       rep            = 1,
       original_ident = obj_prepared$ident,
-      task           = "Missclassification"
+      task           = "Baseline"
     )
 
-  saveRDS(baseline_df, df_cache_path)
-  message_step("BASELINE", sprintf("Cached baseline df to %s", basename(df_cache_path)))
+  saveRDS(baseline_df, cache_path)
+  message_step("BASELINE", sprintf("Cached baseline df to %s", basename(cache_path)))
   baseline_df
 }
 
@@ -221,29 +197,25 @@ baseline_for_task <- function(baseline_df, task_name) {
   baseline_df
 }
 
-#' Extract Nct baseline row from a cached scTypeEval sc object (task 3)
-#'
-#' Labels consistency result as task="Nct" with rate = all cell types joined by "-".
-baseline_for_Nct <- function(sc, ident, all_cts) {
+#' Extract Nct baseline row from baseline dataframe (task 3)
+#' Labels baseline dataframe row as task="Nct" with rate = all cell types joined by "-".
+baseline_for_Nct <- function(baseline_df, all_cts) {
   all_cts_str <- paste(sort(as.character(all_cts)), collapse = "-")
-  scTypeEval::get_consistency(sc) |>
+  baseline_df |>
     dplyr::mutate(
       rate           = all_cts_str,
       rep            = NA_integer_,
-      original_ident = ident,
       task           = "Nct"
     )
 }
 
-#' Extract mergeCT baseline row from a cached scTypeEval sc object (task 4)
-#'
-#' Labels consistency result as task="mergeCT" with rate = original number of CTs.
-baseline_for_mergeCT <- function(sc, ident, n_cts) {
-  scTypeEval::get_consistency(sc) |>
+#' Extract mergeCT baseline row from baseline dataframe (task 4)
+#' Labels baseline dataframe row as task="mergeCT" with rate = original number of CTs.
+baseline_for_mergeCT <- function(baseline_df, n_cts) {
+  baseline_df |>
     dplyr::mutate(
       rate           = as.numeric(n_cts),
       rep            = NA_integer_,
-      original_ident = ident,
       task           = "mergeCT"
     )
 }
@@ -255,7 +227,6 @@ baseline_for_mergeCT <- function(sc, ident, n_cts) {
 create_stem_group_map <- function(metadata, dataset_stems, group_col) {
   if (is.null(dataset_stems) || length(dataset_stems) == 0 ||
       !group_col %in% colnames(metadata)) return(NULL)
-
   map <- list()
   cell_names <- rownames(metadata)
   for (stem in dataset_stems) {
@@ -264,7 +235,13 @@ create_stem_group_map <- function(metadata, dataset_stems, group_col) {
     if (length(stem_cells) == 0) next
     groups <- unique(metadata[stem_cells, group_col, drop = TRUE])
     for (g in groups[!is.na(groups)]) {
-      map[[as.character(g)]] <- stem
+      g_chr <- as.character(g)
+      if (is.null(map[[g_chr]])) {
+        map[[g_chr]] <- stem
+      } else if (!identical(map[[g_chr]], stem)) {
+        # Mark ambiguous group-to-stem mapping to avoid wrong baseline reuse.
+        map[[g_chr]] <- NA_character_
+      }
     }
   }
   map
@@ -291,7 +268,7 @@ run_cached_subset_scTypeEval <- function(count_matrix,
     return(get(cache_key, envir = cache_env, inherits = FALSE))
   }
 
-  # --- Level 2: disk cache (also covers tasks 1-6 baseline_sc_<ident>.rds) ---
+  # --- Level 2: disk cache for subset_sc_* / merged_sc_* objects ---
   if (!is.null(disk_cache_path) && file.exists(disk_cache_path)) {
     message(sprintf("    [disk cache] Loading ISC for %s from %s",
                     cache_label, basename(disk_cache_path)))
@@ -625,10 +602,10 @@ run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir
 
 #' Run Task 3: Robustness to annotation granularity (coarse vs fine)
 #' @return Result list from wr_nct()
-run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline_sc = NULL) {
+run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline_df = NULL) {
   message("Running Task 3: Robustness to annotation granularity")
 
-  if (!is.null(baseline_sc)) {
+  if (!is.null(baseline_df)) {
     task_config$run_baseline <- FALSE
     message("  [baseline reuse] Skipping full-CT run; will prepend cached baseline")
   }
@@ -642,10 +619,10 @@ run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline
 
   wr <- do.call(wr_nct, params)
 
-  if (!is.null(baseline_sc)) {
+  if (!is.null(baseline_df)) {
     all_cts <- unique(obj_prepared$metadata[[obj_prepared$ident]])
     all_cts <- all_cts[!is.na(all_cts)]
-    bl <- baseline_for_Nct(baseline_sc, obj_prepared$ident, all_cts)
+    bl <- baseline_for_Nct(baseline_df, all_cts)
     wr <- rbind(bl, wr)
   }
 
@@ -653,10 +630,10 @@ run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline
 }
 
 #' Run Task 4: Robustness to cellular complexity (high vs low variability)
-run_task_cellular_complexity <- function(obj_prepared, config, task_config, output_dir, baseline_sc = NULL) {
+run_task_cellular_complexity <- function(obj_prepared, config, task_config, output_dir, baseline_df = NULL) {
   message("Running Task 4: Robustness to cellular complexity")
 
-  if (!is.null(baseline_sc)) {
+  if (!is.null(baseline_df)) {
     task_config$run_original <- FALSE
     message("  [baseline reuse] Skipping original-annotation run; will prepend cached baseline")
   }
@@ -670,9 +647,9 @@ run_task_cellular_complexity <- function(obj_prepared, config, task_config, outp
 
   wr <- do.call(wr_merge_ct, params)
 
-  if (!is.null(baseline_sc)) {
+  if (!is.null(baseline_df)) {
     n_cts <- length(unique(obj_prepared$metadata[[obj_prepared$ident]]))
-    bl <- baseline_for_mergeCT(baseline_sc, obj_prepared$ident, n_cts)
+    bl <- baseline_for_mergeCT(baseline_df, n_cts)
     wr <- rbind(bl, wr)
   }
 
@@ -733,12 +710,12 @@ run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
 
 #' Run Task 7: Robustness to batch effects (systematic technical differences)
 #'
-#' For each individual batch the function first tries to load the pre-computed
-#' baseline_sc_<ident>.rds written by tasks 1-6 for that single-file dataset.
-#' Only the merged/combined object is always computed fresh.
+#' For individual batches, this function first tries to reuse per-stem baseline
+#' consistency files (`baseline_isc_<ident>.rds`) from tasks 1-6. If unavailable,
+#' it computes and caches subset scTypeEval objects under task output directory.
+#' Merged (pair) objects are always computed from the merged subset.
 #'
-#' @param results_root  Root results directory (config$output$dir).  Used to
-#'   locate per-stem baseline_sc_<ident>.rds files.
+#' @param results_root  Root results directory (config$output$dir).
 #' @param dataset_stems Character vector of stems that were merged into the
 #'   current merged object.  Used to map batch values back to stem names.
 run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir,
@@ -773,7 +750,6 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
 
   message(sprintf("  Found %d batch pair(s) for comparison", length(batch_pairs)))
 
-  # Build batch → stem map so we can resolve per-stem disk caches
   stem_batch_map <- create_stem_group_map(metadata, dataset_stems, batch_col)
 
   tidy_results     <- data.frame()
@@ -797,39 +773,44 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
         message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
                         length(batch1_cells), length(batch2_cells)))
       } else {
-        # --- resolve per-stem disk cache paths for individual batches ---
-        resolve_disk_path <- function(batch_val) {
+        resolve_baseline_df_path <- function(batch_val) {
           stem <- if (!is.null(stem_batch_map)) stem_batch_map[[as.character(batch_val)]] else NULL
-          if (!is.null(stem) && !is.null(results_root)) {
-            file.path(results_root, stem, paste0("baseline_sc_", ident, ".rds"))
-          } else {
-            file.path(output_dir, paste0("subset_sc_", batch_val, "_", ident, ".rds"))
-          }
+          if (is.null(stem) || is.na(stem) || is.null(results_root)) return(NULL)
+          file.path(results_root, stem, paste0("baseline_isc_", ident, ".rds"))
         }
 
-        isc_batch1 <- run_cached_subset_scTypeEval(
-          count_matrix    = count_matrix,
-          metadata        = metadata,
-          cell_idx        = batch1_cells,
-          ident           = ident,
-          config          = config,
-          cache_env       = single_isc_cache,
-          cache_key       = paste0("batch:", batch1),
-          cache_label     = sprintf("batch '%s'", batch1),
-          disk_cache_path = resolve_disk_path(batch1)
-        )
+        # --- resolve disk cache paths for individual batches ---
+        resolve_disk_path <- function(batch_val) {
+          file.path(output_dir, paste0("subset_sc_", batch_val, "_", ident, ".rds"))
+        }
 
-        isc_batch2 <- run_cached_subset_scTypeEval(
-          count_matrix    = count_matrix,
-          metadata        = metadata,
-          cell_idx        = batch2_cells,
-          ident           = ident,
-          config          = config,
-          cache_env       = single_isc_cache,
-          cache_key       = paste0("batch:", batch2),
-          cache_label     = sprintf("batch '%s'", batch2),
-          disk_cache_path = resolve_disk_path(batch2)
-        )
+        get_single_batch_consistency <- function(batch_val, batch_cells) {
+          baseline_path <- resolve_baseline_df_path(batch_val)
+          if (!is.null(baseline_path) && file.exists(baseline_path)) {
+            message(sprintf("    [baseline reuse] Loading baseline consistency for batch '%s' from %s",
+                            batch_val, baseline_path))
+            return(readRDS(baseline_path))
+          }
+
+          isc_batch <- run_cached_subset_scTypeEval(
+            count_matrix    = count_matrix,
+            metadata        = metadata,
+            cell_idx        = batch_cells,
+            ident           = ident,
+            config          = config,
+            cache_env       = single_isc_cache,
+            cache_key       = paste0("batch:", batch_val),
+            cache_label     = sprintf("batch '%s'", batch_val),
+            disk_cache_path = resolve_disk_path(batch_val)
+          )
+          scTypeEval::get_consistency(isc_batch)
+        }
+
+        batch1_tidy <- get_single_batch_consistency(batch1, batch1_cells) |>
+          dplyr::mutate(batch = batch1, dataset = dataset_ref, ident = ident)
+
+        batch2_tidy <- get_single_batch_consistency(batch2, batch2_cells) |>
+          dplyr::mutate(batch = batch2, dataset = dataset_ref, ident = ident)
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(batch1_cells, batch2_cells)
@@ -846,10 +827,6 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
                                       paste0("merged_sc_", pair_name, "_", ident, ".rds"))
         )
 
-        batch1_tidy   <- scTypeEval::get_consistency(isc_batch1) |>
-          dplyr::mutate(batch = batch1, dataset = dataset_ref, ident = ident)
-        batch2_tidy   <- scTypeEval::get_consistency(isc_batch2) |>
-          dplyr::mutate(batch = batch2, dataset = dataset_ref, ident = ident)
         combined_tidy <- scTypeEval::get_consistency(isc_combined) |>
           dplyr::mutate(batch = pair_name, dataset = dataset_ref, ident = ident)
 
@@ -875,9 +852,10 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
 
 #' Run Task 8: Robustness to biological perturbations (condition-driven changes)
 #'
-#' For each individual condition the function first tries to load the pre-computed
-#' baseline_sc_<ident>.rds written by tasks 1-6 for that single-file dataset.
-#' Only the merged/combined object is always computed fresh.
+#' For individual conditions, this function first tries to reuse per-stem baseline
+#' consistency files (`baseline_isc_<ident>.rds`) from tasks 1-6. If unavailable,
+#' it computes and caches subset scTypeEval objects under task output directory.
+#' Merged (pair) objects are always computed from the merged subset.
 #'
 #' @param results_root  Root results directory (config$output$dir).
 #' @param dataset_stems Character vector of stems merged into this object.
@@ -912,7 +890,6 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
 
   message(sprintf("  Found %d condition pair(s) for comparison", length(condition_pairs)))
 
-  # Build condition → stem map
   stem_cond_map <- create_stem_group_map(metadata, dataset_stems, condition_col)
 
   tidy_results     <- data.frame()
@@ -936,38 +913,43 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
         message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
                         length(cond1_cells), length(cond2_cells)))
       } else {
-        resolve_disk_path <- function(cond_val) {
+        resolve_baseline_df_path <- function(cond_val) {
           stem <- if (!is.null(stem_cond_map)) stem_cond_map[[as.character(cond_val)]] else NULL
-          if (!is.null(stem) && !is.null(results_root)) {
-            file.path(results_root, stem, paste0("baseline_sc_", ident, ".rds"))
-          } else {
-            file.path(output_dir, paste0("subset_sc_", cond_val, "_", ident, ".rds"))
-          }
+          if (is.null(stem) || is.na(stem) || is.null(results_root)) return(NULL)
+          file.path(results_root, stem, paste0("baseline_isc_", ident, ".rds"))
         }
 
-        isc_cond1 <- run_cached_subset_scTypeEval(
-          count_matrix    = count_matrix,
-          metadata        = metadata,
-          cell_idx        = cond1_cells,
-          ident           = ident,
-          config          = config,
-          cache_env       = single_isc_cache,
-          cache_key       = paste0("cond:", cond1),
-          cache_label     = sprintf("condition '%s'", cond1),
-          disk_cache_path = resolve_disk_path(cond1)
-        )
+        resolve_disk_path <- function(cond_val) {
+          file.path(output_dir, paste0("subset_sc_", cond_val, "_", ident, ".rds"))
+        }
 
-        isc_cond2 <- run_cached_subset_scTypeEval(
-          count_matrix    = count_matrix,
-          metadata        = metadata,
-          cell_idx        = cond2_cells,
-          ident           = ident,
-          config          = config,
-          cache_env       = single_isc_cache,
-          cache_key       = paste0("cond:", cond2),
-          cache_label     = sprintf("condition '%s'", cond2),
-          disk_cache_path = resolve_disk_path(cond2)
-        )
+        get_single_condition_consistency <- function(cond_val, cond_cells) {
+          baseline_path <- resolve_baseline_df_path(cond_val)
+          if (!is.null(baseline_path) && file.exists(baseline_path)) {
+            message(sprintf("    [baseline reuse] Loading baseline consistency for condition '%s' from %s",
+                            cond_val, baseline_path))
+            return(readRDS(baseline_path))
+          }
+
+          isc_cond <- run_cached_subset_scTypeEval(
+            count_matrix    = count_matrix,
+            metadata        = metadata,
+            cell_idx        = cond_cells,
+            ident           = ident,
+            config          = config,
+            cache_env       = single_isc_cache,
+            cache_key       = paste0("cond:", cond_val),
+            cache_label     = sprintf("condition '%s'", cond_val),
+            disk_cache_path = resolve_disk_path(cond_val)
+          )
+          scTypeEval::get_consistency(isc_cond)
+        }
+
+        cond1_tidy <- get_single_condition_consistency(cond1, cond1_cells) |>
+          dplyr::mutate(condition = cond1, dataset = dataset_ref, ident = ident)
+
+        cond2_tidy <- get_single_condition_consistency(cond2, cond2_cells) |>
+          dplyr::mutate(condition = cond2, dataset = dataset_ref, ident = ident)
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(cond1_cells, cond2_cells)
@@ -984,10 +966,6 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
                                       paste0("merged_sc_", pair_name, "_", ident, ".rds"))
         )
 
-        cond1_tidy    <- scTypeEval::get_consistency(isc_cond1) |>
-          dplyr::mutate(condition = cond1, dataset = dataset_ref, ident = ident)
-        cond2_tidy    <- scTypeEval::get_consistency(isc_cond2) |>
-          dplyr::mutate(condition = cond2, dataset = dataset_ref, ident = ident)
         combined_tidy <- scTypeEval::get_consistency(isc_combined) |>
           dplyr::mutate(condition = pair_name, dataset = dataset_ref, ident = ident)
 
