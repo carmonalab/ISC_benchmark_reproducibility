@@ -17,7 +17,7 @@ list(
   tar_target(
     cfg,
     load_saturation_config("config/saturation_parameters.yaml"),
-    cue = tar_cue(file = "config/saturation_parameters.yaml")
+    cue = tar_cue(file = TRUE)
   ),
 
   tar_target(

@@ -31,6 +31,7 @@
 # NOTE: Run from ISC_benchmark directory
 
 library(targets)
+library(tarchetypes)
 library(yaml)
 library(dplyr)
 library(tidyr)
@@ -291,7 +292,7 @@ list(
   tar_target(
     config,
     get_isc_config(),
-    cue = tar_cue(file = "config/isc_benchmark_parameters.yaml")
+    cue = tar_cue(file = TRUE)
   ),
   
   # Get dataset-ident mappings (tracks dataset_idents.yaml changes)
@@ -302,7 +303,7 @@ list(
       selected_dataset_ids = get_requested_dataset_ids(),
       selected_dataset_families = get_requested_dataset_families()
     ),
-    cue = tar_cue(file = "config/dataset_idents.yaml")
+    cue = tar_cue(file = TRUE)
   ),
   
   # Get active task names
@@ -318,15 +319,9 @@ list(
   tar_map(
     values = expand_grid(datasets_idents, task_name = active_tasks),
     
-    # Parse ident columns string into vector
-    tar_target(
-      name = idents_vector,
-      command = parse_ident_cols(ident_cols)
-    ),
-    
     # Create per-ident targets (one per cell type annotation)
     tar_map(
-      values = list(ident_col = idents_vector),
+      values = list(ident_col = parse_ident_cols(ident_cols)),
       
       # Individual task execution target
       # Each represents one complete unit of work suitable for HPC job submission
@@ -394,8 +389,7 @@ list(
       
       message(sprintf("\nAggregated %d task results", nrow(combined)))
       combined
-    },
-    pattern = cross(grep("^task_result_", names(.targets), value = TRUE))
+    }
   ),
   
   # Save aggregated results
