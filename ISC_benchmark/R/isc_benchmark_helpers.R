@@ -66,8 +66,7 @@ prepare_scTypeEval_object <- function(obj, ident_col, config) {
   list(
     count_matrix = count_matrix,
     metadata = metadata_filtered,
-    ident = ident_col,
-    dir = NULL  # Will be set per task
+    ident = ident_col
   )
 }
 

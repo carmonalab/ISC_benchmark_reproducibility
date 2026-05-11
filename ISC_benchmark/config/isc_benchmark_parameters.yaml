@@ -11,7 +11,7 @@
 # REPRODUCIBILITY SETTINGS
 # ============================================================================
 seed: 22                          # Random seed (must match original benchmarking)
-n_cores: 8                        # Number of cores for parallel processing
+n_cores: 16                        # Number of cores for parallel processing
 
 # ============================================================================
 # PATHS (relative to project root)
@@ -169,6 +169,8 @@ task_cellular_complexity:
      excluded labels were removed."
   category: "robustness_complexity"
   type: "constant"
+
+  isc_params: {}
 
 # Task 5: Robustness to dataset size - samples (varying sample count)
 # Tests consistency with reduced number of samples (missing data)
