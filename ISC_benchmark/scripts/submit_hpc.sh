@@ -16,6 +16,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_DIR="$( cd "$SCRIPT_DIR/.." && pwd )"
+REPO_DIR="$( git -C "$SCRIPT_DIR" rev-parse --show-toplevel )"
 LOG_DIR="$SCRIPT_DIR/logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
@@ -105,7 +106,7 @@ read_dataset_ids() {
       processed_ids+=("$processed_id")
     fi
   done < <(
-    find "$PROJECT_DIR/data/processed" -maxdepth 1 -name '*.rds' -printf '%f\n' | sed -E 's/\.rds$//' | sort -u
+    find "$REPO_DIR/data/processed" -maxdepth 1 -name '*.rds' -printf '%f\n' | sed -E 's/\.rds$//' | sort -u
   )
 
   if [[ -n "$requested_raw" ]]; then
@@ -114,7 +115,7 @@ read_dataset_ids() {
       dataset_id="$(trim_whitespace "$dataset_id")"
       [[ -z "$dataset_id" ]] && continue
       if [[ -z "${processed_lookup[$dataset_id]:-}" ]]; then
-        log_message "ERROR" "Requested dataset stem is not available in data/processed or not configured: $dataset_id"
+        log_message "ERROR" "Requested dataset stem is not available in repo data/processed or not configured: $dataset_id"
         exit 1
       fi
       if [[ -z "${seen_requested[$dataset_id]:-}" ]]; then
@@ -127,7 +128,7 @@ read_dataset_ids() {
   fi
 
   if [[ ${#selected_ids[@]} -eq 0 ]]; then
-    log_message "ERROR" "No datasets found to submit. Check data/processed and config/dataset_idents.yaml."
+    log_message "ERROR" "No datasets found to submit. Check repo data/processed and config/dataset_idents.yaml."
     exit 1
   fi
 
@@ -164,11 +165,11 @@ read_dataset_families() {
       family_lookup["$family_name"]=1
     fi
   done < <(
-    find "$PROJECT_DIR/data/processed" -maxdepth 1 -name '*.rds' -printf '%f\n' | sed -E 's/\.rds$//' | sort -u
+    find "$REPO_DIR/data/processed" -maxdepth 1 -name '*.rds' -printf '%f\n' | sed -E 's/\.rds$//' | sort -u
   )
 
   if [[ ${#families[@]} -eq 0 ]]; then
-    log_message "ERROR" "No dataset families found in data/processed"
+    log_message "ERROR" "No dataset families found in repo data/processed"
     exit 1
   fi
 
