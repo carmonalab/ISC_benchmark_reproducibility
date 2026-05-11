@@ -269,6 +269,11 @@ submit_targets_job() {
   local -a env_exports=(
     "PROJECT_DIR=$PROJECT_DIR"
     "ISC_TASKS=$tasks_csv"
+    "ISC_DATASET_IDS="
+    "ISC_DATASET_ID="
+    "ISC_TEST_DATASET="
+    "ISC_DATASET_FAMILIES="
+    "ISC_DATASET_FAMILY="
     "${selector_name}=$selector_value"
   )
 

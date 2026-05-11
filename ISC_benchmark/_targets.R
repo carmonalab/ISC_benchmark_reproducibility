@@ -217,9 +217,9 @@ get_dataset_idents <- function(config, selected_dataset_ids = NULL, selected_dat
 #' @return Character vector of requested dataset IDs, or NULL for all datasets
 get_requested_dataset_ids <- function() {
   requested <- c(
-    Sys.getenv("ISC_DATASET_IDS", unset = ""),
     Sys.getenv("ISC_DATASET_ID", unset = ""),
-    Sys.getenv("ISC_TEST_DATASET", unset = "")
+    Sys.getenv("ISC_TEST_DATASET", unset = ""),
+    Sys.getenv("ISC_DATASET_IDS", unset = "")
   )
 
   requested <- requested[nzchar(requested)]
