@@ -41,7 +41,7 @@ datasets:
   # ========================================================================
   # 2. STEPHENSON - COVID PBMC
   # ========================================================================
-  - id: StephensonE_2021
+  - id: Stephenson_2021
     reference: "Stephenson et al., 2021"
     
     raw_file: "Stephenson_2021_33879890.rds"
