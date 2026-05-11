@@ -315,10 +315,6 @@ wr_missclasify <- function(count_matrix,
       gl <- gene_list
    }
    
-   param <- set_parallel_params(ncores = ncores,
-                                bparam = bparam,
-                                progressbar = progressbar)
-   
    if(verbose){message("Running loop of annotations ")}
    df_res <- lapply(annotations,
                     function(ann){
@@ -334,7 +330,7 @@ wr_missclasify <- function(count_matrix,
                                                              dissimilarity_method = dissimilarity_method,
                                                              min_samples = min_samples,
                                                              min_cells = min_cells,
-                                                             bparam = param,
+                                                             ncores = ncores,
                                                              verbose = verbose
                              )
                              # data.frame with consistency outcome
@@ -463,9 +459,6 @@ wr_nsamples <- function(count_matrix,
       gl <- gene_list
    }
    
-   param <- set_parallel_params(ncores = ncores,
-                                bparam = bparam,
-                                progressbar = progressbar)
    if(verbose){message("Running loop of annotations ")}
    df_res <- lapply(names(nss),
                     function(ns){
@@ -489,7 +482,7 @@ wr_nsamples <- function(count_matrix,
                                                              dissimilarity_method = dissimilarity_method,
                                                              min_samples = min_samples,
                                                              min_cells = min_cells,
-                                                             bparam = param,
+                                                             ncores = ncores,
                                                              verbose = verbose
                              )
                              # data.frame with consistency outcome
@@ -614,10 +607,6 @@ wr_nct <- function(count_matrix,
       gl <- gene_list
    }
    
-   param <- set_parallel_params(ncores = ncores,
-                                bparam = bparam,
-                                progressbar = progressbar)
-   
    df_res <- lapply(names(cts),
                     function(ns){
                        tryCatch(
@@ -638,7 +627,7 @@ wr_nct <- function(count_matrix,
                                                              dissimilarity_method = dissimilarity_method,
                                                              min_samples = min_samples,
                                                              min_cells = min_cells,
-                                                             bparam = param,
+                                                             ncores = ncores,
                                                              verbose = verbose
                              )
                              # data.frame with consistency outcome
@@ -768,10 +757,6 @@ wr_ncell <- function(count_matrix,
       gl <- gene_list
    }
    
-   param <- set_parallel_params(ncores = ncores,
-                                bparam = bparam,
-                                progressbar = progressbar)
-   
    combi <- expand.grid(names(sds), rates)
    
    df_res <- lapply(seq_len(nrow(combi)),
@@ -806,7 +791,7 @@ wr_ncell <- function(count_matrix,
                                                              dissimilarity_method = dissimilarity_method,
                                                              min_samples = min_samples,
                                                              min_cells = min_cells,
-                                                             bparam = param,
+                                                             ncores = ncores,
                                                              verbose = verbose
                              )
                              # data.frame with consistency outcome
@@ -970,10 +955,6 @@ wr_merge_ct <- function(count_matrix,
                            gene_lists = gl,
                            black_list = black_list)
    
-   param <- set_parallel_params(ncores = ncores,
-                                bparam = bparam,
-                                progressbar = progressbar)
-   
    df_res <- lapply(annotations,
                     function(ann){
                        tryCatch(
@@ -988,7 +969,7 @@ wr_merge_ct <- function(count_matrix,
                                                              dissimilarity_method = dissimilarity_method,
                                                              min_samples = min_samples,
                                                              min_cells = min_cells,
-                                                             bparam = param,
+                                                             ncores = ncores,
                                                              verbose = verbose
                              )
                              # data.frame with consistency outcome
@@ -1127,10 +1108,6 @@ wr_split_cell_type <- function(count_matrix,
       gl <- gene_list
    }
    
-   param <- set_parallel_params(ncores = ncores,
-                                bparam = bparam,
-                                progressbar = progressbar)
-   
    if(verbose){message("Running loop of annotations ")}
    df_res <- lapply(annotations,
                     function(ann){
@@ -1146,7 +1123,7 @@ wr_split_cell_type <- function(count_matrix,
                                                              dissimilarity_method = dissimilarity_method,
                                                              min_samples = min_samples,
                                                              min_cells = min_cells,
-                                                             bparam = param,
+                                                             ncores = ncores,
                                                              verbose = verbose
                              )
                              # data.frame with consistency outcome
