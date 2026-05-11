@@ -555,7 +555,8 @@ wr_nct <- function(count_matrix,
                    hclust_method = "ward.D2",
                    save_plots = TRUE,
                    verbose = TRUE,
-                   down_sample_comb = 30){
+                   down_sample_comb = 30,
+                   run_baseline = FALSE){
    
    if(!is.null(dir)){
       if(verbose){message("Results will be stored at ", dir)}
@@ -578,8 +579,11 @@ wr_nct <- function(count_matrix,
                                               num_samples = down_sample_comb,
                                               seed = seed)
    # add all cell types
-   allelements <- paste(allcts, collapse = "-")
-   cts[[allelements]] <- allcts
+   if(run_baseline){
+      allelements <- paste(allcts, collapse = "-")
+      cts[[allelements]] <- allcts
+   }
+ 
    
    # get the gene list, the same for every run
    if(is.null(gene_list)){
@@ -871,7 +875,8 @@ wr_merge_ct <- function(count_matrix,
                        knn_graph_k = 5,
                        hclust_method = "ward.D2",
                        save_plots = TRUE,
-                       verbose = TRUE){
+                       verbose = TRUE,
+                       run_original = FALSE){
    
    if(!is.null(dir)){
       if(verbose){message("\nResults will be stored at ", dir)}
@@ -920,7 +925,13 @@ wr_merge_ct <- function(count_matrix,
    j <- length(unique(original_vector))
    new_name <- paste("J", j, ident, sep = "_")
    metadata[[new_name]] <- original_vector
-   annotations <- new_name
+   
+   # Initialize annotations with original only if run_original is TRUE
+   if(run_original){
+      annotations <- new_name
+   } else {
+      annotations <- character(0)
+   }
    
    while(length(unique(idents))>2){
       centroids <- compute_centroids(norm_mat = mat,
