@@ -26,7 +26,7 @@
 #   targets::tar_make()                # Rerun only failed tasks (automatic)
 #
 # HPC Submission:
-#   bash master_job.sh                 # Submits to SLURM cluster
+#   bash scripts/submit_hpc.sh         # Submits one SLURM job per dataset
 #
 # NOTE: Run from ISC_benchmark directory
 
@@ -78,65 +78,68 @@ get_isc_config <- function() {
 
 #' Get datasets and their cell type annotation columns
 #'
-#' Reads dataset_idents.yaml and matches with processed data files
-#' Returns a table suitable for tar_map with dataset_id, dataset_file, ident_cols
+#' Reads dataset_idents.yaml and matches with processed data stems.
+#' Returns a table suitable for tar_map with dataset_id, dataset_file, ident_cols.
 #'
 #' @param config Configuration list
-#' @param selected_dataset_ids Optional character vector of dataset IDs to keep
-#' @return Data frame: dataset_id, dataset_file, ident_cols (as comma-separated string)
-get_dataset_idents <- function(config, selected_dataset_ids = NULL) {
-  
-  # Load ident definitions
+#' @param selected_dataset_ids Optional character vector of processed dataset stems to keep
+#' @param selected_dataset_families Optional character vector of dataset families to keep
+#' @return Data frame with dataset_id, dataset_file, dataset_family, dataset_stems, ident_cols
+normalize_dataset_family <- function(dataset_id) {
+  family <- sub("_.*$", "", dataset_id)
+  if (family == "StephensonE") {
+    return("Stephenson")
+  }
+  family
+}
+
+get_dataset_idents <- function(config, selected_dataset_ids = NULL, selected_dataset_families = NULL) {
   ident_mapping <- read_yaml(config$dataset_idents_file)$idents
-  
-  # Find processed data files
+
   proc_dir <- config$processed_data_dir
   if (!dir.exists(proc_dir)) {
     stop("Processed data directory not found: ", proc_dir)
   }
-  
+
   files <- list.files(proc_dir, pattern = "\\.rds$", full.names = TRUE)
   if (length(files) == 0) {
     stop("No processed datasets found in: ", proc_dir)
   }
-  
-  # Extract dataset IDs (prefixes before last underscore+suffix)
+
   basename_only <- basename(files)
-  dataset_ids <- unique(sub("\.rds$", "", basename_only))
-  
-  # Build dataset table
+  dataset_ids <- unique(sub("\\.rds$", "", basename_only))
+
   dataset_info <- lapply(dataset_ids, function(dataset_id) {
-    dataset_file <- files[match(paste0(dataset_id, ".rds"), basename_only)]
-    
-    if (length(dataset_file) == 0 || is.na(dataset_file)) {
+    dataset_file <- file.path(proc_dir, paste0(dataset_id, ".rds"))
+
+    if (!file.exists(dataset_file)) {
       warning("No file found for dataset: ", dataset_id)
       return(NULL)
     }
-    
-    # Get ident columns for this dataset
-    ident_cols <- ident_mapping[[prefix]]
-    
+
+    dataset_family <- normalize_dataset_family(dataset_id)
+    ident_cols <- ident_mapping[[dataset_family]]
+
     if (is.null(ident_cols)) {
-      warning("No ident columns defined in config for: ", family_id)
+      warning("No ident columns defined in config for: ", dataset_family)
       return(NULL)
     }
-    
+
     data.frame(
       dataset_id = dataset_id,
       dataset_file = dataset_file,
-      dataset_family = family_id,
+      dataset_family = dataset_family,
+      dataset_stems = dataset_id,
       ident_cols = paste(ident_cols, collapse = ","),
       stringsAsFactors = FALSE
     )
   })
-  
+
   dataset_info <- Filter(Negate(is.null), dataset_info)
-  
   if (length(dataset_info) == 0) {
     stop("No valid datasets found after checking configurations")
   }
-  
-  # Combine into single data frame
+
   dataset_info <- do.call(rbind, dataset_info)
 
   if (!is.null(selected_dataset_ids)) {
@@ -153,6 +156,44 @@ get_dataset_idents <- function(config, selected_dataset_ids = NULL) {
       }
 
       dataset_info <- dataset_info[match(selected_dataset_ids, dataset_info$dataset_id), , drop = FALSE]
+    }
+  }
+
+  if (!is.null(selected_dataset_families)) {
+    selected_dataset_families <- unique(trimws(selected_dataset_families))
+    selected_dataset_families <- selected_dataset_families[nzchar(selected_dataset_families)]
+
+    if (length(selected_dataset_families) > 0) {
+      missing_families <- setdiff(selected_dataset_families, unique(dataset_info$dataset_family))
+      if (length(missing_families) > 0) {
+        stop(
+          "Requested dataset family(ies) not available in processed inputs: ",
+          paste(missing_families, collapse = ", ")
+        )
+      }
+
+      family_rows <- lapply(selected_dataset_families, function(family_id) {
+        family_matches <- dataset_info[dataset_info$dataset_family == family_id, , drop = FALSE]
+        if (nrow(family_matches) == 0) {
+          return(NULL)
+        }
+
+        data.frame(
+          dataset_id = family_id,
+          dataset_file = family_matches$dataset_file[1],
+          dataset_family = family_id,
+          dataset_stems = paste(family_matches$dataset_id, collapse = ","),
+          ident_cols = family_matches$ident_cols[1],
+          stringsAsFactors = FALSE
+        )
+      })
+
+      family_rows <- Filter(Negate(is.null), family_rows)
+      if (length(family_rows) > 0) {
+        dataset_info <- do.call(rbind, family_rows)
+      } else {
+        dataset_info <- dataset_info[0, , drop = FALSE]
+      }
     }
   }
 
@@ -180,12 +221,56 @@ get_requested_dataset_ids <- function() {
   unique(trimws(unlist(strsplit(paste(requested, collapse = ","), ",", fixed = TRUE))))
 }
 
+#' Read requested dataset families from the environment
+#'
+#' Supports comma-separated selections via ISC_DATASET_FAMILIES or ISC_DATASET_FAMILY.
+#'
+#' @return Character vector of requested dataset families, or NULL for all families
+get_requested_dataset_families <- function() {
+  requested <- c(
+    Sys.getenv("ISC_DATASET_FAMILIES", unset = ""),
+    Sys.getenv("ISC_DATASET_FAMILY", unset = "")
+  )
+
+  requested <- requested[nzchar(requested)]
+  if (length(requested) == 0) {
+    return(NULL)
+  }
+
+  unique(trimws(unlist(strsplit(paste(requested, collapse = ","), ",", fixed = TRUE))))
+}
+
+#' Read requested task names from the environment
+#'
+#' Supports comma-separated task lists via ISC_TASKS.
+#'
+#' @return Character vector of requested tasks, or NULL for all enabled tasks
+get_requested_task_names <- function() {
+  requested <- Sys.getenv("ISC_TASKS", unset = "")
+  requested <- trimws(requested)
+  if (!nzchar(requested)) {
+    return(NULL)
+  }
+
+  unique(trimws(unlist(strsplit(requested, ",", fixed = TRUE))))
+}
 #' Get active task names from config
 #'
 #' @param config Configuration list
 #' @return Character vector of task names
 get_active_tasks <- function(config) {
-  names(config$run)[config$run == TRUE]
+  tasks <- names(config$run)[config$run == TRUE]
+  requested_tasks <- get_requested_task_names()
+
+  if (!is.null(requested_tasks)) {
+    tasks <- intersect(tasks, requested_tasks)
+  }
+
+  if (length(tasks) == 0) {
+    stop("No enabled tasks selected for execution")
+  }
+
+  tasks
 }
 
 #' Parse comma-separated ident columns string
@@ -215,7 +300,11 @@ list(
   # Get dataset-ident mappings (tracks dataset_idents.yaml changes)
   tar_target(
     datasets_idents,
-    get_dataset_idents(config, selected_dataset_ids = get_requested_dataset_ids()),
+    get_dataset_idents(
+      config,
+      selected_dataset_ids = get_requested_dataset_ids(),
+      selected_dataset_families = get_requested_dataset_families()
+    ),
     cue = tar_cue(file = "config/dataset_idents.yaml")
   ),
   
@@ -263,6 +352,7 @@ list(
               ident_col = ident_col,
               task_name = task_name,
               dataset_path = dataset_file,
+              dataset_stems = dataset_stems,
               config = config,
               output_dir = output_dir
             )

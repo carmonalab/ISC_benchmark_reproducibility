@@ -436,7 +436,7 @@ resources:
   slurm_partition: "normal"
 ```
 
-Then submit via `scripts/submit_hpc.sh`. The script now submits one SLURM job per dataset, and you can test a single dataset with `ISC_DATASET_ID=JoaI bash scripts/submit_hpc.sh`.
+Then submit via `scripts/submit_hpc.sh`. The script now submits one SLURM job per processed dataset stem for the main tasks and separate family-level jobs for batch-effect/biological-perturbation tasks; you can test a single dataset with `ISC_DATASET_ID=JoaI_CRC-SG1_Normal bash scripts/submit_hpc.sh`.
 
 ## Configuration
 

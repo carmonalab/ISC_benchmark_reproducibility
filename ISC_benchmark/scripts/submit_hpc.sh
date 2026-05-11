@@ -7,9 +7,9 @@ set -euo pipefail
 #   bash scripts/submit_hpc.sh
 #
 # Dataset selection:
-#   ISC_DATASET_ID=JoaI bash scripts/submit_hpc.sh
-#   ISC_TEST_DATASET=JoaI bash scripts/submit_hpc.sh
-#   ISC_DATASET_IDS="JoaI,Stephenson" bash scripts/submit_hpc.sh
+#   ISC_DATASET_ID=JoaI_CRC-SG1_Normal bash scripts/submit_hpc.sh
+#   ISC_TEST_DATASET=JoaI_CRC-SG1_Normal bash scripts/submit_hpc.sh
+#   ISC_DATASET_IDS="JoaI_CRC-SG1_Normal,Stephenson_Cambridge_Covid" bash scripts/submit_hpc.sh
 #
 # The wrapper submits one SLURM job per dataset. Each job runs the targets
 # pipeline with that dataset filtered at the graph-construction stage.
@@ -21,9 +21,12 @@ TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 SLURM_PARTITION="${SLURM_PARTITION:-normal}"
 SLURM_NODES="${SLURM_NODES:-1}"
-SLURM_CPUS="${SLURM_CPUS:-8}"
-SLURM_MEM="${SLURM_MEM:-64G}"
+SLURM_CPUS="${SLURM_CPUS:-16}"
+SLURM_MEM="${SLURM_MEM:-256G}"
 SLURM_TIME="${SLURM_TIME:-24:00:00}"
+
+DATASET_TASKS=(missclassify SplitCelltype Nct cellular_complexity Nsamples NCell)
+CROSS_DATASET_TASKS=(batch_effects biological_perturbations)
 
 mkdir -p "$LOG_DIR"
 
@@ -134,13 +137,58 @@ read_dataset_ids() {
   printf '%s\n' "${selected_ids[@]}"
 }
 
+read_dataset_families() {
+  cd "$PROJECT_DIR/ISC_benchmark"
+
+  local requested_raw="${ISC_DATASET_FAMILIES:-},${ISC_DATASET_FAMILY:-}"
+  local -a families=()
+  local -A family_lookup=()
+  local -A requested_lookup=()
+
+  if [[ -n "$requested_raw" ]]; then
+    IFS=',' read -r -a requested_families <<< "$requested_raw"
+    for family_name in "${requested_families[@]}"; do
+      family_name="$(trim_whitespace "$family_name")"
+      [[ -z "$family_name" ]] && continue
+      requested_lookup["$family_name"]=1
+    done
+  fi
+
+  while IFS= read -r dataset_stem; do
+    [[ -z "$dataset_stem" ]] && continue
+    family_name="${dataset_stem%%_*}"
+    if [[ "$family_name" == "StephensonE" ]]; then
+      family_name="Stephenson"
+    fi
+
+    if [[ -n "$requested_raw" && -z "${requested_lookup[$family_name]:-}" ]]; then
+      continue
+    fi
+
+    if [[ -z "${family_lookup[$family_name]:-}" ]]; then
+      families+=("$family_name")
+      family_lookup["$family_name"]=1
+    fi
+  done < <(
+    find "$PROJECT_DIR/data/processed" -maxdepth 1 -name '*.rds' -printf '%f\n' | sed -E 's/\.rds$//' | sort -u
+  )
+
+  if [[ ${#families[@]} -eq 0 ]]; then
+    log_message "ERROR" "No dataset families found in data/processed"
+    exit 1
+  fi
+
+  printf '%s\n' "${families[@]}"
+}
+
 run_dataset_locally() {
   local dataset_id="$1"
+  local tasks_csv="$2"
   log_message "INFO" "Running dataset locally: $dataset_id"
 
   ensure_r_environment
   cd "$PROJECT_DIR/ISC_benchmark"
-  ISC_DATASET_ID="$dataset_id" Rscript --vanilla - <<'RS'
+  ISC_DATASET_ID="$dataset_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
 activate <- file.path(project_root, "renv", "activate.R")
 if (file.exists(activate)) {
@@ -168,23 +216,69 @@ message("Finished targets::tar_make(callr_function = NULL) at ", Sys.time())
 RS
 }
 
-submit_dataset_job() {
-  local dataset_id="$1"
-  local safe_dataset_id
-  safe_dataset_id="$(printf '%s' "$dataset_id" | tr -c 'A-Za-z0-9._-' '_')"
+run_family_locally() {
+  local family_id="$1"
+  local tasks_csv="$2"
+  log_message "INFO" "Running family locally: $family_id"
 
-  log_message "INFO" "Submitting dataset job: $dataset_id"
+  ensure_r_environment
+  cd "$PROJECT_DIR/ISC_benchmark"
+  ISC_DATASET_FAMILIES="$family_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
+project_root <- normalizePath("..")
+activate <- file.path(project_root, "renv", "activate.R")
+if (file.exists(activate)) {
+  source(activate)
+}
+if (requireNamespace("renv", quietly = TRUE)) {
+  renv::load(project = project_root)
+}
 
-  sbatch --parsable \
-    --job-name="isc-${safe_dataset_id}" \
+r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
+renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+if (dir.exists(renv_lib)) {
+  .libPaths(unique(c(renv_lib, .libPaths())))
+}
+
+cat("[INFO] .libPaths():\n")
+writeLines(.libPaths())
+cat("[INFO] ISC_DATASET_FAMILIES = ", Sys.getenv("ISC_DATASET_FAMILIES"), "\n", sep = "")
+cat("[INFO] ISC_TASKS = ", Sys.getenv("ISC_TASKS"), "\n", sep = "")
+
+library(targets)
+
+message("Starting targets::tar_make(callr_function = NULL) at ", Sys.time())
+targets::tar_make(callr_function = NULL)
+message("Finished targets::tar_make(callr_function = NULL) at ", Sys.time())
+RS
+}
+
+submit_targets_job() {
+  local job_type="$1"
+  local job_label="$2"
+  local tasks_csv="$3"
+  local selector_name="$4"
+  local selector_value="$5"
+  local safe_label
+  safe_label="$(printf '%s' "$job_label" | tr -c 'A-Za-z0-9._-' '_')"
+
+  log_message "INFO" "Submitting ${job_type} job: ${job_label}"
+
+  local -a env_exports=(
+    "PROJECT_DIR=$PROJECT_DIR"
+    "ISC_TASKS=$tasks_csv"
+    "${selector_name}=$selector_value"
+  )
+
+  env "${env_exports[@]}" sbatch --parsable \
+    --export=ALL \
+    --job-name="isc-${safe_label}" \
     --partition="$SLURM_PARTITION" \
     --nodes="$SLURM_NODES" \
     --cpus-per-task="$SLURM_CPUS" \
     --mem="$SLURM_MEM" \
     --time="$SLURM_TIME" \
-    --output="$LOG_DIR/slurm-${safe_dataset_id}-%j.out" \
-    --error="$LOG_DIR/slurm-${safe_dataset_id}-%j.err" \
-    --export=ALL,PROJECT_DIR="$PROJECT_DIR",ISC_DATASET_ID="$dataset_id" <<'SLURM_SCRIPT'
+    --output="$LOG_DIR/slurm-${safe_label}-%j.out" \
+    --error="$LOG_DIR/slurm-${safe_label}-%j.err" <<'SLURM_SCRIPT'
 #!/bin/bash
 set -euo pipefail
 
@@ -205,6 +299,8 @@ echo "Time: $(date)"
 echo "Hostname: $(hostname)"
 echo "Working directory: $(pwd)"
 echo "ISC_DATASET_ID: ${ISC_DATASET_ID:-unset}"
+echo "ISC_DATASET_FAMILIES: ${ISC_DATASET_FAMILIES:-unset}"
+echo "ISC_TASKS: ${ISC_TASKS:-unset}"
 echo "================================="
 
 Rscript --vanilla - <<'RS'
@@ -226,6 +322,8 @@ if (dir.exists(renv_lib)) {
 cat("[INFO] .libPaths():\n")
 writeLines(.libPaths())
 cat("[INFO] ISC_DATASET_ID = ", Sys.getenv("ISC_DATASET_ID"), "\n", sep = "")
+cat("[INFO] ISC_DATASET_FAMILIES = ", Sys.getenv("ISC_DATASET_FAMILIES"), "\n", sep = "")
+cat("[INFO] ISC_TASKS = ", Sys.getenv("ISC_TASKS"), "\n", sep = "")
 
 library(targets)
 
@@ -240,6 +338,18 @@ echo "================================="
 SLURM_SCRIPT
 }
 
+submit_dataset_job() {
+  local dataset_id="$1"
+  local tasks_csv="$2"
+  submit_targets_job "dataset" "$dataset_id" "$tasks_csv" "ISC_DATASET_ID" "$dataset_id"
+}
+
+submit_family_job() {
+  local family_id="$1"
+  local tasks_csv="$2"
+  submit_targets_job "family" "$family_id" "$tasks_csv" "ISC_DATASET_FAMILIES" "$family_id"
+}
+
 log_message "INFO" "========== ISC Benchmark HPC Submission =========="
 log_message "INFO" "Timestamp: $TIMESTAMP"
 log_message "INFO" "Project directory: $PROJECT_DIR"
@@ -247,20 +357,55 @@ log_message "INFO" "Log directory: $LOG_DIR"
 log_message "INFO" "SLURM configuration: partition=$SLURM_PARTITION nodes=$SLURM_NODES cpus=$SLURM_CPUS mem=$SLURM_MEM time=$SLURM_TIME"
 
 mapfile -t DATASET_IDS < <(read_dataset_ids)
-log_message "INFO" "Dataset selection: ${#DATASET_IDS[@]} dataset(s)"
+DATASET_TASKS_CSV="$(IFS=,; echo "${DATASET_TASKS[*]}")"
+CROSS_TASKS_CSV="$(IFS=,; echo "${CROSS_DATASET_TASKS[*]}")"
+STEM_FILTER_SET="${ISC_DATASET_IDS:-}${ISC_DATASET_ID:-}${ISC_TEST_DATASET:-}"
+FAMILY_FILTER_SET="${ISC_DATASET_FAMILIES:-}${ISC_DATASET_FAMILY:-}"
+RUN_STEM_JOBS=true
+RUN_FAMILY_JOBS=true
+
+if [[ -n "$STEM_FILTER_SET" ]]; then
+  RUN_FAMILY_JOBS=false
+elif [[ -n "$FAMILY_FILTER_SET" ]]; then
+  RUN_STEM_JOBS=false
+fi
+
+log_message "INFO" "Dataset selection: ${#DATASET_IDS[@]} stem job(s)"
 
 if command -v sbatch >/dev/null 2>&1; then
   JOB_IDS=()
-  for dataset_id in "${DATASET_IDS[@]}"; do
-    job_id="$(submit_dataset_job "$dataset_id")"
-    JOB_IDS+=("$job_id")
-    log_message "INFO" "Submitted $dataset_id as SLURM job $job_id"
-  done
+
+  if [[ "$RUN_STEM_JOBS" == true ]]; then
+    for dataset_id in "${DATASET_IDS[@]}"; do
+      job_id="$(submit_dataset_job "$dataset_id" "$DATASET_TASKS_CSV")"
+      JOB_IDS+=("$job_id")
+      log_message "INFO" "Submitted stem $dataset_id as SLURM job $job_id"
+    done
+  fi
+
+  if [[ "$RUN_FAMILY_JOBS" == true ]]; then
+    mapfile -t DATASET_FAMILIES < <(read_dataset_families)
+    log_message "INFO" "Family selection: ${#DATASET_FAMILIES[@]} cross-dataset job(s)"
+    for family_id in "${DATASET_FAMILIES[@]}"; do
+      job_id="$(submit_family_job "$family_id" "$CROSS_TASKS_CSV")"
+      JOB_IDS+=("$job_id")
+      log_message "INFO" "Submitted family $family_id as SLURM job $job_id"
+    done
+  fi
 
   log_message "INFO" "Submission complete: ${JOB_IDS[*]}"
 else
-  log_message "WARNING" "sbatch not found. Running selected dataset(s) locally instead."
-  for dataset_id in "${DATASET_IDS[@]}"; do
-    run_dataset_locally "$dataset_id"
-  done
+  if [[ "$RUN_STEM_JOBS" == true ]]; then
+    log_message "WARNING" "sbatch not found. Running selected stem job(s) locally instead."
+    for dataset_id in "${DATASET_IDS[@]}"; do
+      run_dataset_locally "$dataset_id" "$DATASET_TASKS_CSV"
+    done
+  fi
+  if [[ "$RUN_FAMILY_JOBS" == true ]]; then
+    mapfile -t DATASET_FAMILIES < <(read_dataset_families)
+    log_message "WARNING" "sbatch not found. Running family job(s) locally instead."
+    for family_id in "${DATASET_FAMILIES[@]}"; do
+      run_family_locally "$family_id" "$CROSS_TASKS_CSV"
+    done
+  fi
 fi

@@ -68,6 +68,39 @@ prepare_scTypeEval_object <- function(obj, ident_col, config) {
   )
 }
 
+#' Load and merge multiple processed ISC datasets
+#'
+#' @param dataset_stems Character vector of processed dataset stems
+#' @param config Configuration list
+#'
+#' @return Merged Seurat object containing all requested datasets
+load_and_merge_processed_datasets <- function(dataset_stems, config) {
+  dataset_stems <- unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE))))
+  dataset_stems <- dataset_stems[nzchar(dataset_stems)]
+
+  if (length(dataset_stems) == 0) {
+    stop("No dataset stems supplied for merging")
+  }
+
+  dataset_files <- file.path(config$processed_data_dir, paste0(dataset_stems, ".rds"))
+  missing_files <- dataset_stems[!file.exists(dataset_files)]
+  if (length(missing_files) > 0) {
+    stop("Missing processed dataset(s): ", paste(missing_files, collapse = ", "))
+  }
+
+  objects <- lapply(dataset_files, readRDS)
+  if (length(objects) == 1) {
+    return(objects[[1]])
+  }
+
+  merged <- merge(
+    x = objects[[1]],
+    y = objects[-1],
+    add.cell.ids = dataset_stems
+  )
+  merged
+}
+
 # ============================================================================
 # BATCH EFFECTS & PERTURBATIONS UTILITY FUNCTIONS
 # ============================================================================

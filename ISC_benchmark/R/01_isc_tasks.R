@@ -35,6 +35,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
                                          ident_col,
                                          task_name,
                                          dataset_path,
+                                         dataset_stems = dataset_id,
                                          config,
                                          output_dir) {
   
@@ -46,12 +47,19 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
                sprintf("dataset=%s, task=%s, ident=%s", dataset_id, task_name, ident_col))
   
   # ========== STEP 1: Load dataset ==========
-  if (!file.exists(dataset_path)) {
-    stop("Dataset not found: ", dataset_path)
+  if (task_name %in% c("batch_effects", "biological_perturbations")) {
+    obj <- load_and_merge_processed_datasets(dataset_stems, config)
+    message_step("LOAD", sprintf("Merged dataset family loaded: %d cells, %d genes from %d stem(s)",
+                                  ncol(obj), nrow(obj),
+                                  length(unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE)))))))
+  } else {
+    if (!file.exists(dataset_path)) {
+      stop("Dataset not found: ", dataset_path)
+    }
+    
+    obj <- readRDS(dataset_path)
+    message_step("LOAD", sprintf("Dataset loaded: %d cells, %d genes", ncol(obj), nrow(obj)))
   }
-  
-  obj <- readRDS(dataset_path)
-  message_step("LOAD", sprintf("Dataset loaded: %d cells, %d genes", ncol(obj), nrow(obj)))
   
   # ========== STEP 2: Prepare for scTypeEval ==========
   obj_prepared <- tryCatch({
