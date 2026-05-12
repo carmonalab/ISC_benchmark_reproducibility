@@ -403,6 +403,7 @@ load_dataset_specs <- function(specs_path) {
 get_batch_pairs <- function(specs, batch_col = "batch") {
   if (is.null(specs)) return(NULL)
 
+  scope_col <- if ("Sampletype" %in% names(specs)) "Sampletype" else "Dataset reference"
   batch_comp_col <- "Batch comparison"
   if (!batch_comp_col %in% names(specs)) {
     stop("Column not found in specs: ", batch_comp_col)
@@ -411,7 +412,7 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
   # Filter for batch comparison datasets
   batch_specs <- specs %>%
     filter(.data[[batch_comp_col]] == "yes") %>%
-      mutate(dataset_key = paste0(.data[["Dataset reference"]], "_",
+    mutate(dataset_key = paste0(.data[[scope_col]], "_",
                                  .data[["Annotation"]], "_",
                                  .data[["Condition"]]))
   
@@ -422,7 +423,7 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
     group_by(dataset_key) %>%
     filter(n_distinct(.data[["Batch"]]) > 1) %>%
     summarise(
-      dataset_ref = first(.data[["Dataset reference"]]),
+      dataset_ref = first(.data[[scope_col]]),
       annotation = first(.data[["Annotation"]]),
       condition = first(.data[["Condition"]]),
       batches = list(unique(.data[["Batch"]])),
@@ -469,6 +470,7 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
 get_perturbation_pairs <- function(specs, batch_col = "batch") {
   if (is.null(specs)) return(NULL)
 
+  scope_col <- if ("Sampletype" %in% names(specs)) "Sampletype" else "Dataset reference"
   pert_comp_col <- "Perturbation comparison"
   if (!pert_comp_col %in% names(specs)) {
     stop("Column not found in specs: ", pert_comp_col)
@@ -477,7 +479,7 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
   # Filter for perturbation comparison datasets
   pert_specs <- specs %>%
     filter(.data[[pert_comp_col]] == "yes") %>%
-      mutate(dataset_key = paste0(.data[["Dataset reference"]], "_",
+    mutate(dataset_key = paste0(.data[[scope_col]], "_",
                                  .data[["Annotation"]], "_",
                                  .data[["Batch"]]))
   
@@ -488,7 +490,7 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
     group_by(dataset_key) %>%
     filter(n_distinct(.data[["Condition"]]) > 1, .data[["Condition"]] != "") %>%  # Exclude empty conditions
     summarise(
-      dataset_ref = first(.data[["Dataset reference"]]),
+      dataset_ref = first(.data[[scope_col]]),
       annotation = first(.data[["Annotation"]]),
       batch = first(.data[["Batch"]]),
       conditions = list(unique(.data[["Condition"]])),
