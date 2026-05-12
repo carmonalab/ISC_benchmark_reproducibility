@@ -209,6 +209,34 @@ get_dataset_idents <- function(config, selected_dataset_ids = NULL, selected_dat
   dataset_info
 }
 
+#' Normalize per-task result schema before aggregation
+#'
+#' Task outputs can legitimately differ in column classes across cached runs
+#' (e.g., `rate` numeric for some tasks and character labels for others).
+#' Coerce mixed metric/detail fields to character to keep bind_rows stable.
+normalize_result_schema <- function(df) {
+  if (is.null(df) || !is.data.frame(df) || nrow(df) == 0) {
+    return(df)
+  }
+
+  char_cols <- c(
+    "dataset_id", "ident", "task", "status", "error",
+    "celltype", "measure", "consistency_metric", "dissimilarity_method",
+    "rate", "rep", "original_ident", "perturbed_ctype",
+    "batch", "dataset", "pair_id", "source", "condition"
+  )
+
+  for (col in intersect(char_cols, names(df))) {
+    df[[col]] <- as.character(df[[col]])
+  }
+
+  if ("n_results" %in% names(df)) {
+    df[["n_results"]] <- suppressWarnings(as.numeric(df[["n_results"]]))
+  }
+
+  df
+}
+
 #' Read requested dataset IDs from the environment
 #'
 #' Supports comma-separated selections via ISC_DATASET_IDS or single-dataset
@@ -389,7 +417,8 @@ list(
     all_results,
     {
       # Bind all branched task_result outputs
-      combined <- dplyr::bind_rows(task_result)
+      normalized_results <- lapply(task_result, normalize_result_schema)
+      combined <- dplyr::bind_rows(normalized_results)
       rownames(combined) <- NULL
       
       message(sprintf("\nAggregated %d task results", nrow(combined)))
@@ -414,7 +443,10 @@ list(
         )
       }
 
-      combined_results <- dplyr::bind_rows(existing_results, all_results)
+      existing_results <- normalize_result_schema(existing_results)
+      new_results <- normalize_result_schema(all_results)
+
+      combined_results <- dplyr::bind_rows(existing_results, new_results)
       combined_results <- dplyr::distinct(combined_results)
 
       tmp_file <- paste0(output_file, ".tmp")
