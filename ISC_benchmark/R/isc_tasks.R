@@ -163,43 +163,43 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     # Dispatch to appropriate task function
     switch(task_name,
       "missclassify" = {
-        wr_result <<- run_task_missclassify(obj_prepared, config, task_config, task_output_dir,
+        wr_result <- run_task_missclassify(obj_prepared, config, task_config, task_output_dir,
                                              baseline_df = baseline_df)
-        task_metrics <<- wr_result
+        task_metrics <- wr_result
       },
       "SplitCelltype" = {
-        wr_result <<- run_task_SplitCelltype(obj_prepared, config, task_config, task_output_dir,
+        wr_result <- run_task_SplitCelltype(obj_prepared, config, task_config, task_output_dir,
                                               baseline_df = baseline_df)
-        task_metrics <<- wr_result
+        task_metrics <- wr_result
       },
       "Nct" = {
-        wr_result <<- run_task_Nct(obj_prepared, config, task_config, task_output_dir,
+        wr_result <- run_task_Nct(obj_prepared, config, task_config, task_output_dir,
                                     baseline_df = baseline_df)
-        task_metrics <<- wr_result
+        task_metrics <- wr_result
       },
       "cellular_complexity" = {
-        wr_result <<- run_task_cellular_complexity(obj_prepared, config, task_config, task_output_dir,
+        wr_result <- run_task_cellular_complexity(obj_prepared, config, task_config, task_output_dir,
                                                    baseline_df = baseline_df)
-        task_metrics <<- wr_result
+        task_metrics <- wr_result
       },
       "Nsamples" = {
-        wr_result <<- run_task_Nsamples(obj_prepared, config, task_config, task_output_dir,
+        wr_result <- run_task_Nsamples(obj_prepared, config, task_config, task_output_dir,
                                          baseline_df = baseline_df)
-        task_metrics <<- wr_result
+        task_metrics <- wr_result
       },
       "NCell" = {
-        wr_result <<- run_task_NCell(obj_prepared, config, task_config, task_output_dir,
+        wr_result <- run_task_NCell(obj_prepared, config, task_config, task_output_dir,
                                       baseline_df = baseline_df)
-        task_metrics <<- wr_result
+        task_metrics <- wr_result
       },
       "batch_effects" = {
         specs_file <- file.path(proj_root(), "data_processing", "config", "specs_datasets.csv")
-        wr_result <<- run_task_batch_effects(obj_prepared, config, config[["task_batch_effects"]], task_output_dir,
+        wr_result <- run_task_batch_effects(obj_prepared, config, config[["task_batch_effects"]], task_output_dir,
                                              specs_path    = specs_file,
                                              results_root  = config$output$dir,
                                              dataset_stems = dataset_stems)
         if (!is.null(wr_result)) {
-          task_metrics <<- wr_result %>%
+          task_metrics <- wr_result %>%
             mutate(task = task_name,
                    dataset_id = dataset_id,
                    ident = ident_col)
@@ -207,12 +207,12 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       },
       "biological_perturbations" = {
         specs_file <- file.path(proj_root(), "data_processing", "config", "specs_datasets.csv")
-        wr_result <<- run_task_biological_perturbations(obj_prepared, config, config[["task_biological_perturbations"]],
+        wr_result <- run_task_biological_perturbations(obj_prepared, config, config[["task_biological_perturbations"]],
                                                         task_output_dir, specs_path = specs_file,
                                                         results_root  = config$output$dir,
                                                         dataset_stems = dataset_stems)
         if (!is.null(wr_result)) {
-          task_metrics <<- wr_result %>%
+          task_metrics <- wr_result %>%
             mutate(task = task_name,
                    dataset_id = dataset_id,
                    ident = ident_col)
