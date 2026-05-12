@@ -265,7 +265,8 @@ wr_missclasify <- function(count_matrix,
                                   min_cells = min_cells,
                                   verbose = verbose)
       sc_gl <- run_hvg(sc_gl,
-                       ncores = ncores)
+                       ncores = ncores,
+                       verbose = verbose)
       gl <- sc_gl@gene_lists
    } else {
       gl <- gene_list
@@ -419,7 +420,8 @@ wr_nsamples <- function(count_matrix,
                                   min_cells = min_cells,
                                   verbose = verbose)
       sc_gl <- run_hvg(sc_gl,
-                       ncores = ncores)
+                       ncores = ncores,
+                       verbose = verbose)
       gl <- sc_gl@gene_lists
    } else {
       gl <- gene_list
@@ -571,7 +573,8 @@ wr_nct <- function(count_matrix,
                                   min_cells = min_cells,
                                   verbose = verbose)
       sc_gl <- run_hvg(sc_gl,
-                       ncores = ncores)
+                       ncores = ncores,
+                       verbose = verbose)
       gl <- sc_gl@gene_lists
    } else {
       gl <- gene_list
@@ -732,7 +735,8 @@ wr_ncell <- function(count_matrix,
                                   min_cells = min_cells,
                                   verbose = verbose)
       sc_gl <- run_hvg(sc_gl,
-                       ncores = ncores)
+                       ncores = ncores,
+                       verbose = verbose)
       gl <- sc_gl@gene_lists
    } else {
       gl <- gene_list
@@ -886,7 +890,8 @@ wr_merge_ct <- function(count_matrix,
    if(is.null(gene_list)){
       
       sc <- run_hvg(sc,
-                    ncores = ncores)
+                    ncores = ncores,
+                       verbose = verbose)
       gl <- sc@gene_lists
    } else {
       gl <- gene_list
@@ -1092,7 +1097,8 @@ wr_split_cell_type <- function(count_matrix,
                                   min_cells = min_cells,
                                   verbose = verbose)
       sc_gl <- run_hvg(sc_gl,
-                       ncores = ncores)
+                       ncores = ncores,
+                       verbose = verbose)
       gl <- sc_gl@gene_lists
    } else {
       gl <- gene_list
