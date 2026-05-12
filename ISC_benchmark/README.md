@@ -109,27 +109,3 @@ export ISC_DATASET_FAMILIES="BCC,ICBAtlas,JoaI,LungAtlas,Stephenson"
 bash scripts/submit_hpc.sh
 ```
 
-## Monitoring
-
-Queue:
-
-```bash
-squeue -u $USER
-```
-
-Logs:
-- `ISC_benchmark/logs/slurm-<joblabel>-<jobid>.out`
-- `ISC_benchmark/logs/slurm-<joblabel>-<jobid>.err`
-
-Job labels:
-- stem jobs look like `slurm-<dataset_stem>-<jobid>.*`
-- family jobs look like `slurm-<family>-<jobid>.*`
-
-## Notes On Job Ordering
-
-Stem jobs (1-6) and family jobs (7-8) are submitted independently and may run in parallel depending on scheduler availability. There is no global guarantee that all 1-6 complete before 7-8 start.
-
-## Deprecated Script
-
-`ISC_benchmark/scripts/master_job.sh` has been removed.
-Use `ISC_benchmark/scripts/submit_hpc.sh`.
