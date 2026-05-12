@@ -297,6 +297,7 @@ wr_missclasify <- function(count_matrix,
                                 dplyr::mutate(rate = as.numeric(as.character(strsplit(ann, "_")[[1]][3])),
                                               rep = strsplit(ann, "_")[[1]][2],
                                               original_ident = !!ident,
+                                              perturbed_ctype = NA_character_,
                                               task = "Missclassification"
                                 )
                              
@@ -458,6 +459,7 @@ wr_nsamples <- function(count_matrix,
                                 dplyr::mutate(rate = as.numeric(as.character(strsplit(ns, "_")[[1]][3])),
                                               rep = strsplit(ns, "_")[[1]][2],
                                               original_ident = !!ident,
+                                              perturbed_ctype = NA_character_,
                                               task = "NSamples"
                                 )
                              
@@ -606,6 +608,7 @@ wr_nct <- function(count_matrix,
                                 dplyr::mutate(rate = ns,
                                               rep = NA,
                                               original_ident = !!ident,
+                                              perturbed_ctype = NA_character_,
                                               task = "Nct"
                                 )
                              
@@ -967,6 +970,7 @@ wr_merge_ct <- function(count_matrix,
                                    rate = as.numeric(as.character(strsplit(ann, "_")[[1]][2])),
                                    rep = NA,
                                    original_ident = !!ident,
+                                   perturbed_ctype = NA_character_,
                                    task = "mergeCT"
                                 )
                              
