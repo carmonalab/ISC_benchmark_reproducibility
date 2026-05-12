@@ -784,6 +784,7 @@ wr_ncell <- function(count_matrix,
                                 dplyr::mutate(rate = as.numeric(as.character(ns)),
                                               rep = s,
                                               original_ident = !!ident,
+                                              perturbed_ctype = ctype,
                                               task = "NCell"
                                 )
                              
@@ -1119,6 +1120,7 @@ wr_split_cell_type <- function(count_matrix,
                                 dplyr::mutate(rate = as.numeric(as.character(strsplit(ann, "_")[[1]][3])),
                                               rep = strsplit(ann, "_")[[1]][2],
                                               original_ident = !!ident,
+                                              perturbed_ctype = ctype,
                                               task = "SplitCelltype"
                                 )
                              
