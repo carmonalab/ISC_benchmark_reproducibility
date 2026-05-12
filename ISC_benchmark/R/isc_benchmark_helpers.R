@@ -359,7 +359,7 @@ load_dataset_specs <- function(specs_path) {
   
   specs <- read.csv(specs_path,
                     stringsAsFactors = FALSE,
-                      header = TRUE)
+                      check.names = FALSE)
   specs
 }
 
@@ -392,21 +392,21 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
   batch_specs <- specs %>%
     filter(.data[[batch_comp_col]] == "yes") %>%
     mutate(dataset_key = sprintf("%s_%s_%s",
-                                 `Dataset reference`,
-                                 Annotation,
-                                 Condition))
+                                 .data[["Dataset reference"]],
+                                 .data[["Annotation"]],
+                                 .data[["Condition"]]))
   
   if (nrow(batch_specs) == 0) return(NULL)
   
   # Group by dataset_key to find pairs with same annotation+condition but different batches
   pairs <- batch_specs %>%
     group_by(dataset_key) %>%
-    filter(n_distinct(Batch) > 1) %>%
+    filter(n_distinct(.data[["Batch"]]) > 1) %>%
     summarise(
-      dataset_ref = first(`Dataset reference`),
-      annotation = first(Annotation),
-      condition = first(Condition),
-      batches = list(unique(Batch)),
+      dataset_ref = first(.data[["Dataset reference"]]),
+      annotation = first(.data[["Annotation"]]),
+      condition = first(.data[["Condition"]]),
+      batches = list(unique(.data[["Batch"]])),
       .groups = "drop"
     )
   
@@ -461,21 +461,21 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
   pert_specs <- specs %>%
     filter(.data[[pert_comp_col]] == "yes") %>%
     mutate(dataset_key = sprintf("%s_%s_%s",
-                                 `Dataset reference`,
-                                 Annotation,
-                                 Batch))
+                                 .data[["Dataset reference"]],
+                                 .data[["Annotation"]],
+                                 .data[["Batch"]]))
   
   if (nrow(pert_specs) == 0) return(NULL)
   
   # Group by dataset_key to find pairs with same annotation+batch but different conditions
   pairs <- pert_specs %>%
     group_by(dataset_key) %>%
-    filter(n_distinct(Condition) > 1, Condition != "") %>%  # Exclude empty conditions
+    filter(n_distinct(.data[["Condition"]]) > 1, .data[["Condition"]] != "") %>%  # Exclude empty conditions
     summarise(
-      dataset_ref = first(`Dataset reference`),
-      annotation = first(Annotation),
-      batch = first(Batch),
-      conditions = list(unique(Condition)),
+      dataset_ref = first(.data[["Dataset reference"]]),
+      annotation = first(.data[["Annotation"]]),
+      batch = first(.data[["Batch"]]),
+      conditions = list(unique(.data[["Condition"]])),
       .groups = "drop"
     )
   
