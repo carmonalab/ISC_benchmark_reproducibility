@@ -356,11 +356,31 @@ load_dataset_specs <- function(specs_path) {
     warning("Dataset specs file not found: ", specs_path)
     return(NULL)
   }
-  
+
   specs <- read.csv(specs_path,
                     stringsAsFactors = FALSE,
-                      check.names = FALSE)
-  specs
+                    check.names = FALSE,
+                    fileEncoding = "UTF-8-BOM")
+
+  # Normalize header whitespace to make column lookups robust.
+  names(specs) <- gsub("\\s+", " ", trimws(names(specs)))
+
+  # Normalize character values (e.g., CRLF artifacts, trailing spaces).
+  char_cols <- vapply(specs, is.character, logical(1))
+  specs[char_cols] <- lapply(specs[char_cols], function(x) trimws(x))
+
+  # Backward-compatible alias: older code expects an "Annotation" column.
+  if (!"Annotation" %in% names(specs)) {
+    if ("Annotation reference" %in% names(specs)) {
+      specs$Annotation <- specs[["Annotation reference"]]
+    } else if ("# Annotation frameworks" %in% names(specs)) {
+      specs$Annotation <- specs[["# Annotation frameworks"]]
+    } else {
+      specs$Annotation <- "annotation"
+    }
+  }
+
+  return(specs)
 }
 
 #' Create batch comparison pairs from dataset registry
@@ -391,9 +411,8 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
   # Filter for batch comparison datasets
   batch_specs <- specs %>%
     filter(.data[[batch_comp_col]] == "yes") %>%
-    mutate(dataset_key = sprintf("%s_%s_%s",
-                                 .data[["Dataset reference"]],
-                                 .data[["Annotation"]],
+      mutate(dataset_key = paste0(.data[["Dataset reference"]], "_",
+                                 .data[["Annotation"]], "_",
                                  .data[["Condition"]]))
   
   if (nrow(batch_specs) == 0) return(NULL)
@@ -423,9 +442,7 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
           condition = pairs$condition[i],
           batch1 = combo[1],
           batch2 = combo[2],
-          pair_name = sprintf("%s-%s",  # Simple format for get_ratio()
-                             combo[1],
-                             combo[2])
+            pair_name = paste0(combo[1], "-", combo[2])
         )
       }
     }
@@ -460,9 +477,8 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
   # Filter for perturbation comparison datasets
   pert_specs <- specs %>%
     filter(.data[[pert_comp_col]] == "yes") %>%
-    mutate(dataset_key = sprintf("%s_%s_%s",
-                                 .data[["Dataset reference"]],
-                                 .data[["Annotation"]],
+      mutate(dataset_key = paste0(.data[["Dataset reference"]], "_",
+                                 .data[["Annotation"]], "_",
                                  .data[["Batch"]]))
   
   if (nrow(pert_specs) == 0) return(NULL)
@@ -494,9 +510,7 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
           batch = pairs$batch[i],
           condition1 = combo[1],
           condition2 = combo[2],
-          pair_name = sprintf("%s-%s",  # Simple format for get_ratio()
-                             combo[1],
-                             combo[2])
+            pair_name = paste0(combo[1], "-", combo[2])
         )
       }
     }
@@ -773,7 +787,7 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
   }
 
   specs       <- load_dataset_specs(specs_path)
-  batch_pairs <- get_batch_pairs(specs, batch_col)
+  batch_pairs <- get_batch_pairs(specs)  # Use default batch_col parameter
 
   if (is.null(batch_pairs) || length(batch_pairs) == 0) {
     message("  No valid batch pairs found in specs_datasets.csv")
@@ -918,7 +932,7 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   }
 
   specs           <- load_dataset_specs(specs_path)
-  condition_pairs <- get_perturbation_pairs(specs, batch_col = "Batch")
+  condition_pairs <- get_perturbation_pairs(specs)  # Use default batch_col parameter
 
   if (is.null(condition_pairs) || length(condition_pairs) == 0) {
     message("  No valid condition pairs found in specs_datasets.csv")
