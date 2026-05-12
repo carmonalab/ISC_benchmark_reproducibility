@@ -989,42 +989,9 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   tidy_results
 }
 
-# ============================================================================
-# METRIC EXTRACTION FROM TASK RESULTS
-# ============================================================================
+=========================================================================
 
-#' Extract metrics from wr_* task results
-#'
-#' Converts scTypeEval wr_* output into tidy data frame for analysis
-#'
-#' @param wr_result Result from scTypeEval wr_* function
-#' @param task_name Name of task (for labeling)
-#' @param metric_type Type of expected degradation ("monotonic" or "constant")
-#'
-#' @return Data frame with metrics, rates, and degradation scores
-extract_task_metrics <- function(wr_result, task_name, metric_type) {
-  if (is.null(wr_result)) {
-    stop("Task '", task_name, "' returned NULL results")
-  }
-  if (!is.data.frame(wr_result) || nrow(wr_result) == 0) {
-    stop("Task '", task_name, "' returned no rows to score")
-  }
-  
-  # Use scTypeEval's built-in plotting function to extract metrics
-  # This returns a tidy data frame suitable for analysis
-  metrics_df <- wr_assay_plot(
-    wr_result,
-    type = metric_type,
-    return_df = TRUE
-  )
-  
-  # Add task metadata
-  metrics_df <- metrics_df %>%
-    mutate(task = task_name, .before = 1) %>%
-    mutate(metric_type = metric_type, .after = "task")
-  
-  metrics_df
-}
+
 
 # ============================================================================
 # RESULT PERSISTENCE AND LOGGING

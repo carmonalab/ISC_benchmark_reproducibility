@@ -131,7 +131,6 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     # Extract task-specific configuration from main config
     task_config_key <- paste0("task_", task_name)
     task_config <- config[[task_config_key]][["isc_params"]]
-    metric_config <- config[[task_config_key]][["type"]]
     
     # Tasks 7/8 use the full sub-config directly and have no isc_params block;
     # only require isc_params for the tasks that actually use task_config.
@@ -146,33 +145,32 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       "missclassify" = {
         wr_result <<- run_task_missclassify(obj_prepared, config, task_config, task_output_dir,
                                              baseline_df = baseline_df)
-        task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
+        task_metrics <<- wr_result
       },
       "SplitCelltype" = {
         wr_result <<- run_task_SplitCelltype(obj_prepared, config, task_config, task_output_dir,
                                               baseline_df = baseline_df)
-        task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
+        task_metrics <<- wr_result
       },
       "Nct" = {
         wr_result <<- run_task_Nct(obj_prepared, config, task_config, task_output_dir,
                                     baseline_df = baseline_df)
-        task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
+        task_metrics <<- wr_result
       },
       "cellular_complexity" = {
         wr_result <<- run_task_cellular_complexity(obj_prepared, config, task_config, task_output_dir,
                                                    baseline_df = baseline_df)
-        # Extract metrics from each complexity level
-        task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
+        task_metrics <<- wr_result
       },
       "Nsamples" = {
         wr_result <<- run_task_Nsamples(obj_prepared, config, task_config, task_output_dir,
                                          baseline_df = baseline_df)
-        task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
+        task_metrics <<- wr_result
       },
       "NCell" = {
         wr_result <<- run_task_NCell(obj_prepared, config, task_config, task_output_dir,
                                       baseline_df = baseline_df)
-        task_metrics <<- extract_task_metrics(wr_result, task_name, metric_config)
+        task_metrics <<- wr_result
       },
       "batch_effects" = {
         specs_file <- file.path(proj_root(), "data_processing", "config", "specs_datasets.csv")
