@@ -358,6 +358,9 @@ load_dataset_specs <- function(specs_path) {
   }
   
   specs <- read.csv(specs_path, stringsAsFactors = FALSE)
+  # Normalize headers to make lookups robust to whitespace/csv quirks.
+  colnames(specs) <- trimws(colnames(specs))
+  colnames(specs) <- gsub("[[:space:]]+", " ", colnames(specs))
   specs
 }
 
@@ -380,10 +383,15 @@ load_dataset_specs <- function(specs_path) {
 #' - CRC.SG1 Tumor + KUL3 Tumor (same dataset, annotation, condition; different batch)
 get_batch_pairs <- function(specs, batch_col = "batch") {
   if (is.null(specs)) return(NULL)
+
+  batch_comp_col <- "Batch comparison"
+  if (!batch_comp_col %in% names(specs)) {
+    stop("Column not found in specs: ", batch_comp_col)
+  }
   
   # Filter for batch comparison datasets
   batch_specs <- specs %>%
-    filter(.data[["Batch comparison"]] == "yes") %>%
+    filter(.data[[batch_comp_col]] == "yes") %>%
     mutate(dataset_key = sprintf("%s_%s_%s",
                                  `Dataset reference`,
                                  Annotation,
@@ -444,10 +452,15 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
 #' - CRC.SG1 Normal + CRC.SG1 Tumor (same dataset, annotation, batch; different condition)
 get_perturbation_pairs <- function(specs, batch_col = "batch") {
   if (is.null(specs)) return(NULL)
+
+  pert_comp_col <- "Perturbation comparison"
+  if (!pert_comp_col %in% names(specs)) {
+    stop("Column not found in specs: ", pert_comp_col)
+  }
   
   # Filter for perturbation comparison datasets
   pert_specs <- specs %>%
-    filter(.data[["Perturbation comparison"]] == "yes") %>%
+    filter(.data[[pert_comp_col]] == "yes") %>%
     mutate(dataset_key = sprintf("%s_%s_%s",
                                  `Dataset reference`,
                                  Annotation,
