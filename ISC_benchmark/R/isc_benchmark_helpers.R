@@ -125,8 +125,8 @@ load_and_merge_processed_datasets <- function(dataset_stems, config) {
 #   3. baseline_for_Nct()          – relabels baseline df for task 3.
 #   4. baseline_for_mergeCT()      – relabels baseline df for task 4.
 #
-#   5. Tasks 7/8: individual and merged subset scTypeEval objects are cached in
-#      per-task output directories as subset_sc_* / merged_sc_* files.
+#   5. Tasks 7/8: individual subset scTypeEval objects are cached on disk as
+#      subset_sc_* files; merged pair objects are computed transiently in memory.
 
 #' Compute or load unified baseline consistency dataframe for all tasks
 #'
@@ -887,10 +887,22 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
         batch2_cells <- which(startsWith(rownames(metadata), paste0(batch2_stem, "_")))
 
         batch1_tidy <- get_single_batch_consistency(batch1_stem, batch1_cells) |>
-          dplyr::mutate(batch = batch1, dataset = dataset_ref, ident = ident)
+          dplyr::mutate(
+            batch = batch1,
+            dataset = dataset_ref,
+            ident = ident,
+            pair_id = pair_name,
+            source = "single"
+          )
 
         batch2_tidy <- get_single_batch_consistency(batch2_stem, batch2_cells) |>
-          dplyr::mutate(batch = batch2, dataset = dataset_ref, ident = ident)
+          dplyr::mutate(
+            batch = batch2,
+            dataset = dataset_ref,
+            ident = ident,
+            pair_id = pair_name,
+            source = "single"
+          )
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(batch1_cells, batch2_cells)
@@ -904,16 +916,20 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
           cache_env       = single_isc_cache,
           cache_key       = paste0("merged:", pair_name),
           cache_label     = sprintf("merged '%s'", pair_name),
-          disk_cache_path = file.path(output_dir,
-                                      paste0("merged_sc_", pair_name, "_", ident, ".rds"))
+          disk_cache_path = NULL
         )
 
         combined_tidy <- scTypeEval::get_consistency(isc_combined, verbose = verbose_opt) |>
-          dplyr::mutate(batch = pair_name, dataset = dataset_ref, ident = ident)
+          dplyr::mutate(
+            batch = pair_name,
+            dataset = dataset_ref,
+            ident = ident,
+            pair_id = pair_name,
+            source = "merged"
+          )
 
-        pair_tidy  <- rbind(batch1_tidy, batch2_tidy, combined_tidy)
-        pair_scores <- get_ratio(pair_name, pair_tidy, col = "batch")
-        tidy_results <- rbind(tidy_results, pair_scores)
+        pair_tidy  <- dplyr::bind_rows(batch1_tidy, batch2_tidy, combined_tidy)
+        tidy_results <- dplyr::bind_rows(tidy_results, pair_tidy)
       }
     }, error = function(e) {
       message(sprintf("    ERROR: Batch pair %d failed (%s). Continuing with next pair.",
@@ -927,7 +943,7 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
     return(NULL)
   }
 
-  message(sprintf("  Computed degradation scores for %d batch pair(s)", length(batch_pairs)))
+  message(sprintf("  Computed consistency for %d batch pair(s)", length(batch_pairs)))
   tidy_results
 }
 
@@ -1044,10 +1060,22 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
         cond2_cells <- which(startsWith(rownames(metadata), paste0(cond2_stem, "_")))
 
         cond1_tidy <- get_single_condition_consistency(cond1_stem, cond1_cells) |>
-          dplyr::mutate(condition = cond1, dataset = dataset_ref, ident = ident)
+          dplyr::mutate(
+            condition = cond1,
+            dataset = dataset_ref,
+            ident = ident,
+            pair_id = pair_name,
+            source = "single"
+          )
 
         cond2_tidy <- get_single_condition_consistency(cond2_stem, cond2_cells) |>
-          dplyr::mutate(condition = cond2, dataset = dataset_ref, ident = ident)
+          dplyr::mutate(
+            condition = cond2,
+            dataset = dataset_ref,
+            ident = ident,
+            pair_id = pair_name,
+            source = "single"
+          )
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(cond1_cells, cond2_cells)
@@ -1061,16 +1089,20 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
           cache_env       = single_isc_cache,
           cache_key       = paste0("merged:", pair_name),
           cache_label     = sprintf("merged '%s'", pair_name),
-          disk_cache_path = file.path(output_dir,
-                                      paste0("merged_sc_", pair_name, "_", ident, ".rds"))
+          disk_cache_path = NULL
         )
 
         combined_tidy <- scTypeEval::get_consistency(isc_combined, verbose = verbose_opt) |>
-          dplyr::mutate(condition = pair_name, dataset = dataset_ref, ident = ident)
+          dplyr::mutate(
+            condition = pair_name,
+            dataset = dataset_ref,
+            ident = ident,
+            pair_id = pair_name,
+            source = "merged"
+          )
 
-        pair_tidy   <- rbind(cond1_tidy, cond2_tidy, combined_tidy)
-        pair_scores <- get_ratio(pair_name, pair_tidy, col = "condition")
-        tidy_results <- rbind(tidy_results, pair_scores)
+        pair_tidy   <- dplyr::bind_rows(cond1_tidy, cond2_tidy, combined_tidy)
+        tidy_results <- dplyr::bind_rows(tidy_results, pair_tidy)
       }
     }, error = function(e) {
       message(sprintf("    ERROR: Condition pair %d failed (%s). Continuing with next pair.",
@@ -1084,7 +1116,7 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
     return(NULL)
   }
 
-  message(sprintf("  Computed degradation scores for %d condition pair(s)", length(condition_pairs)))
+  message(sprintf("  Computed consistency for %d condition pair(s)", length(condition_pairs)))
   tidy_results
 }
 

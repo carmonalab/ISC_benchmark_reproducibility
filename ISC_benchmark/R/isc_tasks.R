@@ -144,6 +144,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   
   wr_result <- NULL
   task_metrics <- NULL
+  skip_persist <- FALSE
   
   tryCatch({
     message_step("TASK", sprintf("Running %s...", task_name))
@@ -204,13 +205,9 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
                    dataset_id = dataset_id,
                    ident = ident_col)
         } else {
-          task_metrics <- data.frame(
-            task = task_name,
-            dataset_id = dataset_id,
-            ident = ident_col,
-            n_results = 0,
-            stringsAsFactors = FALSE
-          )
+          # No resolvable batch pairs is an expected outcome for some families.
+          # Mark as success but skip persistence so no files/directories are created.
+          skip_persist <- TRUE
         }
       },
       "biological_perturbations" = {
@@ -225,13 +222,9 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
                    dataset_id = dataset_id,
                    ident = ident_col)
         } else {
-          task_metrics <- data.frame(
-            task = task_name,
-            dataset_id = dataset_id,
-            ident = ident_col,
-            n_results = 0,
-            stringsAsFactors = FALSE
-          )
+          # No resolvable perturbation pairs is an expected outcome for some families.
+          # Mark as success but skip persistence so no files/directories are created.
+          skip_persist <- TRUE
         }
       },
       {
@@ -242,6 +235,18 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   }, error = function(e) {
     message_step("ERROR", sprintf("Task execution failed: %s", e$message))
   })
+
+  if (isTRUE(skip_persist)) {
+    return(data.frame(
+      dataset_id = dataset_id,
+      ident = ident_col,
+      task = task_name,
+      status = "success",
+      error = NA,
+      n_results = 0,
+      stringsAsFactors = FALSE
+    ))
+  }
   
   # ========== STEP 4: Save results ==========
   if (!is.null(task_metrics)) {
