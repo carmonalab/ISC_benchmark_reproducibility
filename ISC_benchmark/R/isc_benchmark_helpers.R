@@ -295,9 +295,19 @@ run_cached_subset_scTypeEval <- function(count_matrix,
   if (!is.null(disk_cache_path) && file.exists(disk_cache_path)) {
     message(sprintf("    [disk cache] Loading ISC for %s from %s",
                     cache_label, basename(disk_cache_path)))
-    result <- readRDS(disk_cache_path)
-    assign(cache_key, result, envir = cache_env)
-    return(result)
+    cached <- tryCatch(
+      readRDS(disk_cache_path),
+      error = function(e) {
+        message(sprintf("    [disk cache] WARNING: Could not read %s (%s). Recomputing.",
+                        basename(disk_cache_path), e$message))
+        unlink(disk_cache_path)
+        NULL
+      }
+    )
+    if (!is.null(cached)) {
+      assign(cache_key, cached, envir = cache_env)
+      return(cached)
+    }
   }
 
   # --- Compute ---
@@ -332,6 +342,7 @@ run_cached_subset_scTypeEval <- function(count_matrix,
 
   # Save to disk if path given
   if (!is.null(disk_cache_path)) {
+    dir.create(dirname(disk_cache_path), showWarnings = FALSE, recursive = TRUE)
     saveRDS(result, disk_cache_path)
   }
 

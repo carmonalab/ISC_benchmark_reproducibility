@@ -203,6 +203,14 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
             mutate(task = task_name,
                    dataset_id = dataset_id,
                    ident = ident_col)
+        } else {
+          task_metrics <- data.frame(
+            task = task_name,
+            dataset_id = dataset_id,
+            ident = ident_col,
+            n_results = 0,
+            stringsAsFactors = FALSE
+          )
         }
       },
       "biological_perturbations" = {
@@ -216,6 +224,14 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
             mutate(task = task_name,
                    dataset_id = dataset_id,
                    ident = ident_col)
+        } else {
+          task_metrics <- data.frame(
+            task = task_name,
+            dataset_id = dataset_id,
+            ident = ident_col,
+            n_results = 0,
+            stringsAsFactors = FALSE
+          )
         }
       },
       {
