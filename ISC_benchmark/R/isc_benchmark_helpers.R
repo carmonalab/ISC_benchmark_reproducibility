@@ -195,6 +195,7 @@ baseline_for_task <- function(baseline_df, task_name) {
   task_label <- .baseline_task_labels[[task_name]]
   if (is.null(task_label)) stop("Unknown baseline task: ", task_name)
   baseline_df$task <- task_label
+  baseline_df$perturbed_ctype <- NA_character_
   baseline_df
 }
 
@@ -206,6 +207,7 @@ baseline_for_Nct <- function(baseline_df, all_cts) {
     dplyr::mutate(
       rate           = all_cts_str,
       rep            = NA_integer_,
+      perturbed_ctype = NA_character_,
       task           = "Nct"
     )
 }
@@ -217,6 +219,7 @@ baseline_for_mergeCT <- function(baseline_df, n_cts) {
     dplyr::mutate(
       rate           = as.numeric(n_cts),
       rep            = NA_integer_,
+      perturbed_ctype = NA_character_,
       task           = "mergeCT"
     )
 }
@@ -1022,7 +1025,7 @@ save_task_results <- function(results,
   
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
   
-  # Save metrics
+  # Save the per-task metrics file; this also serves as the resume marker.
   metrics_file <- file.path(
     output_dir,
     sprintf("%s_%s_%s_metrics.rds", dataset_id, task_name, ident)

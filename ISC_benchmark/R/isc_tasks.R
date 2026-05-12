@@ -121,6 +121,26 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
 
   # ========== STEP 3: Execute task ==========
   task_output_dir <- file.path(output_dir, sprintf("%s_%s", task_name, ident_col))
+  metrics_file <- file.path(
+    task_output_dir,
+    sprintf("%s_%s_%s_metrics.rds", dataset_id, task_name, ident_col)
+  )
+
+  if (file.exists(metrics_file)) {
+    message_step("TASK", sprintf("Resuming from saved results: %s", basename(metrics_file)))
+    cached_metrics <- readRDS(metrics_file)
+    if (!all(c("dataset_id", "status", "error") %in% names(cached_metrics))) {
+      cached_metrics <- cached_metrics %>%
+        mutate(
+          dataset_id = dataset_id,
+          ident = ident_col,
+          status = "success",
+          error = NA,
+          .before = 1
+        )
+    }
+    return(cached_metrics)
+  }
   
   wr_result <- NULL
   task_metrics <- NULL
