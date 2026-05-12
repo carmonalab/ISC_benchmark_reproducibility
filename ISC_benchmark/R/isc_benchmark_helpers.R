@@ -1075,7 +1075,8 @@ save_task_results <- function(results,
   message(sprintf("Saved metrics: %s", metrics_file))
   
   # Save full wr_* object if requested (and provided)
-  if (save_wr && !is.null(wr_object)) {
+  save_wr_flag <- isTRUE(save_wr)
+  if (save_wr_flag && !is.null(wr_object)) {
     wr_file <- file.path(
       output_dir,
       sprintf("%s_%s_%s_wrobj.rds", dataset_id, task_name, ident)
