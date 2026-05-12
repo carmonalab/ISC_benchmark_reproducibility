@@ -915,9 +915,9 @@ wr_merge_ct <- function(count_matrix,
    while(length(unique(idents))>2){
       centroids <- scTypeEval:::compute_centroids(norm_mat = mat,
                                                    ident = idents)
-      dist <- get_distance(norm_mat = centroids,
-                           distance_method = distance_method,
-                           verbose = FALSE)
+      dist <- scTypeEval:::get_distance(norm_mat = centroids,
+                                       distance_method = distance_method,
+                                       verbose = FALSE)
       dist_mat <- as.matrix(dist)
       diag(dist_mat) <- Inf  # Ignore self-distance
       # Find the closest pair of cell types
