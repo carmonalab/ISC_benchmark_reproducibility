@@ -251,6 +251,25 @@ create_stem_group_map <- function(metadata, dataset_stems, group_col) {
   map
 }
 
+#' Resolve the stems from a merged family that match a pair token set
+#'
+#' Used by tasks 7/8 to locate the two stems that belong to a valid pair.
+#' Tokens are matched as case-insensitive substrings against dataset_stems.
+resolve_pair_stems <- function(dataset_stems, tokens) {
+  dataset_stems <- unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE))))
+  dataset_stems <- dataset_stems[nzchar(dataset_stems)]
+  tokens <- unique(trimws(as.character(tokens)))
+  tokens <- tokens[nzchar(tokens)]
+
+  if (length(dataset_stems) == 0 || length(tokens) == 0) return(character(0))
+
+  candidates <- dataset_stems
+  for (token in tokens) {
+    candidates <- candidates[grepl(token, candidates, fixed = TRUE, ignore.case = TRUE)]
+  }
+  unique(candidates)
+}
+
 #' Run scTypeEval on a cell subset with two-level caching (disk → memory)
 #'
 #' 1. Checks disk_cache_path first (persists across restarts; tasks 1-6 baseline
@@ -364,7 +383,7 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
   
   # Filter for batch comparison datasets
   batch_specs <- specs %>%
-    filter(get(colnames(specs)[10]) == "yes") %>%  # "Batch comparison" column
+    filter(.data[["Batch comparison"]] == "yes") %>%
     mutate(dataset_key = sprintf("%s_%s_%s",
                                  `Dataset reference`,
                                  Annotation,
@@ -428,7 +447,7 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
   
   # Filter for perturbation comparison datasets
   pert_specs <- specs %>%
-    filter(get(colnames(specs)[11]) == "yes") %>%  # "Perturbation comparison" column
+    filter(.data[["Perturbation comparison"]] == "yes") %>%
     mutate(dataset_key = sprintf("%s_%s_%s",
                                  `Dataset reference`,
                                  Annotation,
@@ -732,13 +751,7 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
 
   metadata    <- obj_prepared$metadata
   count_matrix <- obj_prepared$count_matrix
-  batch_col   <- task_config$batch_col
   ident       <- obj_prepared$ident
-
-  if (!batch_col %in% colnames(metadata)) {
-    message(sprintf("  WARNING: Batch column '%s' not found; returning NULL", batch_col))
-    return(NULL)
-  }
 
   # Load specs to identify valid batch pairs
   if (is.null(specs_path)) {
@@ -756,7 +769,8 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
 
   message(sprintf("  Found %d batch pair(s) for comparison", length(batch_pairs)))
 
-  stem_batch_map <- create_stem_group_map(metadata, dataset_stems, batch_col)
+  dataset_stems <- unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE))))
+  dataset_stems <- dataset_stems[nzchar(dataset_stems)]
 
   tidy_results     <- data.frame()
   single_isc_cache <- new.env(parent = emptyenv())
@@ -769,32 +783,36 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
       pair_name  <- pair$pair_name
       dataset_ref <- pair$dataset
 
-      message(sprintf("  Processing batch pair %d/%d: %s + %s",
-                      pair_idx, length(batch_pairs), batch1, batch2))
+      batch1_stems <- resolve_pair_stems(dataset_stems, c(batch1, pair$condition))
+      batch2_stems <- resolve_pair_stems(dataset_stems, c(batch2, pair$condition))
 
-      batch1_cells <- which(metadata[[batch_col]] == batch1)
-      batch2_cells <- which(metadata[[batch_col]] == batch2)
-
-      if (length(batch1_cells) < 50 || length(batch2_cells) < 50) {
-        message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
-                        length(batch1_cells), length(batch2_cells)))
+      if (length(batch1_stems) != 1 || length(batch2_stems) != 1) {
+        message(sprintf("    WARNING: Could not resolve unique stems for pair %s (%s -> %s; %s -> %s); skipping",
+                        pair_name,
+                        batch1, paste(batch1_stems, collapse = ","),
+                        batch2, paste(batch2_stems, collapse = ",")))
       } else {
-        resolve_baseline_df_path <- function(batch_val) {
-          stem <- if (!is.null(stem_batch_map)) stem_batch_map[[as.character(batch_val)]] else NULL
+        batch1_stem <- batch1_stems[[1]]
+        batch2_stem <- batch2_stems[[1]]
+
+        message(sprintf("  Processing batch pair %d/%d: %s (%s) + %s (%s)",
+                        pair_idx, length(batch_pairs), batch1, batch1_stem, batch2, batch2_stem))
+
+        resolve_baseline_df_path <- function(stem) {
           if (is.null(stem) || is.na(stem) || is.null(results_root)) return(NULL)
           file.path(results_root, stem, paste0("baseline_isc_", ident, ".rds"))
         }
 
         # --- resolve disk cache paths for individual batches ---
-        resolve_disk_path <- function(batch_val) {
-          file.path(output_dir, paste0("subset_sc_", batch_val, "_", ident, ".rds"))
+        resolve_disk_path <- function(stem) {
+          file.path(output_dir, paste0("subset_sc_", stem, "_", ident, ".rds"))
         }
 
-        get_single_batch_consistency <- function(batch_val, batch_cells) {
-          baseline_path <- resolve_baseline_df_path(batch_val)
+        get_single_batch_consistency <- function(stem, batch_cells) {
+          baseline_path <- resolve_baseline_df_path(stem)
           if (!is.null(baseline_path) && file.exists(baseline_path)) {
             message(sprintf("    [baseline reuse] Loading baseline consistency for batch '%s' from %s",
-                            batch_val, baseline_path))
+                            stem, baseline_path))
             return(readRDS(baseline_path))
           }
 
@@ -805,21 +823,25 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
             ident           = ident,
             config          = config,
             cache_env       = single_isc_cache,
-            cache_key       = paste0("batch:", batch_val),
-            cache_label     = sprintf("batch '%s'", batch_val),
-            disk_cache_path = resolve_disk_path(batch_val)
+            cache_key       = paste0("batch:", stem),
+            cache_label     = sprintf("batch '%s'", stem),
+            disk_cache_path = resolve_disk_path(stem)
           )
           scTypeEval::get_consistency(isc_batch)
         }
 
-        batch1_tidy <- get_single_batch_consistency(batch1, batch1_cells) |>
+        batch1_cells <- which(startsWith(rownames(metadata), paste0(batch1_stem, "_")))
+        batch2_cells <- which(startsWith(rownames(metadata), paste0(batch2_stem, "_")))
+
+        batch1_tidy <- get_single_batch_consistency(batch1_stem, batch1_cells) |>
           dplyr::mutate(batch = batch1, dataset = dataset_ref, ident = ident)
 
-        batch2_tidy <- get_single_batch_consistency(batch2, batch2_cells) |>
+        batch2_tidy <- get_single_batch_consistency(batch2_stem, batch2_cells) |>
           dplyr::mutate(batch = batch2, dataset = dataset_ref, ident = ident)
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(batch1_cells, batch2_cells)
+        message(sprintf("    Merging pair: %s + %s", batch1_stem, batch2_stem))
         isc_combined <- run_cached_subset_scTypeEval(
           count_matrix    = count_matrix,
           metadata        = metadata,
@@ -876,11 +898,6 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   condition_col <- task_config$condition_col
   ident        <- obj_prepared$ident
 
-  if (!condition_col %in% colnames(metadata)) {
-    message(sprintf("  WARNING: Condition column '%s' not found; returning NULL", condition_col))
-    return(NULL)
-  }
-
   if (is.null(specs_path)) {
     specs_path <- file.path(dirname(dirname(getwd())), "data_processing",
                             "config", "specs_datasets.csv")
@@ -896,7 +913,8 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
 
   message(sprintf("  Found %d condition pair(s) for comparison", length(condition_pairs)))
 
-  stem_cond_map <- create_stem_group_map(metadata, dataset_stems, condition_col)
+  dataset_stems <- unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE))))
+  dataset_stems <- dataset_stems[nzchar(dataset_stems)]
 
   tidy_results     <- data.frame()
   single_isc_cache <- new.env(parent = emptyenv())
@@ -909,31 +927,35 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
       pair_name   <- pair$pair_name
       dataset_ref  <- pair$dataset
 
-      message(sprintf("  Processing condition pair %d/%d: %s + %s",
-                      pair_idx, length(condition_pairs), cond1, cond2))
+      cond1_stems <- resolve_pair_stems(dataset_stems, c(pair$batch, cond1))
+      cond2_stems <- resolve_pair_stems(dataset_stems, c(pair$batch, cond2))
 
-      cond1_cells <- which(metadata[[condition_col]] == cond1)
-      cond2_cells <- which(metadata[[condition_col]] == cond2)
-
-      if (length(cond1_cells) < 50 || length(cond2_cells) < 50) {
-        message(sprintf("    WARNING: Insufficient cells (%d, %d); skipping pair",
-                        length(cond1_cells), length(cond2_cells)))
+      if (length(cond1_stems) != 1 || length(cond2_stems) != 1) {
+        message(sprintf("    WARNING: Could not resolve unique stems for pair %s (%s -> %s; %s -> %s); skipping",
+                        pair_name,
+                        cond1, paste(cond1_stems, collapse = ","),
+                        cond2, paste(cond2_stems, collapse = ",")))
       } else {
-        resolve_baseline_df_path <- function(cond_val) {
-          stem <- if (!is.null(stem_cond_map)) stem_cond_map[[as.character(cond_val)]] else NULL
+        cond1_stem <- cond1_stems[[1]]
+        cond2_stem <- cond2_stems[[1]]
+
+        message(sprintf("  Processing condition pair %d/%d: %s (%s) + %s (%s)",
+                        pair_idx, length(condition_pairs), cond1, cond1_stem, cond2, cond2_stem))
+
+        resolve_baseline_df_path <- function(stem) {
           if (is.null(stem) || is.na(stem) || is.null(results_root)) return(NULL)
           file.path(results_root, stem, paste0("baseline_isc_", ident, ".rds"))
         }
 
-        resolve_disk_path <- function(cond_val) {
-          file.path(output_dir, paste0("subset_sc_", cond_val, "_", ident, ".rds"))
+        resolve_disk_path <- function(stem) {
+          file.path(output_dir, paste0("subset_sc_", stem, "_", ident, ".rds"))
         }
 
-        get_single_condition_consistency <- function(cond_val, cond_cells) {
-          baseline_path <- resolve_baseline_df_path(cond_val)
+        get_single_condition_consistency <- function(stem, cond_cells) {
+          baseline_path <- resolve_baseline_df_path(stem)
           if (!is.null(baseline_path) && file.exists(baseline_path)) {
             message(sprintf("    [baseline reuse] Loading baseline consistency for condition '%s' from %s",
-                            cond_val, baseline_path))
+                            stem, baseline_path))
             return(readRDS(baseline_path))
           }
 
@@ -944,21 +966,25 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
             ident           = ident,
             config          = config,
             cache_env       = single_isc_cache,
-            cache_key       = paste0("cond:", cond_val),
-            cache_label     = sprintf("condition '%s'", cond_val),
-            disk_cache_path = resolve_disk_path(cond_val)
+            cache_key       = paste0("cond:", stem),
+            cache_label     = sprintf("condition '%s'", stem),
+            disk_cache_path = resolve_disk_path(stem)
           )
           scTypeEval::get_consistency(isc_cond)
         }
 
-        cond1_tidy <- get_single_condition_consistency(cond1, cond1_cells) |>
+        cond1_cells <- which(startsWith(rownames(metadata), paste0(cond1_stem, "_")))
+        cond2_cells <- which(startsWith(rownames(metadata), paste0(cond2_stem, "_")))
+
+        cond1_tidy <- get_single_condition_consistency(cond1_stem, cond1_cells) |>
           dplyr::mutate(condition = cond1, dataset = dataset_ref, ident = ident)
 
-        cond2_tidy <- get_single_condition_consistency(cond2, cond2_cells) |>
+        cond2_tidy <- get_single_condition_consistency(cond2_stem, cond2_cells) |>
           dplyr::mutate(condition = cond2, dataset = dataset_ref, ident = ident)
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(cond1_cells, cond2_cells)
+        message(sprintf("    Merging pair: %s + %s", cond1_stem, cond2_stem))
         isc_combined <- run_cached_subset_scTypeEval(
           count_matrix    = count_matrix,
           metadata        = metadata,
