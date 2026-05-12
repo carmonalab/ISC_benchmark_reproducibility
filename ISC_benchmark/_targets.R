@@ -401,10 +401,32 @@ list(
   tar_target(
     save_aggregated,
     {
-      output_file <- file.path(config$output$dir, "all_results.rds")
-      saveRDS(all_results, output_file)
+      output_file <- file.path(config$output$dir, "all_results.csv")
+
+      existing_results <- NULL
+      if (file.exists(output_file)) {
+        existing_results <- tryCatch(
+          read.csv(output_file, stringsAsFactors = FALSE, check.names = FALSE),
+          error = function(e) {
+            warning("Could not read existing all_results.csv; rewriting file. Reason: ", e$message)
+            NULL
+          }
+        )
+      }
+
+      combined_results <- dplyr::bind_rows(existing_results, all_results)
+      combined_results <- dplyr::distinct(combined_results)
+
+      tmp_file <- paste0(output_file, ".tmp")
+      write.csv(combined_results, tmp_file, row.names = FALSE)
+
+      if (!file.rename(tmp_file, output_file)) {
+        file.copy(tmp_file, output_file, overwrite = TRUE)
+        unlink(tmp_file)
+      }
       
-      message("\nSaved aggregated results to: ", output_file)
+      message("\nSaved aggregated results to: ", output_file,
+              " (", nrow(combined_results), " total row(s))")
       invisible(output_file)
     }
   ),
@@ -424,11 +446,6 @@ list(
       if (nrow(failures) > 0) {
         cat("⚠ FAILED TASKS (", nrow(failures), "):\n\n")
         print(failures[, c("dataset_id", "ident", "task", "error")])
-        
-        # Save failure list for potential retry
-        failure_file <- file.path(config$output$dir, "failures.csv")
-        write.csv(failures, failure_file, row.names = FALSE)
-        cat("\nFailure report saved to: ", failure_file, "\n")
         cat("To retry failed tasks, run: targets::tar_make() again\n")
       } else {
         cat("✓ ALL TASKS COMPLETED SUCCESSFULLY!\n")
