@@ -170,7 +170,7 @@ get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
     verbose              = verbose_opt
   )
 
-  baseline_df <- scTypeEval::get_consistency(sc) |>
+  baseline_df <- scTypeEval::get_consistency(sc, verbose = verbose_opt) |>
     dplyr::mutate(
       rate           = 1,
       rep            = 1,
@@ -752,6 +752,7 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
   metadata    <- obj_prepared$metadata
   count_matrix <- obj_prepared$count_matrix
   ident       <- obj_prepared$ident
+  verbose_opt <- isTRUE(config$common$verbose)
 
   # Load specs to identify valid batch pairs
   if (is.null(specs_path)) {
@@ -827,7 +828,7 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
             cache_label     = sprintf("batch '%s'", stem),
             disk_cache_path = resolve_disk_path(stem)
           )
-          scTypeEval::get_consistency(isc_batch)
+          scTypeEval::get_consistency(isc_batch, verbose = verbose_opt)
         }
 
         batch1_cells <- which(startsWith(rownames(metadata), paste0(batch1_stem, "_")))
@@ -855,7 +856,7 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
                                       paste0("merged_sc_", pair_name, "_", ident, ".rds"))
         )
 
-        combined_tidy <- scTypeEval::get_consistency(isc_combined) |>
+        combined_tidy <- scTypeEval::get_consistency(isc_combined, verbose = verbose_opt) |>
           dplyr::mutate(batch = pair_name, dataset = dataset_ref, ident = ident)
 
         pair_tidy  <- rbind(batch1_tidy, batch2_tidy, combined_tidy)
@@ -897,6 +898,7 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   count_matrix <- obj_prepared$count_matrix
   condition_col <- task_config$condition_col
   ident        <- obj_prepared$ident
+  verbose_opt <- isTRUE(config$common$verbose)
 
   if (is.null(specs_path)) {
     specs_path <- file.path(dirname(dirname(getwd())), "data_processing",
@@ -970,7 +972,7 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
             cache_label     = sprintf("condition '%s'", stem),
             disk_cache_path = resolve_disk_path(stem)
           )
-          scTypeEval::get_consistency(isc_cond)
+          scTypeEval::get_consistency(isc_cond, verbose = verbose_opt)
         }
 
         cond1_cells <- which(startsWith(rownames(metadata), paste0(cond1_stem, "_")))
@@ -998,7 +1000,7 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
                                       paste0("merged_sc_", pair_name, "_", ident, ".rds"))
         )
 
-        combined_tidy <- scTypeEval::get_consistency(isc_combined) |>
+        combined_tidy <- scTypeEval::get_consistency(isc_combined, verbose = verbose_opt) |>
           dplyr::mutate(condition = pair_name, dataset = dataset_ref, ident = ident)
 
         pair_tidy   <- rbind(cond1_tidy, cond2_tidy, combined_tidy)
