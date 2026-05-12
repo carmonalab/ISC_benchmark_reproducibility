@@ -990,9 +990,6 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   tidy_results
 }
 
-=========================================================================
-
-
 
 # ============================================================================
 # RESULT PERSISTENCE AND LOGGING
