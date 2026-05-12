@@ -102,7 +102,7 @@ common:
   
   # Output options
   save_plots: false                      # Save diagnostic plots
-  verbose: true                         # Detailed messages
+  verbose: false                         # Detailed messages
   progressbar: false                    # Progress bars for BiocParallel
 
 # ============================================================================
