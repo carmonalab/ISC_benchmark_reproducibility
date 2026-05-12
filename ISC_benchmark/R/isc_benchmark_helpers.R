@@ -357,10 +357,9 @@ load_dataset_specs <- function(specs_path) {
     return(NULL)
   }
   
-  specs <- read.csv(specs_path, stringsAsFactors = FALSE)
-  # Normalize headers to make lookups robust to whitespace/csv quirks.
-  colnames(specs) <- trimws(colnames(specs))
-  colnames(specs) <- gsub("[[:space:]]+", " ", colnames(specs))
+  specs <- read.csv(specs_path,
+                    stringsAsFactors = FALSE,
+                      header = TRUE)
   specs
 }
 
