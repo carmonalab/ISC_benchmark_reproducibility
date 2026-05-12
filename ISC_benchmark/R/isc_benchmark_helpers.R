@@ -562,7 +562,8 @@ run_task_missclassify <- function(obj_prepared, config, task_config, output_dir,
     obj_prepared,
     config$common,
     task_config,
-    list(dir = output_dir)
+    # Disable internal wr_* file writing; orchestrator saves final baseline-inclusive result.
+    list(dir = NULL)
   )
   
   wr <- do.call(wr_missclasify, params)
@@ -588,7 +589,7 @@ run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir
     obj_prepared,
     config$common,
     task_config,
-    list(dir = output_dir)
+    list(dir = NULL)
   )
   
   wr <- do.call(wr_split_cell_type, params)
@@ -614,7 +615,7 @@ run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline
     obj_prepared,
     config$common,
     task_config,
-    list(dir = output_dir)
+    list(dir = NULL)
   )
 
   wr <- do.call(wr_nct, params)
@@ -642,7 +643,7 @@ run_task_cellular_complexity <- function(obj_prepared, config, task_config, outp
     obj_prepared,
     config$common,
     task_config,
-    list(dir = output_dir)
+    list(dir = NULL)
   )
 
   wr <- do.call(wr_merge_ct, params)
@@ -670,7 +671,7 @@ run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir,
     obj_prepared,
     config$common,
     task_config,
-    list(dir = output_dir)
+    list(dir = NULL)
   )
   
   wr <- do.call(wr_nsamples, params)
@@ -696,7 +697,7 @@ run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
     obj_prepared,
     config$common,
     task_config,
-    list(dir = output_dir)
+    list(dir = NULL)
   )
   
   wr <- do.call(wr_ncell, params)
