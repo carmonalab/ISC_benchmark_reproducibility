@@ -154,6 +154,7 @@ get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
   min_samples <- config$common$min_samples
   min_cells   <- config$common$min_cells
   diss_method <- config$common$dissimilarity_method
+  verbose_opt <- isTRUE(config$common$verbose)
 
   sc <- scTypeEval::wrapper_scTypeEval(
     sc,
@@ -166,7 +167,7 @@ get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
     dissimilarity_method = diss_method,
     min_samples          = min_samples,
     min_cells            = min_cells,
-    verbose              = FALSE
+    verbose              = verbose_opt
   )
 
   baseline_df <- scTypeEval::get_consistency(sc) |>
@@ -285,6 +286,7 @@ run_cached_subset_scTypeEval <- function(count_matrix,
   min_samples <- config$common$min_samples
   min_cells   <- config$common$min_cells
   diss_method <- config$common$dissimilarity_method
+  verbose_opt <- isTRUE(config$common$verbose)
 
   sc <- scTypeEval::create_scTypeEval(
     matrix   = count_matrix[, cell_idx, drop = FALSE],
@@ -303,7 +305,7 @@ run_cached_subset_scTypeEval <- function(count_matrix,
     dissimilarity_method = diss_method,
     min_samples          = min_samples,
     min_cells            = min_cells,
-    verbose              = FALSE
+    verbose              = verbose_opt
   )
 
   # Save to disk if path given
