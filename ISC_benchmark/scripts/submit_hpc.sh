@@ -138,12 +138,20 @@ read_dataset_ids() {
 read_dataset_families() {
   cd "$PROJECT_DIR"
 
-  local requested_raw="${ISC_DATASET_FAMILIES:-},${ISC_DATASET_FAMILY:-}"
+  local requested_raw=""
+  local requested_value
+  for requested_value in "${ISC_DATASET_FAMILIES:-}" "${ISC_DATASET_FAMILY:-}"; do
+    if [[ -n "$requested_value" ]]; then
+      requested_raw+="${requested_raw:+,}${requested_value}"
+    fi
+  done
   local -a families=()
   local -A family_lookup=()
   local -A requested_lookup=()
+  local has_family_filter=false
 
   if [[ -n "$requested_raw" ]]; then
+    has_family_filter=true
     IFS=',' read -r -a requested_families <<< "$requested_raw"
     for family_name in "${requested_families[@]}"; do
       family_name="$(trim_whitespace "$family_name")"
@@ -156,7 +164,7 @@ read_dataset_families() {
     [[ -z "$dataset_stem" ]] && continue
     family_name="${dataset_stem%%_*}"
 
-    if [[ -n "$requested_raw" && -z "${requested_lookup[$family_name]:-}" ]]; then
+    if [[ "$has_family_filter" == true && -z "${requested_lookup[$family_name]:-}" ]]; then
       continue
     fi
 
