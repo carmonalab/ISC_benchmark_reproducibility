@@ -7,6 +7,12 @@ output:
     toc_float: true
     theme: united
     code_folding: show
+
+---
+
+# Introduction
+
+This script analyzes the results of the label transfer consistency benchmarking pipeline (label_transfer_task).
 ---
 
 ```{r setup, include=FALSE}
@@ -26,16 +32,18 @@ theme_set(theme_bw(base_size = 12))
 
 ```{r exporting_dir}
 fig_dir <- file.path(
-  "~/Documents/Projects/ISC_benchmark_reproducibility/label_transfer_task/figs"
+  "..", "label_transfer_task", "figs"
 )
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
-Load dataf from results (within dataset splitting) and results_between (prediciton between different datasets but same annotation)
+Load data from results (within dataset splitting) and results_between (prediction between different datasets but same annotation)
 ```{r load_data}
 paths <- 
-  c("intra_dataset" = "results/aggregated/label_transfer_consistency_detailed.csv",
-    "inter_dataset" = "results_between/aggregated/label_transfer_between_consistency_detailed.csv")
+  c(
+    "intra_dataset" = file.path("..", "label_transfer_task", "results", "aggregated", "label_transfer_consistency_detailed.csv"),
+    "inter_dataset" = file.path("..", "label_transfer_task", "results_between", "aggregated", "label_transfer_between_consistency_detailed.csv")
+  )
 res <- lapply(paths, read.csv)
 # Preview
 lapply(res, head)
