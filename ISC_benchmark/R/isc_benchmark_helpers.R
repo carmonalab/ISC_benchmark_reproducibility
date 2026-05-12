@@ -423,6 +423,8 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
   # Filter for batch comparison datasets
   batch_specs <- specs %>%
     filter(.data[[batch_comp_col]] == "yes") %>%
+    # Normalize batch names: dots → underscores (to match actual file naming)
+    mutate(batch_norm = gsub("\\.", "_", .data[["Batch"]], fixed = FALSE)) %>%
     mutate(dataset_key = paste0(.data[[scope_col]], "_",
                                  .data[["Annotation"]], "_",
                                  .data[["Condition"]]))
@@ -442,18 +444,21 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
     )
   
   # Expand pairs to all combinations
-  pair_list <- list()
+   pair_list <- list()
   for (i in seq_len(nrow(pairs))) {
     batches <- pairs$batches[[i]]
     if (length(batches) >= 2) {
       combos <- combn(batches, 2, simplify = FALSE)
       for (combo in combos) {
+        # Use normalized batch names for resolver matching
+        batch1_norm <- gsub("\\.", "_", combo[1], fixed = FALSE)
+        batch2_norm <- gsub("\\.", "_", combo[2], fixed = FALSE)
         pair_list[[length(pair_list) + 1]] <- list(
           dataset = pairs$dataset_ref[i],
           annotation = pairs$annotation[i],
           condition = pairs$condition[i],
-          batch1 = combo[1],
-          batch2 = combo[2],
+          batch1 = batch1_norm,
+          batch2 = batch2_norm,
             pair_name = paste0(combo[1], "-", combo[2])
         )
       }
@@ -490,6 +495,8 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
   # Filter for perturbation comparison datasets
   pert_specs <- specs %>%
     filter(.data[[pert_comp_col]] == "yes") %>%
+    # Normalize batch names: dots → underscores (to match actual file naming)
+    mutate(batch_norm = gsub("\\.", "_", .data[["Batch"]], fixed = FALSE)) %>%
     mutate(dataset_key = paste0(.data[[scope_col]], "_",
                                  .data[["Annotation"]], "_",
                                  .data[["Batch"]]))
@@ -503,7 +510,7 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
     summarise(
       dataset_ref = first(.data[[scope_col]]),
       annotation = first(.data[["Annotation"]]),
-      batch = first(.data[["Batch"]]),
+      batch = first(.data[["batch_norm"]]),  # Use normalized batch name for resolver
       conditions = list(unique(.data[["Condition"]])),
       .groups = "drop"
     )
