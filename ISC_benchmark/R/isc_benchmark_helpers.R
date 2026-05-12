@@ -801,6 +801,19 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
   dataset_stems <- unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE))))
   dataset_stems <- dataset_stems[nzchar(dataset_stems)]
 
+  # Keep only pairs that can be uniquely mapped to the active merged stems.
+  batch_pairs <- Filter(function(pair) {
+    length(resolve_pair_stems(dataset_stems, c(pair$batch1, pair$condition))) == 1 &&
+      length(resolve_pair_stems(dataset_stems, c(pair$batch2, pair$condition))) == 1
+  }, batch_pairs)
+
+  if (length(batch_pairs) == 0) {
+    message("  No resolvable batch pairs for current dataset stems")
+    return(NULL)
+  }
+
+  message(sprintf("  Retained %d resolvable batch pair(s)", length(batch_pairs)))
+
   tidy_results     <- data.frame()
   single_isc_cache <- new.env(parent = emptyenv())
 
@@ -945,6 +958,19 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
 
   dataset_stems <- unique(trimws(unlist(strsplit(paste(dataset_stems, collapse = ","), ",", fixed = TRUE))))
   dataset_stems <- dataset_stems[nzchar(dataset_stems)]
+
+  # Keep only pairs that can be uniquely mapped to the active merged stems.
+  condition_pairs <- Filter(function(pair) {
+    length(resolve_pair_stems(dataset_stems, c(pair$batch, pair$condition1))) == 1 &&
+      length(resolve_pair_stems(dataset_stems, c(pair$batch, pair$condition2))) == 1
+  }, condition_pairs)
+
+  if (length(condition_pairs) == 0) {
+    message("  No resolvable condition pairs for current dataset stems")
+    return(NULL)
+  }
+
+  message(sprintf("  Retained %d resolvable condition pair(s)", length(condition_pairs)))
 
   tidy_results     <- data.frame()
   single_isc_cache <- new.env(parent = emptyenv())
