@@ -34,13 +34,12 @@ theme_set(theme_bw(base_size = 12))
 ```
 
 ```{r exporting_dir}
-fig_dir <- file.path(
-  "..", "label_transfer_task", "figs"
-)
+fig_dir <- "exported_figs"
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
-Load data from results (within dataset splitting) and results_between (prediction between different datasets but same annotation)
+Load data from results (within dataset splitting) and results_between (prediction between different datasets but same annotation) obtained previously in label_transfer_task pipeline.
+
 ```{r load_data}
 paths <- 
   c(
