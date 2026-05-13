@@ -1,0 +1,1270 @@
+---
+title: "Figure 1: Cell type expression profiles are frequently inconsistent across samples"
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: show
+---
+
+# Introduction
+Cell type expression profiles are frequently inconsistent across samples
+
+This notebook uses processed files in data_processing/ to render Figure 1 and Extended Data Figure 1 from the manuscript.
+
+
+# load depencies
+```{r, message=F, warning=F}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(BiocParallel)
+library(pheatmap)
+library(RColorBrewer)
+library(Seurat)
+
+```
+
+## exported figures directory
+```{r}
+fig_dir <- "exported_figs/1_Figure"
+
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+```{r}
+load("~/Documents/Projects/scTypeEval/data/black_list.rda")
+bl <- list(black_list$TCR, black_list$Immunoglobulins, black_list$Ygenes) %>% unlist()
+```
+
+
+## Choose dataset
+
+We choose JoaI KUL5, and Barbry_Leroy2020 from processed datasets. These should have been previously processed using `data_processing` pipeline.
+
+```{r}
+# path to output processed results
+ds_path <- "../data/processed/"
+# Figure 1
+ds_files <- list.files(path = ds_path,
+                       pattern = "KUL5|Leroy.2020",
+                       full.names = T)
+# Extended Data Figure 1
+ds_files <- c(ds_files, "Yost_Stressed_annotation.rds")
+```
+
+
+## Specificy annotation
+Specificy the annotation labels to use in this analysis
+
+```{r}
+idents <- c("JoaI" = "cell.type",
+            "Barbry_Leroy" = "cell_type",
+            "Barbry_Leroy" = "cell_type",
+            "Yost" = "celltype"
+            )
+
+names(ds_files) <- names(idents)
+```
+
+## Load datasets
+
+```{r}
+pds <- bplapply(
+   unique(names(idents)),
+   BPPARAM = MulticoreParam(workers = 3, progressbar = TRUE),
+   function(i) {
+      
+      ident <- idents[[i]]
+      
+      objects <- lapply(
+         ds_files[names(ds_files) == i],
+         load_single_cell_object,
+         split = FALSE
+      )
+      
+      if (length(objects) == 1) {
+         
+         object <- objects[[1]]
+         rcounts <- Seurat::GetAssayData(object,
+                                         assay = "RNA",
+                                         layer = "counts")
+         counts <- as(rcounts, "dgCMatrix")
+         metadata <- as.data.frame(object@meta.data)
+         object <- list(
+            counts = counts,
+            metadata = metadata
+         )
+         
+      } else {
+         # merge objects
+         object <- merge(objects[[1]], objects[-1])
+         rcounts <- Seurat::GetAssayData(object,
+                                         assay = "RNA",
+                                         layer = "counts")
+         counts <- as(rcounts, "dgCMatrix")
+         metadata <- as.data.frame(object@meta.data)
+         object <- list(
+            counts = counts,
+            metadata = metadata
+         )
+      }
+      
+      sub_meta <- object[["metadata"]] %>%
+         dplyr::filter(!is.na(.data[[ident]]))
+      
+      sub_count_matrix <- object[["counts"]][, rownames(sub_meta), drop = FALSE]
+      
+      list(
+         counts = sub_count_matrix,
+         metadata = sub_meta
+      )
+   }
+)
+
+names(pds) <- unique(names(idents))
+```
+
+Adapt cell type names of Deprez 2019, as they are too long for plotting
+
+```{r}
+library(dplyr)
+
+# Original cell type vector
+cell_types <- pds$Barbry_Leroy$metadata$cell_type
+
+# Shortened, biologically meaningful names
+short_names <- c(
+  "vein endothelial cell" = "VeinEC",
+  "club cell" = "Club",
+  "multi-ciliated epithelial cell" = "Ciliated",
+  "respiratory basal cell" = "Basal",
+  "mucus secreting cell" = "Mucus",
+  "CD1c-positive myeloid dendritic cell" = "CD1c_mDC",
+  "serous secreting cell" = "Serous",
+  "ionocyte" = "Ionocyte",
+  "nasal mucosa goblet cell" = "NasalGoblet",
+  "brush cell of tracheobronchial tree" = "Brush",
+  "respiratory hillock cell" = "Hillock",
+  "acinar cell" = "Acinar",
+  "tracheobronchial serous cell" = "TracheoSerous",
+  "elicited macrophage" = "ElicitedMac",
+  "CD8-positive, alpha-beta T cell" = "CD8_T",
+  "pulmonary artery endothelial cell" = "PA_EC",
+  "ciliated columnar cell of tracheobronchial tree" = "ColumnarCiliated",
+  "CD4-positive, alpha-beta T cell" = "CD4_T",
+  "B cell" = "B",
+  "endothelial cell of lymphatic vessel" = "LymphEC",
+  "non-classical monocyte" = "ncMono",
+  "classical monocyte" = "cMono",
+  "dendritic cell" = "DC",
+  "bronchus fibroblast of lung" = "BronchFib",
+  "natural killer cell" = "NK",
+  "plasmacytoid dendritic cell" = "pDC",
+  "plasma cell" = "Plasma",
+  "tracheobronchial smooth muscle cell" = "SMC",
+  "alveolar macrophage" = "AlvMac",
+  "lung macrophage" = "LungMac",
+  "tracheobronchial goblet cell" = "TracheoGoblet",
+  "mast cell" = "Mast",
+  "epithelial cell of lower respiratory tract" = "LRT_Epi",
+  "stromal cell" = "Stroma",
+  "pulmonary alveolar type 2 cell" = "AT2",
+  "capillary endothelial cell" = "CapEC",
+  "pulmonary alveolar type 1 cell" = "AT1",
+  "lung neuroendocrine cell" = "NEC",
+  "bronchial goblet cell" = "BronchGoblet",
+  "T cell" = "T",
+  "conventional dendritic cell" = "cDC",
+  "epithelial cell of alveolus of lung" = "AlvEpi",
+  "alveolar adventitial fibroblast" = "AlvFib",
+  "myofibroblast cell" = "Myofib",
+  "hematopoietic stem cell" = "HSC"
+)
+
+# Recode the cell types
+pds$Barbry_Leroy$metadata$cell_type <- recode(cell_types, !!!short_names)
+
+# Check results
+unique(pds$Barbry_Leroy$metadata$cell_type)
+```
+
+
+## Process datasets
+We will run the standard [`scTypeEval`](10.18129/B9.bioc.scTypeEval) for reciprocal classification Match and Pseudobulk Cosine dissimilarities.
+
+1) **Pseudobulk PCA**: To focus on inter-sample rather than intra-sample variation, we constructed pseudobulk cell type gene expression profiles by aggregating cells of the same reported cell type and same sample of origin, yielding one transcriptomic profile for each combination of cell type and sample. Principal components analysis (PCA) of these pseudobulk profiles revealed heterogeneous patterns across datasets
+
+2) **Reciprocal Match Map (RMM) are based on recip_classif:Match**: We applied a reciprocal best-hit classification approach. Briefly, for each pair of samples within a dataset, a cell type classifier was trained on cell type profiles from one sample and used to predict cell type labels in the other sample. The two samples were swapped and the procedure repeated. A cell type was considered consistent between a given sample pair only if it constituted a mutual best match under this reciprocal classification scheme; otherwise, it was considered inconsistent. 
+
+
+```{r}
+# start list of scTypeEval objects
+sceval <- list() 
+# Define list of dissimilarirites
+method.diss <- c("recip_classif:Match",
+                 "Pseudobulk:Cosine")
+
+for(i in names(idents)){
+   cat("## Computing ", i, " ##\n")
+   ident <- idents[[i]]
+   
+   #create sceval object
+   sc <- create_scTypeEval(matrix = pds[[i]][["counts"]],
+                           metadata = pds[[i]][["metadata"]],
+                           black_list = bl)
+   # Filter object and normalize counts
+   sc <- run_processing_data(sc,
+                            ident = ident,
+                            sample = "sample",
+                            min_samples = 4,
+                            verbose = F)
+   # Obtain gene space to compute dissimilarities (HVG)
+   sc <- run_hvg(sc,
+                 ngenes = 2000,
+                 ncores = 6,
+                 verbose = F)
+   
+   set.seed(22)
+   # Obtain PCs
+   sc <- run_pca(sc,
+                 verbose = F)
+   
+   for(mdiss in method.diss){
+      # Obtain dissimilarities
+      sc <- run_dissimilarity(sc,
+                              method = mdiss,
+                              ncores = 8,
+                              verbose = F)
+   }
+   
+   sceval[[i]] <- sc
+}
+rm(sc)
+```
+
+
+Get colors to plot the different cell types
+
+```{r}
+annotation_colors <- c(
+   "#E41A1C", # red
+   "#377EB8", # blue
+   "#4DAF4A", # green
+   "#984EA3", # purple
+   "#FF7F00", # orange
+   "#ADFF2F", # chartreuse (yellow-green)
+   "#A65628", # brown
+   "#F781BF", # light pink
+   "#999999", # gray
+   "#1B9E77", # dark green-turquoise
+   "#D95F02", # dark orange
+   "#7570B3", # violet
+   "#FFD700", # gold
+   "#000080", # navy blue
+   "#9932CC", # dark orchid
+   "#FF1493", # deep magenta
+   "#FF69B4",  # hot pink
+   "brown4"
+)
+
+```
+
+
+## RMM
+
+RMM summarizes pairwise comparisons of annotated cell types across all sample pairs within each dataset. For each pair of samples, classifiers were trained in both directions on pseudobulk profiles. Each tile represents the comparison of cell types between two samples and is encoded as follows: black, reciprocal best match in both directions; grey, one-directional match only, consistent with absence or non-recovery of the corresponding cell type in the reciprocal sample; white, no match. Symmetrically, each row and column represent a cell type from one sample.
+
+
+```{r, fig.height=10, fig.width=10}
+dissimilarity.slot = "recip_classif:Match"
+sort.consistency = "silhouette"
+sort.similarity = "Pseudobulk:Cosine"
+low.color = "black"
+high.color = "white"
+hclust.method = "ward.D2"
+verbose = TRUE
+
+
+ph <- lapply(sceval, function(scTypeEval){
+   # check if dissimilarity object are present in object
+   diss.assays <- check_dissimilarity_assays(scTypeEval, slot = dissimilarity.slot)
+   
+   # if not indicated just order cell types based on alphabetical
+   if(is.null(sort.similarity) && is.null(sort.consistency)){
+      if(verbose){message("No ordering (sort.similarity or sort.consistency) indicated,
+                          sorting cell type by alphabetical order.")}
+   }
+   
+   # Compute similarity of cell types if indicated
+   if(!is.null(sort.similarity)){
+      # get dissimilarity matrix
+      diss.assays.cluster <- check_dissimilarity_assays(scTypeEval, slot = sort.similarity)
+      assay_cluster <- scTypeEval@dissimilarity[[diss.assays.cluster]]
+      d_mat_cluster <- as.matrix(assay_cluster@dissimilarity)
+      # get similarities between cell types
+      if(verbose){message("Computing cell type similarity based on ", diss.assays.cluster, ".")}
+      ident_levels <- levels(assay_cluster@ident[[1]])
+      mat <- matrix(0, nrow = length(ident_levels),
+                    ncol = length(ident_levels),
+                    dimnames = list(ident_levels, ident_levels))
+      for (i in ident_levels) {
+         for (j in ident_levels) {
+            sub <- d_mat_cluster[assay_cluster@ident[[1]] == i,
+                                 assay_cluster@ident[[1]] == j,
+                                 drop = FALSE]
+            mat[i, j] <- mean(sub)
+         }
+      }
+      hc <- stats::hclust(as.dist(mat),
+                          method = hclust.method)
+      ident_order <- hc$labels[hc$order]
+   } else {
+      ident_order <- NULL
+   }
+   
+   pls <- lapply(diss.assays,
+                 function(da){
+                    assay <- scTypeEval@dissimilarity[[da]]
+                    title <- paste(da, names(assay@ident), sep = " - ")
+                    
+                    d_mat_plot <- as.matrix(assay@dissimilarity)
+                    
+                    annot_ident <- assay@ident[[1]]
+                    
+                    #  order by consistency if indicated
+                    if (!is.null(sort.consistency)) {
+                       
+                       if(verbose){message("Computing consistency metric for ", sort.consistency, ".\n")}
+                       
+                       consis <- get_consistency(scTypeEval,
+                                                 dissimilarity_slot = da,
+                                                 consistency_metric = sort.consistency,
+                                                 verbose = FALSE) |>
+                          dplyr::filter(!is.na(measure)) |>
+                          dplyr::arrange(measure) |>
+                          dplyr::pull(measure, name = celltype)
+                       
+                       if(verbose){message("Consistency computed.")}
+                       
+                       ident_order <- names(consis)  
+                    } 
+                    
+                    if(is.null(ident_order)){
+                       # order alphabetically
+                       ident_order <- sort(levels(annot_ident))
+                    }
+                    
+                    # reorder cells within cell type: first by ident order, then cluster within ident
+                    if(!is.null(sort.similarity)){
+                       ordering <- unlist(lapply(ident_order, function(iden) {
+                          cells <- names(annot_ident)[annot_ident == iden]
+                          if (length(cells) > 2) {
+                             hc <- stats::hclust(as.dist(d_mat_cluster[cells, cells]),
+                                                 method = hclust.method)
+                             cells[hc$order]
+                          } else {
+                             cells
+                          }
+                       }))
+                    } else {
+                       ordering <- unlist(lapply(ident_order, function(iden) {
+                          cells <- names(annot_ident)[annot_ident == iden] |>
+                             sort()
+                          return(cells)
+                       }))
+                    }
+                    
+                    # reorder matrix + annotation
+                    d_mat_plot <- d_mat_plot[ordering, ordering, drop = FALSE]
+                    
+                    # convert matrix to tidy df
+                    df <- as.data.frame(as.table(d_mat_plot))
+                    colnames(df) <- c("row", "col", "value")
+                    
+                    # ident boundaries + label positions
+                    counts <- as.numeric(table(annot_ident)[ident_order])
+                    sep_lines <- cumsum(counts)
+                    ident_labels <- ident_order
+                    
+                    # midpoints for axis ticks
+                    x_ticks <- sep_lines - counts/2 + 0.5
+                    y_ticks <- length(ordering) - (sep_lines - counts/2 + 0.5) + 1
+                    
+                    # Create color mapping for cell types
+                    unique_celltypes <- sort(unique(ident_order))
+                    n_types <- length(unique_celltypes)
+                    celltype_colors <- setNames(annotation_colors[1:n_types], unique_celltypes)
+                    
+                    # Format labels: replace dots with spaces and wrap long names
+                    # Show labels for mentioned cell types plus some spacing from others
+                    ident_labels_formatted <- setNames(
+                       sapply(seq_along(ident_order), function(idx) {
+                          label <- ident_order[idx]
+                          # Replace dots with spaces
+                          label_fmt <- gsub("\\.", " ", label)
+                          
+                          # do not do it if few cell types
+                          if(n_types <= 30){
+                             return(label_fmt)
+                          }
+                          
+                          d <- ifelse(n_types > 14, 3, 2)
+                          
+                          # Include if in incl_celltypes OR every 2nd cell type for spacing
+                          if (label %in% incl_celltypes || idx %% d == 1) {
+                             # Wrap long names (if longer than 20 chars, add linebreak)
+                             if (nchar(label_fmt) > 20) {
+                                label_fmt <- gsub("^(.{1,20})\\s", "\\1\n", label_fmt)
+                             }
+                             return(label_fmt)
+                          } else {
+                             return("")
+                          }
+                       }, USE.NAMES = FALSE),
+                       ident_order
+                    )
+                    
+                    # Get colors for each y-axis label
+                    y_label_colors <- celltype_colors[ident_order]
+                    
+                    # Create mapping from breaks (Sample_CellType) to labels (cell types)
+                    x_breaks <- ordering[x_ticks]
+                    y_breaks <- rev(ordering)[y_ticks]
+                    
+                    # Extract cell type from break names (format: "Sample_CellType")
+                    x_celltypes <- sapply(x_breaks, function(name) {
+                       parts <- strsplit(name, "_")[[1]]
+                       if (length(parts) > 1) {
+                          paste(parts[-1], collapse = "_")
+                       } else {
+                          name
+                       }
+                    })
+                    
+                    y_celltypes <- sapply(y_breaks, function(name) {
+                       parts <- strsplit(name, "_")[[1]]
+                       if (length(parts) > 1) {
+                          paste(parts[-1], collapse = "_")
+                       } else {
+                          name
+                       }
+                    })
+                    
+                    # Map to formatted labels
+                    x_labels_to_use <- setNames(ident_labels_formatted[x_celltypes], x_breaks)
+                    y_labels_to_use <- setNames(ident_labels_formatted[y_celltypes], y_breaks)
+                    
+                    # build plot
+                    p <- ggplot2::ggplot(df, ggplot2::aes(x = col, y = row, fill = value)) +
+                       ggplot2::geom_tile() +
+                       ggplot2::scale_fill_gradient(low = low.color,
+                                                    high = high.color) +
+                       ggplot2::scale_x_discrete(
+                          breaks = x_breaks,
+                          labels = x_labels_to_use,
+                          expand = c(0, 0)
+                       ) +
+                       ggplot2::scale_y_discrete(
+                          breaks = y_breaks,
+                          labels = y_labels_to_use,
+                          expand = c(0, 0)
+                       ) +
+                       ggplot2::theme_minimal(base_size = 12) +
+                       ggplot2::theme(
+                          axis.text.x = ggplot2::element_blank(),
+                          axis.text.y = ggplot2::element_text(hjust = 1,
+                                                              color = celltype_colors[y_celltypes],
+                                                              face = "bold",
+                                                              size = 28),
+                          axis.ticks = ggplot2::element_blank(),
+                          axis.title = ggplot2::element_blank(),
+                          legend.position = "none",
+                          panel.grid = ggplot2::element_blank()
+                       ) +
+                       ggplot2::geom_hline(yintercept = sep_lines + 0.5,
+                                           color = "grey70", linewidth = 0.4) +
+                       ggplot2::geom_vline(xintercept = sep_lines + 0.5,
+                                           color = "grey70", linewidth = 0.4) 
+                    
+                    return(p)
+                 })
+   
+   names(pls) <- diss.assays
+   
+   if(length(pls) == 1){
+      pls <- pls[[1]]
+   }
+   
+   return(pls)
+})
+
+ph
+```
+
+
+
+### export heatmaps
+```{r}
+for(a in names(ph)){
+   fpath <- file.path(fdir, paste0(a, "_RMM", ".pdf"))
+   pdf(fpath, width = 11, height = 9)
+   print(ph[[a]])
+   dev.off()
+}
+```
+
+special case for Barbry, too long
+
+```{r, eval = F}
+a = "Barbry_Leroy"
+fpath <- file.path(fdir, paste0(a, "_RMM", ".pdf"))
+pdf(fpath, width = 13, height = 9)
+print(ph[[a]])
+dev.off()
+```
+
+
+
+## auxiliar functions scatter plot
+
+```{r}
+highlight_consis <- function(assay,
+                             ndim = 30,
+                             group_column = "ident"){
+   df <- assay@embeddings[1:ndim, ] |>
+      t() |>
+      as.data.frame() |>
+      dplyr::mutate(ident = assay@ident[[1]])
+   # Extract the first 'ndim' PCs and the group column
+   pc_columns <- names(df)[1:ndim]
+   
+   # Calculate centroids using the first 'ndim' PCs
+   cnt <- df %>%
+      group_by(.data[[group_column]]) %>%
+      summarize(across(all_of(pc_columns), mean), .groups = "drop")
+   
+   # Merge centroids to compute distances to own centroid
+   df <- df %>%
+      left_join(cnt, by = group_column, suffix = c("", "_centroid"))
+   
+   # Compute Euclidean distance to own centroid
+   df <- df %>%
+      rowwise() %>%
+      mutate(
+         dist_to_own_centroid = sqrt(sum((c_across(all_of(pc_columns)) - c_across(ends_with("_centroid")))^2))
+      ) %>%
+      ungroup()
+   
+   # Compute distances to other centroids
+   r <- df %>%
+      rowwise() %>%
+      mutate(
+         closest_other_dist = min(
+            sapply(
+               cnt[[group_column]][cnt[[group_column]] != .data[[group_column]]], 
+               function(other_group) {
+                  other_centroid <- cnt[cnt[[group_column]] == other_group, pc_columns]
+                  sqrt(sum((c_across(all_of(pc_columns)) - unlist(other_centroid))^2))
+               }
+            ),
+            na.rm = TRUE
+         ),
+         is_closer_to_own = dist_to_own_centroid < closest_other_dist,
+         fils = ifelse(is_closer_to_own, "consistent", "inconsistent")
+      ) %>%
+      ungroup() %>% 
+      pull(fils)
+  
+  return(r)
+}
+```
+
+
+```{r scatter-helper}
+helper.plot.scatter <- function(df,
+                                show.legend = FALSE,
+                                label = TRUE,
+                                dot.size = 5,
+                                label.size = 8) {
+   # Replace dots with spaces in the ident column
+   df_plot <- df |>
+      dplyr::mutate(ident_formatted = gsub("\\.", " ", .data[[names(df)[3]]]))
+   
+   if(is.null(df[["Consistency"]])) {
+   pl <- ggplot2::ggplot() +
+      ggplot2::geom_point(
+         data = df_plot,
+         ggplot2::aes(
+            x = .data[[names(df)[1]]],  # First column
+            y = .data[[names(df)[2]]],  # Second column
+            color = .data[[names(df)[3]]]  # Third column (original for coloring)
+         ),
+         size = dot.size,
+         show.legend = show.legend) +
+      ggpubr::theme_classic2()
+   } else {
+      pl <- ggplot2::ggplot() +
+         ggplot2::geom_point(
+            data = df_plot,
+            ggplot2::aes(
+               x = .data[[names(df)[1]]],  # First column
+               y = .data[[names(df)[2]]],  # Second column
+               color = .data[[names(df)[3]]],  # Third column (original for coloring)
+               fill = .data[["Consistency"]] # filling for consistency coloring
+            ),
+            size = dot.size,
+            show.legend = show.legend,
+            shape = 21) +
+         scale_fill_manual(values = c("white", "black")) +
+         ggpubr::theme_classic2()
+   }
+   
+   if(label){
+      # Calculate centroids and format labels
+      cnt <- df_plot |>
+         dplyr::group_by(.data[[names(df)[3]]]) |>
+         dplyr::summarize(
+            x = mean(.data[[names(df)[1]]]),
+            y = mean(.data[[names(df)[2]]]),
+            ident_formatted = dplyr::first(.data[['ident_formatted']]),
+            ident_raw = dplyr::first(.data[[names(df)[3]]])
+         )
+
+      cnt_incl <- cnt |>
+         dplyr::filter(ident_raw %in% incl_celltypes)
+
+      cnt_other <- cnt |>
+         dplyr::filter(!ident_raw %in% incl_celltypes)
+
+      # Filter other labels that are too close to included labels
+      if (nrow(cnt_incl) > 0 && nrow(cnt_other) > 0) {
+         x_range <- range(df_plot[[names(df)[1]]], na.rm = TRUE)
+         y_range <- range(df_plot[[names(df)[2]]], na.rm = TRUE)
+         dist_thresh <- 0.05 * max(diff(x_range), diff(y_range))
+
+         cnt_other <- cnt_other |>
+            dplyr::rowwise() |>
+            dplyr::mutate(
+               min_dist = min(sqrt((x - cnt_incl$x)^2 + (y - cnt_incl$y)^2))
+            ) |>
+            dplyr::ungroup() |>
+            dplyr::filter(min_dist > dist_thresh) |>
+            dplyr::select(-min_dist)
+      }
+      
+      # Always show labels for mentioned cell types
+      pl <- pl +
+         ggrepel::geom_label_repel(
+            data = cnt_incl,
+            ggplot2::aes(
+               x = x,
+               y = y,
+               label = .data[['ident_formatted']],
+               color = .data[['ident_raw']]
+            ),
+            alpha = 0.9,
+            size = label.size,
+            max.overlaps = Inf,
+            show.legend = FALSE
+         ) +
+         # Show other labels when they do not overlap
+         ggrepel::geom_label_repel(
+            data = cnt_other,
+            ggplot2::aes(
+               x = x,
+               y = y,
+               label = .data[['ident_formatted']],
+               color = .data[['ident_raw']]
+            ),
+            alpha = 0.9,
+            size = label.size,
+            max.overlaps = 4,
+            show.legend = FALSE
+         ) +
+         ggplot2::theme(legend.text = ggplot2::element_text(size = 12, face = "bold"),
+                        axis.text = ggplot2::element_text(
+                           size = 16),
+                        axis.title = ggplot2::element_text(
+                           size = 22,
+                           face = "bold")
+         )
+   }
+   
+   return(pl)
+}
+```
+
+
+## PCA
+
+To focus on inter-sample rather than intra-sample variation, we constructed pseudobulk cell type gene expression profiles by aggregating cells of the same reported cell type and same sample of origin, yielding one transcriptomic profile for each combination of cell type and sample. Principal components analysis (PCA) of these pseudobulk profiles revealed heterogeneous patterns across datasets.
+
+```{r}
+reduction.slot = "pseudobulk"
+label = TRUE
+dims = c(1,2)
+show.legend = FALSE
+dot.size = 3
+highlight = FALSE
+dim_centroids = 2
+
+pca <- lapply(sceval, function(scTypeEval){
+   red.assays <- check_dim_red_assays(scTypeEval, slot = reduction.slot)
+   
+   pls <- lapply(red.assays,
+                 function(da){
+                    assay <- scTypeEval@reductions[[da]]
+                    ident <- assay@ident[[1]]
+                    title <- paste(da, names(assay@ident), sep = " - ")
+                    
+                    df <- t(assay@embeddings[dims,]) |>
+                       as.data.frame() |>
+                       dplyr::mutate(ident = ident)
+                    
+                    if(highlight){
+                       df[["Consistency"]] <- highlight_consis(assay,
+                                                   ndim = dim_centroids)
+                    } else {
+                       df[["Consistency"]] <- NULL
+                    }
+                    
+                    # compute variance of PCs
+                    vrs <- var_pca(t(assay@embeddings))[dims]
+                    vrs <- round(vrs*100, 2)
+                    
+                    labs <- paste0("PC", dims, " (", vrs, "%)")
+                    
+                    set.seed(22)
+                    pl <- helper.plot.scatter(df,
+                                              show.legend = show.legend,
+                                              label = label,
+                                              dot.size = dot.size) +
+                       ggplot2::labs(x = labs[1],
+                                     y = labs[2])
+                    
+                    # Create color mapping for cell types
+                    unique_celltypes <- sort(unique(ident))
+                    n_types <- length(unique_celltypes)
+                    celltype_colors <- setNames(annotation_colors[1:n_types], unique_celltypes)
+                    
+                    # Format labels: replace dots with spaces and wrap long names
+                    label_mapping <- setNames(
+                       sapply(unique_celltypes, function(label) {
+                          # Replace dots with spaces
+                          label_fmt <- gsub("\\.", " ", label)
+                          
+                          # Wrap long names (if longer than 20 chars, add linebreak)
+                          if (nchar(label_fmt) > 20) {
+                             label_fmt <- gsub("^(.{1,20})\\s", "\\1\n", label_fmt)
+                          }
+                          return(label_fmt)
+                       }, USE.NAMES = FALSE),
+                       unique_celltypes
+                    )
+                    
+                    # Update the plot with colors and formatted labels
+                    pl <- pl +
+                       ggplot2::scale_color_manual(values = celltype_colors,
+                                                   labels = label_mapping)
+
+                    pl <- pl +
+                       ggplot2::theme(
+                          axis.text = ggplot2::element_blank(),
+                          axis.ticks = ggplot2::element_blank(),
+                          axis.line = ggplot2::element_blank()
+                       )
+                    
+                    
+                    return(pl)
+                 })
+   
+   names(pls) <- red.assays
+   
+   if(length(pls) == 1){
+      pls <- pls[[1]]
+   }
+   
+   return(pls)
+})
+pca
+
+ggpubr::ggarrange(plotlist = pca, nrow = 1)
+```
+
+
+### export PCA
+```{r}
+for(a in names(pca)){
+   fpath <- file.path(fdir, paste0(a, "_PCA", ".pdf"))
+   pdf(fpath, width = 6, height = 6)
+   print(pca[[a]])
+   dev.off()
+}
+
+```
+
+
+
+## UMAP
+
+```{r}
+umap <- bplapply(sceval,
+                 BPPARAM = MulticoreParam(workers = 3, progressbar = T),
+                 function(s){
+                    
+                    u <- lapply(seq_along(s@reductions), function (r){
+                       
+                       assay <- s@reductions[[r]]
+                       ident <- assay@ident[[1]]
+                       
+                       um <- uwot::umap(t(assay@embeddings),
+                                        seed = 22,
+                                        # metric = "cosine",
+                                        # min_dist = 0.3,
+                                        # n_neighbors = 10
+                       )
+                       
+                       df <- um |>
+                          as.data.frame() |>
+                          dplyr::mutate(ident = ident)
+                       
+                       
+                       pl <- helper.plot.scatter(df,
+                                                 show.legend = F,
+                                                 label = T,
+                                                 dot.size = 1) +
+                          ggplot2::labs(x = "UMAP_1",
+                                        y = "UMAP_2")
+                       
+                       # Get the plot data to extract cell type colors
+                       pdata <- ggplot_build(pl)$data[[1]]
+                       
+                       # Create color mapping for cell types
+                       unique_celltypes <- sort(unique(df$ident))
+                       n_types <- length(unique_celltypes)
+                       celltype_colors <- setNames(annotation_colors[1:n_types], unique_celltypes)
+                       
+                       # Format labels: replace dots with spaces and wrap long names
+                       label_mapping <- setNames(
+                          sapply(unique_celltypes, function(label) {
+                             # Replace dots with spaces
+                             label_fmt <- gsub("\\.", " ", label)
+                             
+                             # Wrap long names (if longer than 20 chars, add linebreak)
+                             if (nchar(label_fmt) > 20) {
+                                label_fmt <- gsub("^(.{1,20})\\s", "\\1\n", label_fmt)
+                             }
+                             return(label_fmt)
+                          }, USE.NAMES = FALSE),
+                          unique_celltypes
+                       )
+                       
+                       # Update the plot with colored and formatted legend
+                       pl <- pl +
+                          scale_color_manual(values = celltype_colors,
+                                           labels = label_mapping)
+
+                       pl <- pl +
+                          ggplot2::theme(
+                             axis.text = ggplot2::element_blank(),
+                             axis.ticks = ggplot2::element_blank(),
+                             axis.line = ggplot2::element_blank()
+                          )
+                       
+                       return(pl)
+                    })
+                    names(u) <- names(s@reductions)
+                    return(u[[1]])
+                 })
+
+names(umap) <- names(sceval)
+
+umap
+```
+
+### export UMAP
+```{r}
+for(a in names(umap)){
+   fpath <- file.path(fdir, paste0(a, "_UMAPsc", ".pdf"))
+   pdf(fpath, width = 6, height = 6)
+   print(umap[[a]])
+   dev.off()
+}
+
+```
+
+
+
+# Quantify ISC on heatmap
+
+Quantify ratio of consisent vs inconsistent samples
+
+```{r}
+quant_isc <- lapply(sceval, function(s){
+   diss_matrix <- s@dissimilarity$`RecipClassif:Match`@dissimilarity %>%
+      as.matrix() %>% 
+      as.data.frame() %>% 
+      tibble::rownames_to_column("A") %>% 
+      pivot_longer(-A, 
+                   names_to = "B",
+                   values_to = "match") %>% 
+      separate(A, into = c("SampleA", "celltypeA"), sep = "_") %>% 
+      separate(B, into = c("SampleB", "celltypeB"), sep = "_") %>% 
+      mutate(label_type = ifelse(celltypeA == celltypeB,
+                                 "same_label", "different_label"),
+             match = ifelse(match == 0,
+                            1, 0)
+      )
+   quant <- diss_matrix %>%
+      group_by(celltypeA, label_type) %>% 
+      summarize(ISC = sum(match)/n())
+   quant %>% 
+      filter(label_type == "same_label") %>% 
+      select(celltype = celltypeA,
+             ISC)
+})
+```
+
+
+
+# Classical internal validation metrics
+
+Compute and compare internal validation metrics with ISC per celltype
+
+* average silhouette score per cell type: Combined cohesion + separation.
+* kNN Label Purity (per cell type): Local neighborhood homogeneity.
+* Mean Distance to Centroid (per cell type): Pure cohesion metric
+* Davies–Bouldin Index (per cell type): Ratio of within-cluster scatter to between-cluster separation.
+* ROGUE
+* normalized LISI score
+
+## internal validation functions
+
+```{r}
+compute_internal_metrics <- function(embeddings,
+                                     labels,
+                                     samples,
+                                     k = 20,
+                                     rogue_counts = NULL) {
+   # embeddings: cells x dims
+   # labels: vector of celltype labels
+   # rogue_counts: optional raw counts matrix (genes x cells) for ROGUE
+   if (is.null(embeddings) || nrow(embeddings) < 2) {
+      return(data.frame())
+   }
+   labels <- as.factor(labels)
+   keep <- !is.na(labels)
+   embeddings <- embeddings[keep, , drop = FALSE]
+   labels <- droplevels(labels[keep])
+   n <- nrow(embeddings)
+   if (n < 2) {
+      return(data.frame())
+   }
+   k_use <- max(1, min(k, n - 1))
+   celltypes <- levels(labels)
+   
+   # --- Silhouette (per cell type) ---
+   sil_df <- NULL
+   if (libraryNamespace("cluster", quietly = TRUE)) {
+      d <- dist(embeddings)
+      sil <- cluster::silhouette(as.integer(labels), d)
+      sil_df <- as.data.frame(sil) %>%
+         mutate(celltype = labels[order(attr(d, "Labels"), na.last = NA)])
+   }
+   
+   # --- kNN label purity (per cell type) ---
+   knn_purity <- rep(NA_real_, n)
+   if (libraryNamespace("RANN", quietly = TRUE)) {
+      nn <- RANN::nn2(embeddings, k = k_use + 1)
+      idx <- nn$nn.idx[, -1, drop = FALSE]
+      nn_labels <- matrix(labels[idx], nrow = n)
+      knn_purity <- rowMeans(nn_labels == labels)
+   } else {
+      # fallback: brute-force distance
+      d <- as.matrix(dist(embeddings))
+      diag(d) <- Inf
+      idx <- apply(d, 1, function(x) order(x)[1:k_use])
+      if (k_use == 1) {
+         idx <- matrix(idx, ncol = 1)
+      }
+      nn_labels <- matrix(labels[idx], nrow = n)
+      knn_purity <- rowMeans(nn_labels == labels)
+   }
+   
+   # --- Mean distance to centroid (per cell type) ---
+   centroids <- lapply(celltypes, function(ct) {
+      rowMeans(embeddings[labels == ct, , drop = FALSE])
+   })
+   names(centroids) <- celltypes
+   mean_dist_centroid <- sapply(celltypes, function(ct) {
+      idx <- which(labels == ct)
+      if (length(idx) < 2) return(NA_real_)
+      ctd <- centroids[[ct]]
+      mean(sqrt(rowSums((embeddings[idx, , drop = FALSE] -
+                            matrix(ctd, nrow = length(idx), ncol = ncol(embeddings), byrow = TRUE))^2)))
+   })
+   
+   # --- Davies–Bouldin (per cell type) ---
+   # Si: mean distance to centroid for cluster i
+   # Mij: distance between centroids i and j
+   Si <- mean_dist_centroid
+   cent_mat <- do.call(rbind, centroids)
+   if (length(celltypes) > 1) {
+      centroid_dist <- as.matrix(dist(cent_mat))
+      dbi <- sapply(seq_along(celltypes), function(i) {
+         if (is.na(Si[i])) return(NA_real_)
+         ratios <- (Si[i] + Si[-i]) / centroid_dist[i, -i]
+         max(ratios, na.rm = TRUE)
+      })
+      names(dbi) <- celltypes
+   } else {
+      dbi <- setNames(NA_real_, celltypes)
+   }
+   
+   # --- ROGUE (per cell type) ---
+   rogue_scores <- setNames(rep(NA_real_, length(celltypes)), celltypes)
+   if (!is.null(rogue_counts) && libraryNamespace("ROGUE", quietly = TRUE)) {
+      # ROGUE expects genes x cells; labels vector
+      try({
+         rogue_scores <- ROGUE::rogue(rogue_counts,
+                                      labels = labels,
+                                      samples = rep("s", length(labels)),
+                                      platform = "UMI") %>% 
+            unlist()
+      }
+      , silent = TRUE)
+   }
+   
+   # --- LISI (Local Inverse Simpson's Index, per cell type) ---
+   # Measures local label diversity in kNN neighborhood per cell
+   # Normalized to [0,1]: (LISI - 1) / (n_categories - 1)
+   lisi_scores <- setNames(rep(NA_real_, length(celltypes)), celltypes)
+   if (libraryNamespace("scIntegrationMetrics", quietly = TRUE)) {
+      try({
+         # compute_lisi expects: X (cells x dims), meta_data (df), label_colnames (char vector)
+         meta_df <- data.frame(celltype = labels)
+         lisi_full <- scIntegrationMetrics::compute_lisi(embeddings,
+                                                         meta_df,
+                                                         label_colnames = "celltype",
+                                                         perplexity = k)
+         # Normalize LISI: (raw_lisi - 1) / (n_categories - 1)
+         n_celltypes <- length(unique(labels[!is.na(labels)]))
+         lisi_normalized <- (lisi_full$celltype - 1) / (n_celltypes - 1)
+         # Average normalized LISI per cell type
+         lisi_scores <- tapply(1 - lisi_normalized, labels, mean, na.rm = TRUE)[celltypes]
+      }, silent = TRUE)
+   }
+   
+   # assemble per-celltype summary
+   res <- data.frame(
+      celltype = celltypes,
+      silhouette = if (!is.null(sil_df)) tapply(sil_df$sil_width, sil_df$celltype, mean, na.rm = TRUE)[celltypes] else NA_real_,
+      knn_purity = tapply(knn_purity, labels, mean, na.rm = TRUE)[celltypes],
+      mean_dist_centroid = mean_dist_centroid[celltypes],
+      davies_bouldin = dbi[celltypes],
+      rogue = rogue_scores[celltypes],
+      lisi = lisi_scores[celltypes],
+      stringsAsFactors = FALSE
+   )
+   
+   return(res)
+}
+
+scale_robust <- function(x, q = c(0.05, 0.95)) {
+   lo <- quantile(x, q[1], na.rm = TRUE)
+   hi <- quantile(x, q[2], na.rm = TRUE)
+   x2 <- pmin(pmax(x, lo), hi)
+   1 - (x2 - lo) / (hi - lo)
+}
+```
+
+## Quantify for each sceval objects
+Use PCA single-cell object contian in scTypeEval objects
+s@reductions$`single-cell`@embeddings
+
+```{r}
+internal_metrics <- lapply(names(sceval), function(nm) {
+   s <- sceval[[nm]]
+   
+   # pick embeddings (prefer single-cell)
+   emb <- s@reductions[["single-cell"]]@embeddings
+   
+   labels <- s@reductions[["single-cell"]]@ident[[1]]
+   samples <- s@reductions[["single-cell"]]@sample
+   hvg <- s@reductions[["single-cell"]]@gene.list
+   
+   # optional counts for ROGUE (genes x cells)
+   rogue_counts <- NULL
+   if (!is.null(s@counts)) {
+      rogue_counts <- s@counts[hvg, colnames(emb)]
+   }
+   
+   res <- compute_internal_metrics(embeddings = t(emb),
+                                   labels = labels,
+                                   samples = samples,
+                                   k = 30,
+                                   rogue_counts = rogue_counts)
+   res$dataset <- nm
+   res
+})
+
+names(internal_metrics) <- names(sceval)
+```
+
+## plotting all quantifications
+- Use only correlation for LISI
+- Label cell type, that can be shown, especially lowly expressed
+### dot plot
+
+
+```{r correlation-plot}
+corr_plots <- lapply(names(internal_metrics), function(i) {
+   df <- left_join(
+      quant_isc[[i]],
+      internal_metrics[[i]],
+      by = "celltype"
+   ) %>% 
+      select(celltype, ISC, cLISI = lisi) %>%
+      dplyr::mutate(celltype_formatted = gsub("\\.", " ", celltype))
+   
+   # Create color mapping for cell types
+   unique_celltypes <- sort(unique(df$celltype))
+   n_types <- length(unique_celltypes)
+   celltype_colors <- setNames(annotation_colors[1:n_types], unique_celltypes)
+   
+   # Format labels: replace dots with spaces and wrap long names
+   label_mapping <- setNames(
+      sapply(unique_celltypes, function(label) {
+         # Replace dots with spaces
+         label_fmt <- gsub("\\.", " ", label)
+         
+         # Wrap long names (if longer than 20 chars, add linebreak)
+         if (nchar(label_fmt) > 20) {
+            label_fmt <- gsub("^(.{1,20})\\s", "\\1\n", label_fmt)
+         }
+         return(label_fmt)
+      }, USE.NAMES = FALSE),
+      unique_celltypes
+   )
+   
+   # Prepare data for labels
+   df_labels <- df |>
+      dplyr::mutate(
+         in_incl = celltype %in% incl_celltypes,
+         celltype_fmt_labeled = celltype_formatted
+      )
+   
+   # Filter other labels that are too close to included labels
+   df_incl <- df_labels |> dplyr::filter(in_incl)
+   df_other <- df_labels |> dplyr::filter(!in_incl)
+   
+   if (nrow(df_incl) > 0 && nrow(df_other) > 0) {
+      dist_thresh <- 0.08  # distance threshold in plot space
+      
+      df_other <- df_other |>
+         dplyr::rowwise() |>
+         dplyr::mutate(
+            min_dist = min(sqrt((cLISI - df_incl$cLISI)^2 + (ISC - df_incl$ISC)^2))
+         ) |>
+         dplyr::ungroup() |>
+         dplyr::filter(min_dist > dist_thresh) |>
+         dplyr::select(-min_dist)
+   }
+   
+   set.seed(22)
+   p <- ggplot(df, aes(cLISI, ISC)) +
+      geom_jitter(aes(color = celltype),
+                  width = 0.05,
+                  height = 0.05,
+                  size = 5,
+                 alpha = 0.6,
+                 show.legend = F) +
+      # Always show labels for included cell types
+      ggrepel::geom_label_repel(
+         data = df_incl,
+         ggplot2::aes(
+            label = celltype_fmt_labeled,
+            color = celltype
+         ),
+         alpha = 0.7,
+         size = 8,
+         max.overlaps = Inf,
+         show.legend = FALSE
+      ) +
+      # Show other labels when they do not overlap with included
+      ggrepel::geom_label_repel(
+         data = df_other,
+         ggplot2::aes(
+            label = celltype_fmt_labeled,
+            color = celltype
+         ),
+         alpha = 0.7,
+         size = 8,
+         max.overlaps = 8,
+         show.legend = FALSE
+      ) +
+      scale_color_manual(values = celltype_colors,
+                        labels = label_mapping) +
+      labs(
+         x = "cLISI",
+         y = "Reciprocal hit proportion",
+         color = "Internal validation metric"
+      ) +
+      scale_x_continuous(
+         breaks = c(0, 1),
+         labels = c("0", "1"),
+         expand = expansion(mult = c(0, 0.1))
+      ) +
+      scale_y_continuous(
+         breaks = c(0, 1),
+         labels = c("0", "1"),
+         expand = expansion(mult = c(0, 0.1))
+      ) +
+      coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+      ggpubr::theme_classic2() +
+      theme(axis.text = ggplot2::element_text(
+                           size = 16),
+            axis.ticks = ggplot2::element_blank(),
+            axis.title = ggplot2::element_text(
+                           size = 22,
+                           face = "bold"),
+            legend.text = ggplot2::element_text(size = 12, face = "bold")
+            )
+   
+   p
+})
+
+names(corr_plots) <- names(internal_metrics)
+corr_plots
+```
+
+
+## export quantification plots
+
+```{r}
+for(a in names(corr_plots)){
+   fpath <- file.path(fdir, paste0(a, "_Quantification_IVM", ".pdf"))
+   pdf(fpath, width = 6, height = 6)
+   print(corr_plots[[a]])
+   dev.off()
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
