@@ -33,9 +33,9 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE,
 library(dplyr)
 library(ggplot2)
 library(tidyr)
-require(BiocParallel)
-require(Seurat)
-require(scTypeEval)
+library(BiocParallel)
+library(Seurat)
+library(scTypeEval)
 
 # Custom theme
 theme_set(theme_bw(base_size = 12))
@@ -178,7 +178,7 @@ cons <- bplapply(sct_files,
                    path <- file.path(sct_dir, i)
                    
                    r <- readRDS(path)
-                   c <- get.Consistency(r,
+                   c <- get_consistency(r,
                                         verbose = F) %>% 
                      mutate(dataset = gsub("[.]rds", "", i),
                             method.type = paste(consistency.metric,
@@ -446,7 +446,7 @@ for(a in ds_low){
 
 
 
-## PCA + RecipClassif plots
+# PCA + RecipClassif plots
 
 chose cells 
 ```{r, eval = F}
@@ -663,7 +663,7 @@ qr_pca <- function(sceval,
 ```
 
 
-### Render PCA custom plots
+## Render PCA custom plots
 
 ```{r}
 qr_pca_plots <- bplapply(to_do,
@@ -685,7 +685,7 @@ qr_pca_plots <- bplapply(to_do,
 qr_pca_plots
 ```
 
-#### export pdf
+### export pdf
 
 ```{r}
 for(a in names(qr_pca_plots)){
