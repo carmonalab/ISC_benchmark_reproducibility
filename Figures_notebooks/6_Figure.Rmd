@@ -1,0 +1,1385 @@
+---
+title: "Figure 6 analysis: ISC-guided refinement of atlas-level cell type annotation"
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: show
+---
+
+# Introduction
+
+To demonstrate the utility of ISC for identifying and resolving problematic annotations at atlas scale, we applied it to the Human Lung Cell Atlas (HLCA), comprising ~500,000 cells from 486 individuals across 49 datasets with consensus labels curated by six experts (Sikkema et al., 2023).
+
+This scripts follow the ISC analysis of HLCA and the visualization of their results.
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 6)
+```
+
+```{r libraries}
+# Load packages
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(BiocParallel)
+library(RColorBrewer)
+library(Seurat)
+library(scTypeEval)
+
+# Custom theme
+theme_set(theme_bw(base_size = 12))
+```
+
+```{r exporting_dir}
+fig_dir <- "exported_figs/6_Figure"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+Define which ISC paramters
+```{r set_ISC}
+#black list from scTypeEval package
+data(black_list)
+bl <- list(black_list$TCR, black_list$Immunoglobulins, black_list$Ygenes) %>% unlist()
+# define used ISC
+mety <- c("local" = "silhouette | recip_classif:Match",
+          "global" = "2label_silhouette | Pseudobulk:Cosine")
+# Define dissimilarities to use
+dm <- c("Pseudobulk:Cosine",
+        "recip_classif:Match")
+# min samples to consider a cell type
+min_samples <- 5
+```
+
+
+Function to clean names
+```{r}
+clean_ident_labels <- function(x) {
+  x |>
+    gsub("\\.\\(", "\n(", x = _) |>   # ".(" -> newline
+    gsub("\\.", " ", x = _) |>        # "." -> space
+    gsub("\\bcell\\b", "", x = _) |>  # remove standalone "cell"
+    gsub(" +", " ", x = _) |>         # collapse multiple spaces
+    trimws()
+}
+```
+
+
+
+# Reannotation: Lung Atlas
+
+## load
+
+Obtain raw files from Zenodo (10.5281/zenodo.18921437).
+
+```{r}
+lpath <- "data/raw/Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+
+object <- load_single_cell_object(lpath)
+```
+
+## Dissimilarity
+```{r}
+ident <- "cell_type" # annotation column to use
+sample = "sample" # column identifying sample of origin
+
+sub_meta = object[["metadata"]] %>% 
+  filter(!is.na(.data[[ident]]))
+sub_count_matrix = object[["counts"]][,rownames(sub_meta)]
+
+#create sceval object
+sc <- create_scTypeEval(matrix = sub_count_matrix,
+                        metadata = sub_meta,
+                        black.list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = ident,
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+# remove single-cell slots processed
+#sc@data$`single-cell` <- NULL
+# emtpy counts slot to make it light
+sc@counts <- Matrix::sparseMatrix(i = integer(0),
+                                  j = integer(0),
+                                  x = numeric(0),
+                                  dims = c(0, 0))
+
+sc <- run_pca(sc,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 8,
+                          verbose = F)
+}
+```
+
+save cache
+```{r}
+dir.create("cache", showWarnings = F)
+saveRDS(sc, "cache/sceval_lungAtlas_original.rds")
+```
+
+Plot RMM
+Explore consistencies
+```{r}
+phs <- plot_heatmap(sc,
+                    sort.consistency = "silhouette",
+                    sort.similarity = "Pseudobulk:Cosine")
+```
+
+
+## Consistency
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure) %>%
+  mutate(celltype = clean_ident_labels(celltype),
+         celltype = factor(celltype, levels = celltype)
+         )
+```
+
+
+## plotting
+### barplot
+```{r}
+pl <- consis %>% 
+  ggplot(aes(y = reorder(celltype, measure),
+             x = measure,
+             fill = measure)) +
+  geom_col(show.legend = FALSE,
+           color = "grey50") +
+  scale_fill_gradient(
+    low  = "white",
+    high = "#2166AC"   # deep blue
+  ) +
+  labs(y = "Author's annotation",
+       x = "Integrated ISC score") +
+  ggpubr::theme_classic2() +
+  theme(axis.title = element_text(size = 22),
+        axis.ticks = element_blank())
+
+pl
+```
+
+### Fig 6A - scatter
+
+Joint distribution of per-cell-type ISCL (silhouette on reciprocal-classification match) and ISCG (2-label silhouette on pseudobulk cosine similarity) across atlas labels (“cell_type”). Each point represents one annotated cell type. 
+
+```{r}
+
+linewidth <- 0.5
+alpha_line <- 0.6
+# Empiric threshold obtain in Figure 5, and 5_Figure.Rmd script.
+q_local <- 0.5649059
+q_global <- 0.7551685
+
+
+
+pl_scatter <- consis$original %>%
+  ggplot(aes(x = local,
+             y = global)) +
+  # threshold line of figure 5
+  geom_vline(
+    xintercept = q_local,
+    linetype = "dashed",
+    linewidth = linewidth,
+    alpha = alpha_line
+  ) +
+  geom_hline(
+    yintercept = q_global,
+    linetype = "dashed",
+    linewidth = linewidth,
+    alpha = alpha_line
+  ) +
+  # Points
+  geom_point(aes(fill = measure),
+             shape = 21,
+             size = 3.2,
+             stroke = 0.4,
+             color = "black",
+             alpha = 0.9,
+             show.legend = FALSE) +
+  
+  # Clean blue gradient (Nature-friendly, perceptually smooth)
+  scale_fill_gradient(
+    low  = "#F7FBFF",
+    high = "#08306B"
+  ) +
+  
+  # Repelled labels (better spacing control)
+  ggrepel::geom_text_repel(
+    aes(label = clean_ident_labels(celltype)),
+    size = 3.5,
+    max.overlaps = 8,
+    box.padding = 0.4,
+    point.padding = 0.3,
+    segment.size = 0.3,
+    segment.color = "grey50",
+    min.segment.length = 0,
+    seed = 123
+  ) +
+  
+  labs(
+    x = "ISC score (Local)",
+    y = "ISC score (Global)"
+  ) +
+  
+  coord_cartesian(clip = "off") +
+  
+  theme_classic(base_size = 12) +
+  theme(
+    axis.title = element_text(size = 20),
+    axis.text  = element_text(size = 11),
+    axis.line  = element_line(linewidth = 0.4),
+    axis.ticks = element_blank(),
+    plot.margin = margin(10, 20, 10, 10)
+  )
+
+pl_scatter
+
+```
+
+
+### export plot
+
+```{r}
+fpath <- file.path(fig_dir, paste0("LungAtlas_consistency_Scatter", ".pdf"))
+pdf(fpath, width = 5.2, height = 5)
+pl_scatter
+dev.off()
+```
+
+## Reannotation
+
+Within respiratory epithelial populations, club, multiciliated epithelial, and bronchial goblet cells exhibited particularly low ISC. Inspection of these populations revealed strong structuring by tissue of origin (nose, airway and lung parenchyma) (Fig. 6b), accompanied by differential expression of canonical markers consistent with anatomical specialization (Fig. 6c). Epithelial-associated genes such as ELF3 and FXYD3 were enriched in nose-derived cells, whereas SCGB1A1 showed higher expression in airway and lung compartments. These results suggested that transcriptionally and anatomically distinct subpopulations were aggregated under single labels, reducing within-label consistency across samples.
+Guided by these observations, we implemented targeted, hypothesis-driven refinements by introducing tissue-resolved sublabels for affected epithelial populations (e.g., separating club cells by nasal, airway, and lung origin). 
+
+```{r}
+md <- sub_meta %>% 
+  tibble::rownames_to_column("cellid") %>% 
+  mutate(annot2 = case_when(
+    cell_type == "club cell" & tissue == "respiratory airway" ~ "club cell (airway)",
+    cell_type == "club cell" & tissue == "nose" ~ "club cell (nasal)",
+    cell_type == "club cell" & tissue == "lung parenchyma" ~ "club cell (lung)",
+    ##############################################################################
+    cell_type == "multi-ciliated epithelial cell" &
+      ann_level_4 == "Deuterosomal" ~
+      "multi-ciliated epithelial cell (Deuterosomal)",
+    cell_type == "multi-ciliated epithelial cell" &
+      ann_level_4 != "Deuterosomal" ~
+      "multi-ciliated epithelial cell (Non-Deuterosomal)",
+    ##############################################################################
+    cell_type %in% c("nasal mucosa goblet cell","bronchial goblet cell") &
+      tissue == "respiratory airway"~
+      NA,
+    cell_type %in% c("nasal mucosa goblet cell","bronchial goblet cell") &
+      tissue == "nose" ~
+      "mucosa goblet cell (nose)",
+    cell_type %in% c("nasal mucosa goblet cell","bronchial goblet cell") &
+      tissue == "lung parenchyma" ~
+      "mucosa goblet cell (lung)",
+    ##############################################################################
+    cell_type == "tracheobronchial goblet cell" &
+      tissue == "respiratory airway" ~
+      "tracheobronchial goblet cell(airway)",
+    cell_type == "tracheobronchial goblet cell" &
+      tissue == "lung parenchyma" ~
+      "tracheobronchial goblet cell (lung)",
+    cell_type == "tracheobronchial goblet cell" &
+      tissue == "nose" ~
+      "tracheobronchial goblet cell(nose)",
+    TRUE ~ cell_type  # Default case
+  )
+  ) %>% 
+  tibble::column_to_rownames("cellid")
+```
+
+## Consistency reannotation
+
+```{r}
+ident <- "annot2"# new proposed annotation
+sc <- create_scTypeEval(matrix = sub_count_matrix,
+                        metadata = md,
+                        black.list = bl)
+
+sc <- run_processing_data(sc,
+                         ident = ident,
+                         sample = sample,
+                         # enforce more cell type by lower threshold of samples
+                         min.samples = min.samples,
+                         verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+# remove single-cell slots processed
+#sc@data$`single-cell` <- NULL
+# emtpy counts slot to make it light
+sc@counts <- Matrix::sparseMatrix(i = integer(0),
+                                  j = integer(0),
+                                  x = numeric(0),
+                                  dims = c(0, 0))
+
+sc <- run_pca(sc,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 8,
+                          verbose = F)
+}
+```
+
+save cache
+```{r}
+saveRDS(sc, "cache/sceval_lungAtlas_reannot.rds")
+```
+
+## Consistency
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis2 <- cons %>%
+  arrange(measure) %>%
+  mutate(celltype = factor(celltype, levels = celltype))
+```
+
+## plotting
+### Boxplot
+```{r}
+pl2 <- consis2 %>% 
+  ggplot(aes(y = reorder(celltype, measure),
+             x = measure,
+             fill = measure)) +
+  geom_col(show.legend = FALSE,
+           color = "grey50") +
+  scale_fill_gradient(
+    low  = "white",
+    high = "#2166AC"   # deep blue
+  ) +
+  labs(y = "Author's annotation",
+       x = "ISC score") +
+  ggpubr::theme_classic2() +
+  theme(axis.title = element_text(size = 22),
+        axis.ticks = element_blank())
+
+pl2
+```
+
+
+
+## plot improvement
+
+Make a list of consistency before and after reannotation
+
+```{r}
+consis <- list(original = consis,
+               reannot = consis2)
+```
+
+
+```{r}
+dfp <- rbind(consis$original %>% mutate(ident = "original"),
+             consis$reannot %>%
+               mutate(ident = "reannot")
+             ) %>% 
+  select(celltype, score = measure, ident) %>% 
+  mutate(celltype = scTypeEval:::purge_label(celltype))
+
+dict <- md %>% 
+  mutate(cell_type = scTypeEval:::purge_label(cell_type), # starndardize cell type labels
+         annot2 = scTypeEval:::purge_label(annot2)
+  ) %>% 
+  distinct(cell_type, annot2) %>% 
+  dplyr::rename("celltype" = "annot2")
+
+spl <- split(dfp, dfp$ident)
+
+spl$reannot <- left_join(spl$reannot, dict, by = "celltype") %>% 
+  rename("newannot" = "celltype",
+         "celltype" = "cell_type",
+         "score2" = "score")
+
+dfp2 <- left_join(spl$original, spl$reannot,
+                  by = "celltype") %>% 
+  mutate(
+    scoref = score2 - score,
+    #scoref = log2(score2/score),
+    is.newannot = ifelse(celltype == newannot,
+                         "no", "yes")
+  )
+dfp2 <- dfp2[,!grepl("ident", names(dfp2))]
+
+dd <- dfp2 %>% 
+  select(-scoref) %>% 
+  dplyr::rename("Reannotation" = "score2",
+                "Original" = "score") %>% 
+  pivot_longer(-c(celltype, newannot, is.newannot),
+               names_to = "annotation",
+               values_to = "score")
+
+dd %>%
+  group_by(annotation) %>% 
+  summarize(m = mean(score))
+```
+
+### Figure 6E - Grouped Barplots
+
+```{r}
+nm_cols <- c(
+  "#0072B2",  # blue
+  "#D55E00"   # vermillion
+)
+
+limits <- c(min(dd$score) * 0.9,
+            max(dd$score) * 1.05)
+
+titles_dict <- c("yes" = "Reannotated cell types",
+                 "no" = "Unchanged cell types")
+
+pl3 <- lapply(c("yes", "no"), function(i) {
+  title <- titles_dict[i]
+  dd_sub <- dd %>%
+    filter(is.newannot == i) %>%
+    mutate(g = paste(celltype, newannot, sep = "__"))
+  
+  ggplot(dd_sub, aes(annotation, score, fill = annotation)) +
+    
+    # Boxplot
+    geom_boxplot(
+      width = 0.6,
+      outlier.shape = NA,
+      alpha = 0.35,
+      color = "black",
+      linewidth = 0.4
+    ) +
+    
+    # Connecting lines
+    geom_line(
+      aes(group = g),
+      color = "grey40",
+      alpha = 0.35,
+      linewidth = 0.4
+    ) +
+    
+    # Points
+    geom_point(
+      shape = 21,
+      size = 2.2,
+      stroke = 0.3,
+      alpha = 0.8,
+      color = "black"
+    ) +
+    
+    scale_fill_manual(values = nm_cols) +
+    coord_cartesian(ylim = limits) +
+    
+    labs(
+      y = "Integrated ISC score",
+      x = NULL,
+      title = title
+    ) +
+    
+    theme_classic(base_size = 12) +
+    theme(
+      legend.position = "none",
+      axis.title.y = element_text(margin = margin(r = 8),
+                                  size = 18),
+      axis.line = element_line(linewidth = 0.4),
+      axis.ticks = element_line(linewidth = 0.4),
+      plot.margin = margin(5, 10, 5, 5)
+    )
+})
+
+pl3 <- ggpubr::ggarrange(plotlist = pl3, nrow = 1)
+
+pl3
+```
+
+### export plot
+
+```{r}
+fpath <- file.path(fig_dir, paste0("LungAtlas_reannotation", ".pdf"))
+pdf(fpath, width = 5, height = 3)
+pl3
+dev.off()
+```
+
+## Reload cache
+
+Reload cache (if needed)
+```{r}
+lpath <- list(original = "cache/sceval_lungAtlas_original.rds",
+              reannot = "cache/sceval_lungAtlas_reannot.rds")
+sceval <- lapply(lpath,
+                 readRDS)
+```
+
+```{r}
+# list of cells with confusion problems with club cells
+
+confusion_cells <- c(
+  ## worst
+  "bronchial goblet cell",
+  "club cell",
+  "tracheobronchial goblet cell",
+  "multi-ciliated epithelial cell",
+  "nasal mucosa goblet cell"
+)
+
+dict <- sceval$reannot@metadata %>% 
+  filter(cell_type %in% confusion_cells) %>% 
+  mutate(original = scTypeEval:::purge_label(cell_type),
+         reannot = scTypeEval:::purge_label(annot2)
+  ) %>% 
+  distinct(original, reannot, tissue)
+```
+
+# Figure 6D - Reannotation heatmaps
+
+Build RMM(~heatmap) but for only a subset of cells.
+
+RMM using reciprocal classification match for selected low-ISC cell types before and after.
+
+## auxiliary function
+
+```{r custom_heatmap}
+scTypeEval <- sceval$reannot
+dissimilarity.slot = "RecipClassif:Match"
+da = "RecipClassif:Match"
+sort.consistency = "silhouette"
+sort.similarity = "Pseudobulk:Cosine"
+low.color = "black"
+high.color = "white"
+hclust.method = "ward.D2"
+verbose = T
+celltype.keep = dict$reannot
+
+custom_heatmap <- function(scTypeEval,
+                           dissimilarity.slot = "RecipClassif:Match",
+                           sort.similarity = "Pseudobulk:Cosine",
+                           sort.consistency = "silhouette",
+                           low.color = "black",
+                           high.color = "white",
+                           hclust.method = "ward.D2",
+                           celltype.keep = NULL,
+                           verbose = TRUE){
+  
+  # check if dissimilarity object are present in object
+  diss.assays <- scTypeEval:::.check_dissimilarityAssays(scTypeEval, slot = dissimilarity.slot)
+
+  
+  # if not indicated just order cell types based on alphabetical
+  if(is.null(sort.similarity) && is.null(sort.consistency)){
+    if(verbose){message("No ordering (sort.similarity or sort.consistency) indicated,
+                          sorting cell type by alphabetical order.")}
+  }
+  
+  # Compute similarity of cell types if indicated
+  if(!is.null(sort.similarity)){
+    # get dissimilarity matrix
+    diss.assays.cluster <- scTypeEval:::.check_dissimilarityAssays(scTypeEval,
+                                                                   slot = sort.similarity)
+    assay_cluster <- scTypeEval@dissimilarity[[diss.assays.cluster]]
+    d_mat_cluster <- as.matrix(assay_cluster@dissimilarity)
+    # get similarities between cell types
+    if(verbose){message("Computing cell type similarity based on ", diss.assays.cluster, ".")}
+    ident_levels <- levels(assay_cluster@ident[[1]])
+    mat <- matrix(0, nrow = length(ident_levels),
+                  ncol = length(ident_levels),
+                  dimnames = list(ident_levels, ident_levels))
+    for (i in ident_levels) {
+      for (j in ident_levels) {
+        sub <- d_mat_cluster[assay_cluster@ident[[1]] == i,
+                             assay_cluster@ident[[1]] == j,
+                             drop = FALSE]
+        mat[i, j] <- mean(sub)
+      }
+    }
+    hc <- stats::hclust(as.dist(mat),
+                        method = hclust.method)
+    ident_order <- hc$labels[hc$order]
+  } else {
+    ident_order <- NULL
+  }
+  
+  pls <- lapply(diss.assays,
+                function(da){
+                  assay <- scTypeEval@dissimilarity[[da]]
+                  title <- paste(da, names(assay@ident), sep = " - ")
+                  
+                  d_mat_plot <- as.matrix(assay@dissimilarity)
+                  
+                  annot_ident <- assay@ident[[1]]
+                  
+                  #  order by consistency if indicated
+                  if (!is.null(sort.consistency)) {
+                    
+                    if(verbose){message("Computing consistency metric for ", sort.consistency, ".\n")}
+                    
+                    consis <- get.Consistency(scTypeEval,
+                                              dissimilarity.slot = da,
+                                              consistency_metric = sort.consistency,
+                                              verbose = FALSE) |>
+                      filter(!is.na(measure)) |>
+                      dplyr::arrange(measure) |>
+                      dplyr::pull(measure, name = celltype)
+                    
+                    if(verbose){message("Consistency computed.")}
+                    
+                    ident_order <- names(consis)  
+                  } 
+                  
+                  if(is.null(ident_order)){
+                    # order alphabetically
+                    ident_order <- sort(levels(annot_ident))
+                  }
+                  
+                  # reorder cells within cell type: first by ident order, then cluster within ident
+                  if(!is.null(sort.similarity)){
+                    ordering <- unlist(lapply(ident_order, function(iden) {
+                      cells <- names(annot_ident)[annot_ident == iden]
+                      if (length(cells) > 2) {
+                        hc <- stats::hclust(as.dist(d_mat_cluster[cells, cells]),
+                                            method = hclust.method)
+                        cells[hc$order]
+                      } else {
+                        cells
+                      }
+                    }))
+                  } else {
+                    ordering <- unlist(lapply(ident_order, function(iden) {
+                      cells <- names(annot_ident)[annot_ident == iden] |>
+                        sort()
+                      return(cells)
+                    }))
+                  }
+                  
+                  # reorder matrix + annotation
+                  d_mat_plot <- d_mat_plot[ordering, ordering, drop = FALSE]
+                  
+                  # convert matrix to tidy df
+                  df <- as.data.frame(as.table(d_mat_plot))
+                  colnames(df) <- c("row", "col", "value")
+                  
+                  if(!is.null(celltype.keep)){
+                    celltype.keep <- scTypeEval:::purge_label(celltype.keep)
+                    # filter for cell type
+                    df <- df %>%
+                      filter(
+                        stringr::str_extract(row, "(?<=_)[^_]+") %in% celltype.keep,
+                        stringr::str_extract(col, "(?<=_)[^_]+") %in% celltype.keep
+                      ) %>% 
+                      mutate(value = ifelse(value > 0,
+                                            1, 0))
+                    ident_order <- ident_order[ident_order %in% celltype.keep]
+                    annot_ident <- annot_ident[annot_ident %in% celltype.keep]
+                    ordering <- ordering[stringr::str_extract(ordering, "(?<=_)[^_]+") %in%
+                                           celltype.keep]
+                  }
+                  
+                
+                  # ident boundaries + label positions
+                  counts <- as.numeric(table(as.character(annot_ident))[ident_order])
+                  sep_lines <- cumsum(counts)
+                  ident_labels <- ident_order
+                  
+                  # adjust labels
+                  ident_labels <- clean_ident_labels(ident_labels)
+                  
+                  # midpoints for axis ticks
+                  x_ticks <- sep_lines - counts/2 + 0.5
+                  y_ticks <- length(ordering) - (sep_lines - counts/2 + 0.5) + 1
+                  
+                  
+                  # build plot
+                  p <- ggplot2::ggplot(df, ggplot2::aes(x = col, y = row, fill = value)) +
+                    ggplot2::geom_tile() +
+                    ggplot2::scale_fill_gradient(low = low.color,
+                                                 high = high.color) +
+                    ggplot2::scale_x_discrete(
+                      breaks = ordering[x_ticks],
+                      labels = ident_labels,
+                      expand = c(0, 0)
+                    ) +
+                    ggplot2::scale_y_discrete(
+                      breaks = rev(ordering)[y_ticks],
+                      labels = ident_labels,
+                      expand = c(0, 0)
+                    ) +
+                    ggplot2::theme_minimal(base_size = 12) +
+                    ggplot2::theme(
+                      axis.text.x = ggplot2::element_blank(),
+                      axis.text.y = ggplot2::element_text(hjust = 1),
+                      axis.ticks = ggplot2::element_blank(),
+                      axis.title = ggplot2::element_blank(),
+                      legend.position = "none",
+                      panel.grid = ggplot2::element_blank()
+                    ) +
+                    ggplot2::geom_hline(yintercept = sep_lines + 0.5,
+                                        color = "grey70",
+                                        linewidth = 0.4) +
+                    ggplot2::geom_vline(xintercept = sep_lines + 0.5,
+                                        color = "grey70",
+                                        linewidth = 0.4) +
+                    ggplot2::labs(title = title)
+                  
+                  return(p)
+                })
+  
+  names(pls) <- diss.assays
+  
+  if(length(pls) == 1){
+    pls <- pls[[1]]
+  }
+  
+  return(pls)
+  
+}
+```
+
+## Plots production
+```{r}
+nm_cols <- c(
+  "original" = "#0072B2",  # blue
+  "reannot" = "#D55E00"   # vermillion
+)
+
+focus_heatmap <- lapply(names(sceval),
+                        function(s){
+                          custom_heatmap(sceval[[s]],
+                                         celltype.keep = dict[[s]],
+                                         low.color = nm_cols[s]) +
+                            ggtitle(s)
+                        })
+
+# tune params
+focus_heatmap 
+```
+
+### export focus heatmaps
+```{r}
+w <- 7
+h <- 5
+
+fpath <- file.path(fig_dir, paste0("LungAtlas_consistency_QRfocus_original", ".pdf"))
+pdf(fpath, width = w, height = h)
+focus_heatmap[[1]] +
+  ggtitle("Original")
+dev.off()
+
+fpath <- file.path(fig_dir, paste0("LungAtlas_consistency_QRfocus_Reannotation", ".pdf"))
+pdf(fpath, width = w, height = h)
+focus_heatmap[[2]] +
+  ggtitle("Reannotation")
+dev.off()
+
+```
+
+# PCAs
+Let's produce embeddings for pca grouping by cell type and sample only the cells of interest (reanntoated):
+
+utilities
+```{r}
+g = c("FXYD3", "EPCAM",
+      "ELF3","SCGB1A1")
+library(STACAS)
+data("EnsemblGeneTable.Hs")
+
+# scaling of gene expression
+scale_to_range <- function(x, new_min = -1, new_max = 1) {
+  old_min <- min(x, na.rm = TRUE)
+  old_max <- max(x, na.rm = TRUE)
+  (x - old_min) / (old_max - old_min) * (new_max - new_min) + new_min
+}
+
+
+get_normExpression <- function(scTypeEval,
+                               genes = c("FXYD3", "EPCAM",
+                                         "ELF3","SCGB1A1"),
+                               assay = "pseudobulk"){
+  #Function to translate Ensemble_id (HCLA) to gene symbols.
+  genes_dict <- EnsemblGeneTable.Hs %>% 
+    dplyr::filter(`Gene name` %in% genes) %>% 
+    dplyr::distinct(`Gene stable ID`, `Gene name`)
+  
+  mat <- scTypeEval@data[[assay]]@matrix[
+    genes_dict$`Gene stable ID`, 
+  ] %>% 
+    t()
+  
+  # scale expression
+  mat <- apply(mat, 2, function(e) scale_to_range(e, -2, 2)) %>% 
+    as.data.frame()
+  
+  # ---- rename columns using match ----
+  idx <- match(colnames(mat), genes_dict$`Gene stable ID`)
+  colnames(mat) <- genes_dict$`Gene name`[idx]
+  
+  return(mat)
+}
+```
+
+Get embeddings and gene expression in the same dataframe
+```{r}
+get_embeddings <- function(sceval, reduction, dims = c(1,2)){
+  embeds <- sceval@reductions[[reduction]]@embeddings
+  idents <- sceval@reductions[[reduction]]@ident[[1]]
+  samples <- sceval@reductions[[reduction]]@sample
+  # compute variance of PCs
+  vrs <- scTypeEval:::var_PCA(t(embeds))[dims]
+  vrs <- round(vrs*100, 2)
+  # filter idents
+  idents_keep <- idents %in% scTypeEval:::purge_label(confusion_cells)
+  
+  celltypes <- idents[idents_keep]
+  sample <- samples[idents_keep]
+  
+  md <- sceval@metadata %>% 
+    mutate(sample = scTypeEval:::purge_label(sample),
+           celltype = scTypeEval:::purge_label(cell_type)) %>% 
+    filter(celltype %in% celltypes) %>% 
+    dplyr::select(sample, tissue)
+  
+  embeds_df <- embeds[dims, idents_keep] %>% 
+    t() %>% as.data.frame() %>% 
+    mutate(celltype = clean_ident_labels(celltypes),
+           sample = sample) %>% 
+    left_join(., md, by= "sample") %>% 
+    distinct()
+  
+  # add genes expression of genes
+  gene_expr <- get_normExpression(sceval,
+                                  assay = reduction)
+  
+  embeds_df <- cbind(embeds_df, gene_expr)
+  
+  return(list(mat = embeds[, idents_keep],
+              df = embeds_df,
+              variance = vrs)
+         )
+}
+```
+
+
+
+## Recalculate embeddings
+
+Get PCA embeddings focuins only on the cells of interest.
+
+```{r}
+ident <- "cell_type"
+sample = "sample"
+
+sub_meta = object[["metadata"]] %>% 
+  filter(!is.na(.data[[ident]]),
+         .data[[ident]] %in% confusion_cells)
+sub_count_matrix = object[["counts"]][,rownames(sub_meta)]
+
+sc <- create_scTypeEval(matrix = sub_count_matrix,
+                        metadata = sub_meta,
+                        black.list = sub_meta)
+
+sc <- run_processing_data(sc,
+                         ident = ident,
+                         sample = sample,
+                         # enforce more cell type by lower threshold of samples
+                         min.samples = min.samples,
+                         verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 6, 
+              verbose = F)
+# emtpy counts slot to make it light
+sc@counts <- Matrix::sparseMatrix(i = integer(0),
+                                  j = integer(0),
+                                  x = numeric(0),
+                                  dims = c(0, 0))
+
+sc <- run_pca(sc,
+              verbose = F)
+
+plot.PCA(sc)
+```
+
+```{r}
+embeds_part <- lapply(names(sc@reductions),
+                       function(x){
+                         get_embeddings(sc, x)
+                       })
+names(embeds_part) <- names(sc@reductions)
+```
+
+Coloring
+
+```{r}
+celltype_cols <- c(
+  "club"                      = "#0072B2",  # blue
+  "nasal mucosa goblet"       = "#009E73",  # bluish green
+  "tracheobronchial goblet"   = "#D55E00",  # vermillion
+  "multi ciliated epithelial" = "#CC79A7",  # purple
+  "bronchial goblet"          = "grey15" 
+)
+
+
+tissue_cols <- c(
+  "nose"               = "#4C72B0",  # blue
+  "respiratory airway" = "#E69F00",  # orange
+  "lung parenchyma"    = "#CC79A7"  # bluish green
+)
+```
+
+# Figure 6B - Low dimensional representations
+
+### scatter celltypes
+
+Function to produce scatter plot based on datafram with columns
+1 - Embedding 1
+2- Embedding2
+3 - Coloring
+
+```{r}
+helper.plot.scatter <- function(df,
+                                show.legend = FALSE,
+                                label = TRUE,
+                                dot.size = 5,
+                                label.size = 8,
+                                color.by = "celltype",
+                                label.by = "celltype",
+                                vars = NULL,
+                                keep.square = TRUE) {
+   # Replace dots with spaces in the ident column
+   
+  pl <- ggplot2::ggplot() +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(
+        x = .data[[names(df)[1]]],  # First column
+        y = .data[[names(df)[2]]],  # Second column
+        color = .data[[color.by]]
+      ),
+      alpha = 0.8,
+      size = dot.size,
+      show.legend = show.legend) +
+    ggpubr::theme_classic2() +
+    ggplot2::theme(legend.text = ggplot2::element_text(size = 12, face = "bold"),
+                   axis.title = ggplot2::element_text(size = 22),
+                   axis.text = ggplot2::element_blank(),
+                   axis.ticks = ggplot2::element_blank(),
+                   axis.line = ggplot2::element_blank()
+    )
+
+  if (keep.square) {
+    pl <- pl +
+      ggplot2::coord_fixed() +
+      ggplot2::theme(aspect.ratio = 1)
+  }
+  
+   if(label){
+      # Calculate centroids and format labels
+      cnt <- df |>
+         dplyr::group_by(.data[[label.by]]) |>
+         dplyr::summarize(
+            x = mean(.data[[names(df)[1]]]),
+            y = mean(.data[[names(df)[2]]]),
+         )
+      # Always show labels for mentioned cell types
+      pl <- pl +
+        ggrepel::geom_label_repel(
+          data = cnt,
+          ggplot2::aes(
+            x = x,
+            y = y,
+            label = .data[[label.by]],
+            color = .data[[label.by]],
+          ),
+          alpha = 0.9,
+          size = label.size,
+          max.overlaps = Inf,
+          show.legend = FALSE
+        )
+   }
+  
+  if(!is.null(vars)){
+    labs <- paste0(names(vars), " (", vars, "%)")
+    
+    pl <- 
+      pl +
+      ggplot2::labs(x = labs[1],
+                    y = labs[2])
+  }
+   
+   return(pl)
+}
+```
+
+### pca
+```{r}
+pca_celltype <- helper.plot.scatter(df = embeds_part$pseudobulk$df,
+                                    vars = embeds_part$pseudobulk$variance) +
+  scale_color_manual(values = celltype_cols)
+pca_tissue <- helper.plot.scatter(df = embeds_part$pseudobulk$df,
+                                  label = F,
+                                  color.by = "tissue",
+                                  show.legend = T,
+                                  vars = embeds_part$pseudobulk$variance)+
+  scale_color_manual(values = tissue_cols)
+
+pca_celltype; pca_tissue
+```
+
+### umap
+
+Same but with umap
+```{r}
+# obtain umap embeddings from 30 PCs PCA
+um <- uwot::umap(embeds_part$`single-cell`[["mat"]] %>% t(),
+                 seed = 22
+                 # metric = "cosine",
+                 # min_dist = 0.3,
+                 # n_neighbors = 10
+)
+
+df <- um |>
+  as.data.frame()
+
+names(df) <- c("umap_1", "umap_2")
+
+df <- cbind(df, embeds_part$`single-cell`$df[,-c(1,2)])
+
+embeds_part$`single-cell`[["umap"]] <- df
+
+```
+
+
+```{r}
+dt <- 0.5
+umap_celltype <- helper.plot.scatter(df = embeds_part$`single-cell`$umap,
+                                     dot.size = dt) +
+  scale_color_manual(values = celltype_cols)
+umap_tissue <- helper.plot.scatter(df = embeds_part$`single-cell`$umap,
+                                  label = F,
+                                  dot.size = dt,
+                                  color.by = "tissue",
+                                  show.legend = T)+
+  scale_color_manual(values = tissue_cols)
+
+umap_celltype; umap_tissue
+```
+
+
+
+## expression
+Show coloring as scaled expression of gene interest in low embeddings
+### pca
+```{r}
+# PCA
+pca_expr <- lapply(g, function(gene){
+  helper.plot.scatter(df = embeds_part$pseudobulk$df,
+                      vars = embeds_part$pseudobulk$variance,
+                      label = F,
+                      show.legend = T,
+                      color.by = gene) +
+    scale_color_gradient2(
+      low = "grey",
+      mid = "#F5C6A5",   # soft warm beige (NOT white)
+      high = "red3",
+      midpoint = 0
+    ) +
+    theme(legend.position = "top")
+}
+)
+
+# UMAP
+umap_expr <- lapply(g, function(gene){
+  helper.plot.scatter(df = embeds_part$`single-cell`$umap,
+                      label = F,
+                      show.legend = F,
+                      dot.size = dt,
+                      color.by = gene) +
+     scale_color_gradient2(
+      low = "grey",
+      mid = "#F5C6A5",   # soft warm beige (NOT white)
+      high = "red3",
+      midpoint = 0
+    ) +
+    theme(legend.position = "top")
+}
+)
+
+g; umap_expr
+```
+
+
+# export plots scatters
+
+```{r}
+
+sanitize_name <- function(x) {
+  gsub("[^A-Za-z0-9_-]", "_", x)
+}
+
+w <- 5
+h <- 5
+
+# PCA/UMAP scatter plots
+plots_to_export_nl <- list(
+  "LungAtlas_reannotation_PCA_celltype" = pca_celltype,
+  "LungAtlas_reannotation_UMAP_celltype" = umap_celltype
+)
+
+plots_to_export_legend<- list(
+  "LungAtlas_reannotation_PCA_tissue" = pca_tissue,
+  "LungAtlas_reannotation_UMAP_tissue" = umap_tissue
+)
+
+
+for (nm in names(plots_to_export_nl)) {
+  fpath <- file.path(fig_dir, paste0(nm, ".pdf"))
+  pdf(fpath, width = w, height = h)
+  print(plots_to_export[[nm]])
+  dev.off()
+}
+
+for (nm in names(plots_to_export_legend)) {
+  fpath <- file.path(fig_dir, paste0(nm, ".pdf"))
+  pdf(fpath, width = 7, height = h)
+  print(plots_to_export[[nm]])
+  dev.off()
+}
+
+# Expression feature plots (PCA)
+names(pca_expr) <- g
+for (gene in names(pca_expr)) {
+  fpath <- file.path(fig_dir, paste0("LungAtlas_reannotation_PCA_", sanitize_name(gene), ".pdf"))
+  pdf(fpath, width = w, height = 5.5)
+  print(pca_expr[[gene]])
+  dev.off()
+}
+
+# Expression feature plots (UMAP)
+names(umap_expr) <- g
+for (gene in names(umap_expr)) {
+  fpath <- file.path(fig_dir, paste0("LungAtlas_reannotation_UMAP_", sanitize_name(gene), ".pdf"))
+  pdf(fpath, width = w, height = 5.5)
+  print(umap_expr[[gene]])
+  dev.off()
+}
+
+```
+
+
+# Figure 6F and Extended Data Figure 5 - Improve consistency scatter plot
+
+Get consistency if not loaded
+
+```{r}
+consis <- lapply(sceval, function(sc){
+  cons0 <- get_consistency(sc,
+                           consistency_metric = c("silhouette",
+                                                  "2label_silhouette")
+  )
+  
+  cons <- 
+    cons0 %>% 
+    mutate(method.type = paste(consistency_metric,
+                               dissimilarity_method,
+                               sep = " | ")) %>% 
+    filter(method.type %in% mety) %>% 
+    mutate(method.type = factor(method.type,
+                                levels = mety,
+                                labels = names(mety))) %>% 
+    select(method.type, measure, celltype) %>% 
+    pivot_wider(names_from = "method.type",
+                values_from = "measure") %>% 
+    mutate(measure = global * local
+    ) %>% 
+    filter(!is.na(measure))
+  
+  cons %>%
+    arrange(measure)
+    
+})
+```
+
+```{r}
+dfp <- rbind(consis$original %>% mutate(ident = "original"),
+             consis$reannot %>%
+               mutate(ident = "reannot",
+                      celltype = recode(celltype,
+                          "club.cell.(awirway)" = "club.cell.(airway)"))
+             ) %>%
+  mutate(celltype = scTypeEval:::purge_label(celltype))
+
+dict <- md %>% 
+  mutate(cell_type = scTypeEval:::purge_label(cell_type),
+         annot2 = scTypeEval:::purge_label(annot2)
+  ) %>% 
+  distinct(cell_type, annot2) %>% 
+  dplyr::rename("celltype" = "annot2")
+
+dfp2 <- left_join(dfp, dict, by = "celltype") %>% 
+  mutate(pair_id = coalesce(cell_type, celltype)) %>%
+  filter(!(ident == "reannot" & celltype == cell_type)) %>% 
+  mutate(highlight = ifelse(is.na(cell_type) | ident == "reannot",
+         "yes", "no"),
+         celltype = clean_ident_labels(celltype),
+         cell_type = clean_ident_labels(cell_type)
+         )
+
+
+```
+
+## scatter improvement
+```{r}
+linewidth <- 0.5
+alpha_line <- 0.6
+# empirical threshold found in 5_Figure.Rmd
+q_local <- 0.5649059
+q_global <- 0.7551685
+
+cols <- c("original"  = "grey20", "reannot" = "red4")
+vals <- c("yes" = 1, "no" = 0.3)
+imp_scatter <- dfp2 %>%
+  ggplot(aes(x = local,
+             y = global,
+             alpha = highlight)) +
+    # threshold line of figure 5
+  geom_vline(
+    xintercept = q_local,
+    linetype = "dashed",
+    linewidth = linewidth,
+    alpha = alpha_line
+  ) +
+  geom_hline(
+    yintercept = q_global,
+    linetype = "dashed",
+    linewidth = linewidth,
+    alpha = alpha_line
+  ) +
+  
+  # Points
+  geom_point(aes(fill = ident),
+             shape = 21,
+             size = 3.2,
+             stroke = 0.4,
+             color = "black",
+             show.legend = T) +
+  
+  scale_fill_manual(values = cols) +
+  
+  # Repelled labels (better spacing control)
+  ggrepel::geom_text_repel(
+    aes(label = ifelse(highlight == "yes",
+                       celltype, NA),
+        color = ident),
+    size = 3.5,
+    max.overlaps = 20,
+    box.padding = 0.4,
+    point.padding = 0.3,
+    segment.size = 0.3,
+    segment.color = "grey15",
+    min.segment.length = 0,
+    seed = 123,
+    show.legend = F
+  ) +
+  scale_color_manual(values = cols) +
+  scale_alpha_manual(values = vals) +
+  guides(alpha = "none") +
+  
+  labs(
+    x = "ISC score (Local)",
+    y = "ISC score (Global)"
+  ) +
+  
+  coord_cartesian(clip = "off") +
+  
+  theme_classic(base_size = 12) +
+  theme(
+    axis.title = element_text(size = 20),
+    axis.text  = element_text(size = 11),
+    axis.line  = element_line(linewidth = 0.4),
+    axis.ticks = element_blank(),
+    plot.margin = margin(10, 20, 10, 10)
+  )
+
+imp_scatter
+```
+
+```{r}
+fpath <- file.path(fig_dir, paste0("LungAtlas_consistency_Scatter_improvement", ".pdf"))
+pdf(fpath, width = 6*1.2, height = 5*1.2)
+imp_scatter
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
