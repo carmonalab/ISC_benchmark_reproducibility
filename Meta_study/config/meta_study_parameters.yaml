@@ -1,0 +1,23 @@
+# Meta-study pipeline parameters
+
+seed: 22
+
+paths:
+  # Local mirror of processed cohorts used by MetaStudy_consistency.Rmd
+  data_local_dir: "../Consistency_metrics_benchmark/datasets/Chris_cohort"
+  # NAS root for fallback if local files are missing
+  data_nas_root: "/Volumes/Shared/DataCollections/Standardized_SingleCell_Datasets"
+  # Output consumed by Figures_notebooks/5_Figure.Rmd
+  output_scTypeEval_dir: "Meta_study/output/scTypeEval_objs"
+  # Fallback source if scTypeEval package is not installed
+  scTypeEval_source_dir: "../scTypeEval/R"
+  default_black_list_rdata: "../scTypeEval/data/default_black_list.RData"
+
+execution:
+  ncores: 8
+  hvg_genes: 2000
+  skip_existing: true
+
+dissimilarity_methods:
+  - "Pseudobulk:Cosine"
+  - "RecipClassif:Match"

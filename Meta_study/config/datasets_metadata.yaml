@@ -1,0 +1,58 @@
+# Dataset metadata used to generate scTypeEval objects for the Meta-study
+
+datasets:
+  - name: "Adams"
+    ds_name: "AdamsT_2020_32832599"
+    sample_col: "Sample"
+    low_res_ct_col: "OriginalAnnotationLevel1"
+    hi_res_ct_col: "OriginalAnnotationLevel2"
+    nas_rel_path: "AdamsT_2020_32832599/output/AdamsT_2020_32832599.rds"
+
+  - name: "Bassez"
+    ds_name: "BassezA_2021_33958794whole"
+    sample_col: "sample"
+    low_res_ct_col: "cellType"
+    hi_res_ct_col: "cellSubType"
+    nas_rel_path: "BassezA_2021_33958794/output/BassezA_2021_33958794whole.rds"
+
+  - name: "Joanito"
+    ds_name: "JoaI_2022_35773407_Nofilt_whole"
+    sample_col: "sample.ID"
+    low_res_ct_col: "cell.type"
+    hi_res_ct_col: null
+    nas_rel_path: "JoaI_2022_35773407/output/JoaI_2022_35773407_Nofilt_whole.rds"
+
+  - name: "Kfoury"
+    ds_name: "Kfoury_2021_34719426"
+    sample_col: "Sample"
+    low_res_ct_col: null
+    hi_res_ct_col: "cells"
+    nas_rel_path: "Kfoury_2021_34719426/output/Kfoury_2021_34719426.rds"
+
+  - name: "Pelka"
+    ds_name: "PelkaK_2022_34450029whole"
+    sample_col: "Sample"
+    low_res_ct_col: "OriginalAnnotationLevel1"
+    hi_res_ct_col: "OriginalAnnotationLevel2"
+    nas_rel_path: "PelkaK_2022_34450029/output/PelkaK_2022_34450029whole.rds"
+
+  - name: "Smillie"
+    ds_name: "SmillieC_2019_31348891"
+    sample_col: "Sample"
+    low_res_ct_col: "OriginalAnnotationLevel2"
+    hi_res_ct_col: "OriginalAnnotationLevel3"
+    nas_rel_path: "SmillieC_2019_31348891/output/SmillieC_2019_31348891.rds"
+
+  - name: "Stephenson"
+    ds_name: "StephensonE_2021_33879890_preprocessed"
+    sample_col: "Sample"
+    low_res_ct_col: "OriginalAnnotationLevel1"
+    hi_res_ct_col: "OriginalAnnotationLevel2"
+    nas_rel_path: "StephensonE_2021_39313646/output/samples/StephensonE_2021_33879890_preprocessed.rds"
+
+  - name: "Wu"
+    ds_name: "WuS_2021_34493872"
+    sample_col: "Sample"
+    low_res_ct_col: "celltype_major"
+    hi_res_ct_col: "celltype_minor"
+    nas_rel_path: "WuS_2021_34493872/output/WuS_2021_34493872.rds"

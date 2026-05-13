@@ -1,0 +1,17 @@
+# Meta_study/_targets.yaml --- Targets configuration
+
+store: output/_targets
+
+controller: future
+
+future:
+  plan: sequential
+
+resources:
+  # slurm_time: "06:00:00"
+  # slurm_cpus_per_task: 8
+  # slurm_memory_gb: 64
+
+format: file
+trust_object_timestamps: true
+seconds_timeout: 3600
