@@ -1,0 +1,198 @@
+---
+title: "Supplementary Figure 2A: Internal saturation analysis"
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: show
+---
+
+# Introduction
+
+This notebook renders Supplementary Figure 2A from precomputed results produced by the `ISC_benchmark_saturation` pipeline. The notebook does not recompute the saturation analysis locally. Instead, it loads the aggregated pipeline output, summarizes rank-correlation stability across group sizes, and fits a GAM to model how variability changes as more dataset-annotation combinations are included.
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  warning = FALSE,
+  message = FALSE,
+  fig.width = 9,
+  fig.height = 7
+)
+```
+
+```{r libraries}
+library(dplyr)
+library(ggplot2)
+library(mgcv)
+library(scales)
+```
+
+```{r exporting_dir}
+fig_dir <- "exported_figs/Supp_2A_Figure"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+# Load saturation outputs
+
+The saturation analysis is generated in `ISC_benchmark_saturation` and saved under `results/isc_benchmark_saturation/`. The aggregated results file is used directly for both plotting and GAM fitting.
+
+```{r load_results}
+results_file <- file.path("..", "results", "isc_benchmark_saturation", "ident_saturation_results.rds")
+input_file <- file.path("..", "results", "isc_benchmark_saturation", "ident_input_concatenated.rds")
+
+if (!file.exists(results_file)) {
+  stop(
+    "Missing saturation results file: ", results_file,
+    "\nRun the ISC_benchmark_saturation pipeline first."
+  )
+}
+
+final_df <- readRDS(results_file)
+
+if (!all(c("GroupSize", "Correlation") %in% colnames(final_df))) {
+  stop("Saturation results file does not contain the expected columns: GroupSize, Correlation")
+}
+
+if (file.exists(input_file)) {
+  saturation_input <- readRDS(input_file)
+}
+```
+
+# Summaries
+
+```{r summarize_results}
+summary_df <- final_df %>%
+  filter(!is.na(GroupSize), !is.na(Correlation)) %>%
+  group_by(GroupSize) %>%
+  summarise(
+    MedianCorrelation = median(Correlation, na.rm = TRUE),
+    IQR = IQR(Correlation, na.rm = TRUE),
+    N = dplyr::n(),
+    .groups = "drop"
+  ) %>%
+  arrange(GroupSize)
+
+summary_df
+```
+
+# GAM model
+
+```{r gam_model}
+gam_model <- mgcv::gam(IQR ~ s(GroupSize, bs = "cs", k = 10), data = summary_df)
+
+pred_grid <- data.frame(GroupSize = seq(min(summary_df$GroupSize), 29, by = 1))
+pred_grid$PredictedIQR <- predict(gam_model, newdata = pred_grid)
+pred_grid$PredictedIQR <- pmax(pred_grid$PredictedIQR, 0)
+
+pred_grid
+```
+
+# Plots
+
+## Distribution of rank correlations by group size
+
+```{r violin_plot}
+rank_plot <- final_df %>%
+  filter(!is.na(GroupSize), !is.na(Correlation)) %>%
+  mutate(GroupSize = factor(GroupSize, levels = sort(unique(GroupSize)))) %>%
+  ggplot(aes(GroupSize, Correlation)) +
+  geom_violin(fill = "grey90", color = "grey40") +
+  stat_summary(
+    geom = "crossbar",
+    width = 0.2,
+    linewidth = 0.4,
+    color = "firebrick",
+    fun = median,
+    aes(group = GroupSize)
+  ) +
+  labs(
+    x = "Number of dataset-annotation combinations",
+    y = "Spearman rank correlation"
+  ) +
+  theme_classic()
+
+rank_plot
+
+ggsave(
+  file.path(fig_dir, "Supp2A_rank_correlation_violin.pdf"),
+  rank_plot,
+  width = 9,
+  height = 7
+)
+```
+
+## Median correlation and variability across group sizes
+
+```{r median_iqr_plot}
+p1 <- ggplot(summary_df, aes(x = GroupSize, y = MedianCorrelation)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  geom_point(color = "steelblue", size = 2) +
+  geom_ribbon(
+    aes(
+      ymin = MedianCorrelation - IQR / 2,
+      ymax = MedianCorrelation + IQR / 2
+    ),
+    fill = "steelblue",
+    alpha = 0.2
+  ) +
+  labs(
+    title = "Stability of method rankings by group size",
+    x = "Group size",
+    y = "Median Spearman correlation ± IQR/2"
+  ) +
+  theme_classic()
+
+p1
+
+ggsave(
+  file.path(fig_dir, "Supp2A_median_correlation_trend.pdf"),
+  p1,
+  width = 9,
+  height = 7
+)
+```
+
+## GAM fit for IQR decay
+
+```{r gam_fit_plot}
+p2 <- ggplot(summary_df, aes(x = GroupSize, y = IQR)) +
+  geom_point(size = 2.5, color = "steelblue") +
+  geom_line(data = pred_grid, aes(x = GroupSize, y = PredictedIQR), color = "firebrick", linewidth = 1) +
+  geom_point(
+    data = pred_grid %>% filter(GroupSize > max(summary_df$GroupSize)),
+    aes(x = GroupSize, y = PredictedIQR),
+    shape = 1,
+    color = "firebrick",
+    size = 2
+  ) +
+  scale_x_continuous(breaks = pretty_breaks()) +
+  labs(
+    title = "GAM fit of rank-correlation variability across group sizes",
+    x = "Group size",
+    y = "IQR of Spearman correlation"
+  ) +
+  theme_classic()
+
+p2
+
+ggsave(
+  file.path(fig_dir, "Supp2A_gam_iqr_fit.pdf"),
+  p2,
+  width = 9,
+  height = 7
+)
+```
+
+# Methods
+
+For each group size, the `ISC_benchmark_saturation` pipeline samples disjoint pairs of dataset subsets, computes weighted method rankings within each subset, and measures agreement between rankings using Spearman correlation. The aggregated output stored in `ident_saturation_results.rds` was used here directly. To quantify how ranking variability changes with group size, we summarized the interquartile range of the correlation distribution at each group size and fitted a generalized additive model using `mgcv`.
+
+# Results
+
+The dispersion of ranking correlations decreases as group size increases, indicating that benchmark rankings become more stable when more dataset-annotation combinations are included. The GAM fit captures this decay in variability and shows an apparent plateau, consistent with diminishing returns beyond intermediate group sizes.
