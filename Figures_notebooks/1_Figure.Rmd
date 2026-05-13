@@ -35,11 +35,6 @@ fig_dir <- "exported_figs/1_Figure"
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
-```{r}
-load("~/Documents/Projects/scTypeEval/data/black_list.rda")
-bl <- list(black_list$TCR, black_list$Immunoglobulins, black_list$Ygenes) %>% unlist()
-```
-
 
 ## Choose dataset
 
@@ -201,7 +196,13 @@ We will run the standard [`scTypeEval`](10.18129/B9.bioc.scTypeEval) for recipro
 2) **Reciprocal Match Map (RMM) are based on recip_classif:Match**: We applied a reciprocal best-hit classification approach. Briefly, for each pair of samples within a dataset, a cell type classifier was trained on cell type profiles from one sample and used to predict cell type labels in the other sample. The two samples were swapped and the procedure repeated. A cell type was considered consistent between a given sample pair only if it constituted a mutual best match under this reciprocal classification scheme; otherwise, it was considered inconsistent. 
 
 
+
+
+
 ```{r}
+#black list from scTypeEval package
+data(black_list)
+bl <- list(black_list$TCR, black_list$Immunoglobulins, black_list$Ygenes) %>% unlist()
 # start list of scTypeEval objects
 sceval <- list() 
 # Define list of dissimilarirites
