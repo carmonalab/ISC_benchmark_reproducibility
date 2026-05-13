@@ -11,7 +11,7 @@ output:
 
 # Introduction
 
-This script performs the Figure 3 and Supplementary Table 2.
+This script performs the Figure 3, Extended Data Figure 2B, and Supplementary Table 2.
 
 Results for this part need to be run in `ISC_benchmark` pipeline. This script process and visualze their results.
 
