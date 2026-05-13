@@ -1,5 +1,5 @@
 ---
-title: Consistency metrics on label transfer set up
+title: Consistency metrics on supervised cell type classification performance
 author: "J. Garnica <josep.garnicacaparros at unige.ch>"
 output:
   html_document:
@@ -12,7 +12,10 @@ output:
 
 # Introduction
 
-This script analyzes the results of the label transfer consistency benchmarking pipeline (label_transfer_task).
+This script analyzes the results of the label transfer consistency benchmarking pipeline (label_transfer_task pipeline) in a supervised cell type classification performance.
+
+Building on the benchmarking framework established by Abdelaal et al., 2019 and implemented as part of the Open problems in single-cell analysis (Luecken et al., 2025), we benchmarked 13 classifiers across a diverse collection of datasets (data_processing/config/specs_datasets.csv). We implemented two complementary evaluation schemes: (i) intra-dataset, using sample-aware train-test splits to assess generalization across biological replicates, and (ii) inter-dataset, training on one dataset and testing on an independent dataset to emulate cross-study label transfer
+
 ---
 
 ```{r setup, include=FALSE}
