@@ -1,0 +1,698 @@
+---
+title: "Figure 5: Meta-study; Global and local inter-sample consistency identify suboptimal cell type annotations and guide their improvement strategy "
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: show
+---
+
+# Introduction
+
+These ISC scores were obtained from multiple dataset, see `Meta_study` pipeline.
+
+
+Exported plots are included in the manuscript as Main Figure 5 and Extended Data Figure 4. 
+
+To assess the reproducibility of published cell type labels across biological samples, we applied the two complementary ISC metrics (ISCG and ISCL) defined earlier, to nine scRNA-seq datasets spanning diverse tissues and study designs (`data_processing/config/specs_datasets.csv`). The following meta-analysis serves two purposes: (i) to characterize the range of ISC values observed in real-world atlases and (ii) to derive empirical, data-driven guidelines for interpreting ISC scores in practice.
+
+---
+
+# Params
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 6)
+```
+
+```{r libraries}
+# Load packages
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+require(BiocParallel)
+require(Seurat)
+require(scTypeEval)
+
+# Custom theme
+theme_set(theme_bw(base_size = 12))
+```
+
+```{r exporting_dir}
+fig_dir <- "exported_figs/5_Figure"
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+Define which ISC to use
+```{r set_ISC}
+mety <- c("local" = "silhouette | RecipClassif:Match",
+          "global" = "2label.silhouette | Pseudobulk:Cosine")
+```
+
+
+
+```{r}
+sct_dir <- file.path(wd, "../Meta_study/output/scTypeEval_objs")
+sct_files <- list.files(sct_dir)
+```
+
+# Figure 5A - Dataset summary table (samples + broad/fine cell types)
+
+Build a table with the datasets specs used in this metastudy.
+
+```{r dataset_summary_table}
+# Summarize per dataset: number of samples + number of annotated cell types
+# (one column for Broad annotations, one for Fine annotations)
+
+dataset_info <- bplapply(
+  sct_files,
+  BPPARAM = MulticoreParam(workers = 8, progressbar = TRUE),
+  function(fname) {
+    sceval <- readRDS(file.path(sct_dir, fname))
+    
+    df_meta <- apply(sceval@metadata, 2, n_distinct)
+    df_meta <- c(df_meta, "dataset" = fname)
+    # 1-row data.frame with columns = names(df_meta)
+    df_meta_df <- as.data.frame(t(df_meta), stringsAsFactors = FALSE)
+    
+    # optional: make numeric columns numeric
+    num_cols <- setdiff(names(df_meta_df), "dataset")
+    df_meta_df[num_cols] <- lapply(df_meta_df[num_cols], as.integer)
+    
+    df_meta_df
+  }
+) %>%
+  dplyr::bind_rows()
+
+# collapse duplicated rows (low_res / hi_res files) into 1 row per dataset
+dataset_info <- dataset_info %>%
+  dplyr::mutate(
+    dataset_id = sub("__.*$", "", tools::file_path_sans_ext(.data$dataset))
+  )
+
+format_dataset_label <- function(dataset_id) {
+  author_token <- strsplit(dataset_id, "_", fixed = TRUE)[[1]][1]
+  year <- regmatches(dataset_id, regexpr("[0-9]{4}", dataset_id))
+  if (length(year) == 0) year <- NA_character_
+
+  author <- gsub("[A-Z]$", "", author_token)
+  author <- dplyr::case_when(
+    author_token == "JoaI" ~ "Joanito",
+    TRUE ~ author
+  )
+
+  # known dataset without year token
+  if (identical(author, "Barras") && is.na(year)) year <- "2024"
+
+  if (is.na(year) || year == "") {
+    paste0(author, " et al.")
+  } else {
+    paste0(author, " et al., ", year)
+  }
+}
+
+dataset_table_raw <- dataset_info %>%
+  dplyr::group_by(dataset_id) %>%
+  dplyr::summarise(
+    Samples = dplyr::if_else(all(is.na(sample)), NA_integer_, max(sample, na.rm = TRUE)),
+    Coarse = dplyr::if_else(all(is.na(low_res)), NA_integer_, max(low_res, na.rm = TRUE)),
+    Fine = dplyr::if_else(all(is.na(hi_res)), NA_integer_, max(hi_res, na.rm = TRUE)),
+    .groups = "drop"
+  ) %>%
+  dplyr::mutate(
+    Dataset = vapply(.data$dataset_id, format_dataset_label, character(1))
+  )
+
+# order: dataset label, coarse, fine, samples
+dataset_table <- dataset_table_raw %>%
+  dplyr::arrange(
+    Dataset,
+    dplyr::if_else(is.na(Coarse), Inf, Coarse),
+    dplyr::if_else(is.na(Fine), Inf, Fine),
+    dplyr::if_else(is.na(Samples), Inf, Samples)
+  ) %>%
+  dplyr::select(Dataset, Coarse, Fine, Samples)
+
+# replace NA with "-" for display/export
+dataset_table_export <- dataset_table %>%
+  dplyr::mutate(
+    dplyr::across(
+      c(Samples, Coarse, Fine),
+      ~ dplyr::if_else(is.na(.x), "-", as.character(.x))
+    )
+  )
+
+dataset_table_export
+
+
+```
+
+```{r export_dataset_summary_table}
+tbl_plot <- ggpubr::ggtexttable(
+  dataset_table_export,
+  rows = NULL,
+  theme = ggpubr::ttheme("classic")
+)
+
+ggpubr::ggexport(
+  tbl_plot,
+  filename = file.path(fdir, "Table_Fig5_dataset_summary.pdf"),
+  width = 7.5,
+  height = 0.35 * (nrow(dataset_table_export) + 1)
+)
+```
+
+
+# Get Consistency
+
+Dissimilarities were already computed in `Meta_study` pipeline. Load scTypeEval objects and compute consistencies and filter for the selected ISC defined earlier (`mety`).
+
+```{r load_scevals}
+cons <- bplapply(sct_files,
+                 BPPARAM = MulticoreParam(workers = 7,
+                                          progressbar = T),
+                 function(i){
+                   path <- file.path(sct_dir, i)
+                   
+                   r <- readRDS(path)
+                   c <- get.Consistency(r,
+                                        verbose = F) %>% 
+                     mutate(dataset = gsub("[.]rds", "", i),
+                            method.type = paste(consistency.metric,
+                                                dissimilarity_method,
+                                                sep = " | ")) %>% 
+                     filter(method.type %in% mety) %>% 
+                     mutate(method_type = factor(method.type,
+                                                 levels = mety,
+                                                 labels = names(mety)))
+                   Nct <- length(unique(c$celltype))
+                   c$Nct <- Nct
+                   return(c)
+                 }) 
+
+consdf <- cons %>% 
+  data.table::rbindlist() %>% 
+   filter(!is.na(measure)) %>% 
+   distinct()
+
+```
+
+Convert to wide dataframe
+
+```{r cons_wide}
+cons_wide <- consdf %>% 
+  select(method_type, measure, celltype, dataset, Nct) %>% 
+  pivot_wider(names_from = "method_type",
+              values_from = "measure") %>% 
+  mutate(product = global * local) %>% 
+  separate(dataset, sep = "__", into = c("dataset", "annotation")) %>% 
+  mutate(annotation = factor(annotation,
+                             levels = c("low_res", "hi_res"),
+                             labels = c("Broad", "Fine")))
+```
+
+## Scatter plot
+
+```{r blend_color_func}
+blend_bivariate <- function(x, y,
+                            c00 = "#F7FBFF", # low x, low y
+                            c10 = "#2B8CBE", # high x, low y
+                            c01 = "#F16913", # low x, high y
+                            c11 = "#7A0177"  # high x, high y
+                            ) {
+  x <- pmin(pmax(x, 0), 1)
+  y <- pmin(pmax(y, 0), 1)
+
+  rgb01 <- function(col) grDevices::col2rgb(col) / 255
+  c00 <- rgb01(c00); c10 <- rgb01(c10); c01 <- rgb01(c01); c11 <- rgb01(c11)
+
+  r <- (1 - x) * (1 - y) * c00[1, ] + x * (1 - y) * c10[1, ] + (1 - x) * y * c01[1, ] + x * y * c11[1, ]
+  g <- (1 - x) * (1 - y) * c00[2, ] + x * (1 - y) * c10[2, ] + (1 - x) * y * c01[2, ] + x * y * c11[2, ]
+  b <- (1 - x) * (1 - y) * c00[3, ] + x * (1 - y) * c10[3, ] + (1 - x) * y * c01[3, ] + x * y * c11[3, ]
+
+  grDevices::rgb(r, g, b)
+}
+```
+
+Function to compute median + 1sd to set as threshold
+
+To enable consistent interpretation, we defined data-driven thresholds based on the distribution of scores across the meta-analysis, using median minus one standard deviation for each metric .
+
+```{r}
+median_minus_sd <- function(x, na.rm = TRUE) {
+  median(x, na.rm = na.rm) - sd(x, na.rm = na.rm)
+}
+
+median_minus_sd(scatter_df$local_01)
+median_minus_sd(scatter_df$global_01)
+median_minus_sd(cons_wide$product)
+```
+
+# Figure 5B
+
+Meta-analysis of author-provided cell type annotations across all datasets. Each point represents a cell type label, positioned by its local ISC score (ISCL, x-axis; silhouette score from reciprocal-classification dissimilarity) and global ISC score (ISCG, y-axis; 2-label silhouette score from pseudobulk cosine similarity). Dashed lines indicate data-driven thresholds (ISCL = 0.56, ISCG = 0.76; median minus one standard deviation across datasets), partitioning the space into consistent (high–high), inconsistent (low–low), and discordant annotation regimes. 
+
+```{r scatter_plot}
+fixed_value <- NA
+
+# fix between 0 and 1
+scatter_df <- cons_wide %>%
+  filter(!is.na(local), !is.na(global)) %>%
+  mutate(
+    local_01 = pmin(pmax(local, 0), 1),
+    global_01 = pmin(pmax(global, 0), 1),
+    blend_col = blend_bivariate(local_01, global_01)
+  )
+
+# compute empirical threshold if not declared (NA) fixed value
+if(any(is.na(fixed_value))){
+  
+  q_local <- median_minus_sd(scatter_df$local_01)
+  q_global <- median_minus_sd(scatter_df$global_01)
+  
+} else {
+  q_local <- fixed_value[1]
+  q_global <- fixed_value[2]
+}
+
+linewidth <- 0.5
+
+scatter <- scatter_df %>%
+  ggplot(aes(x = local_01, y = global_01, fill = blend_col)) +
+  geom_vline(
+    xintercept = q_local,
+    linetype = "dashed",
+    linewidth = linewidth
+  ) +
+  geom_hline(
+    yintercept = q_global,
+    linetype = "dashed",
+    linewidth = linewidth,
+    show.legend = FALSE
+  ) +
+  geom_point(
+    shape = 21,
+    size = 3.2,
+    stroke = 0.4,
+    color = "black",
+    alpha = 0.6,
+    show.legend = FALSE
+  ) +
+  scale_fill_identity(guide = "none") +
+  scale_x_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.25),
+    expand = ggplot2::expansion(mult = 0.02)
+  ) +
+  scale_y_continuous(
+    limits = c(0, 1),
+    breaks = seq(0, 1, by = 0.25),
+    expand = ggplot2::expansion(mult = 0.1)
+  ) +
+  #coord_fixed(ratio = 1) +
+  labs(
+    x = "Local ISC score",
+    y = "Global ISC score"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.title = element_text(size = 20),
+    axis.text  = element_text(size = 16),
+    axis.line  = element_line(linewidth = 0.6),
+    axis.ticks = element_blank(),
+    plot.margin = margin(10, 20, 10, 10)
+  )
+
+scatter
+```
+
+#### export pdf
+```{r}
+fpath <- file.path(fdir, paste0("Scatter_metastudy", ".pdf"))
+pdf(fpath, width = 6.5, height = 6)
+scatter
+dev.off()
+```
+
+# Extended Data Figure 4: 
+
+Bad quality cell types
+
+Fetch datasts with low quality
+```{r}
+ds_low <- cons_wide %>% 
+  filter(grepl("low|doublet|multi|quali|bad", celltype, ignore.case = T)) %>% 
+  pull(dataset) %>% 
+  unique()
+
+cons_wide_low <- cons_wide %>% 
+  filter(dataset %in% ds_low,
+         annotation == "Fine")
+```
+
+Use the same structure and space of Figure 5B, but only with 2 datasets contatining canonical bad quality cell types, and add labels.
+
+```{r per_dataset_lowquality}
+# Coloring system based on empirical thresholds
+vals <- c("Consistent" = "#0072B2",
+          "Warning" = "#E69F00",
+          "Inconsistent" = "#D55E00")
+
+scatter_df_low <- cons_wide_low %>%
+  mutate(color = case_when(
+    global >= q_global & local >= q_local ~ "Consistent",
+    global < q_global & local < q_local ~ "Inconsistent",
+    TRUE ~ "Warning"
+  ),
+  color = factor(color,
+                 levels = names(vals)))
+
+linewidth <- 0.5
+
+low_scatter <- lapply(ds_low, function(d){
+  
+  scatter <- scatter_df_low %>%
+    filter(dataset == d) %>% 
+    ggplot(aes(x = local, y = global)) +
+    geom_vline(
+      xintercept = q_local,
+      linetype = "dashed",
+      linewidth = linewidth
+    ) +
+    geom_hline(
+      yintercept = q_global,
+      linetype = "dashed",
+      linewidth = linewidth,
+      show.legend = FALSE
+    ) +
+    geom_point(
+      aes(fill = color),
+      shape = 21,
+      size = 3.2,
+      stroke = 0.4,
+      color = "black",
+      alpha = 0.6,
+      show.legend = T
+    ) +
+    scale_fill_manual(values = vals) +
+    ggrepel::geom_label_repel(aes(label = celltype,
+                                  color = color),
+                              show.legend = F) +
+    scale_color_manual(values = vals) +
+    scale_x_continuous(
+      limits = c(-0.01, 1),
+      breaks = seq(0, 1, by = 0.25),
+      expand = ggplot2::expansion(mult = 0.02)
+    ) +
+    scale_y_continuous(
+      limits = c(-0.01, 1),
+      breaks = seq(0, 1, by = 0.25),
+      expand = ggplot2::expansion(mult = 0.1)
+    ) +
+    #coord_fixed(ratio = 1) +
+    labs(
+      title = d,
+      x = "Local ISC score",
+      y = "Global ISC score"
+    ) +
+    theme_classic(base_size = 12) +
+    theme(
+      axis.title = element_text(size = 20),
+      axis.text  = element_text(size = 16),
+      axis.line  = element_line(linewidth = 0.6),
+      axis.ticks = element_blank(),
+      plot.margin = margin(10, 20, 10, 10)
+    )
+  
+  return(scatter)
+})
+
+names(low_scatter) <- ds_low
+
+low_scatter
+```
+
+```{r}
+for(a in ds_low){
+  fpath <- file.path(fdir, paste0("Scatter_", a, ".pdf"))
+  pdf(fpath, width = 8, height = 6.5)
+  print(low_scatter[[a]])
+  dev.off()
+}
+```
+
+
+
+## PCA + RecipClassif plots
+
+chose cells 
+```{r, eval = F}
+cons_wide %>% 
+   filter(local < q_local[1] & global < q_global[1]) %>% 
+   View()
+
+cons_wide %>% 
+   filter(local < q_local[1] & global > q_global[2]) %>% 
+   View()
+
+cons_wide %>% 
+   filter(local > q_local[2] & global > q_global[2]) %>% 
+   View()
+
+cons_wide %>% 
+   filter(local > q_local[1] & global < q_global[1]) %>% 
+   View()
+
+cons_wide %>% 
+   filter(local > q_local[1] & global > q_global[1] &
+             local < q_local[2] & global < q_global[2]) %>% 
+   View()
+```
+
+
+Show pseudobulk PCA but color by RecipClassif match
+
+To do on:
+
+- Multiplet: AdamsT_2020_32832599 (Broad) ~ both global and local low
+- Mono.prolif: StephensonE_2021_33879890_preprocessed (Broad) - high global, low local
+- pDC: BassezA_2021_33958794whole (Broad) ~ both high global and high local
+- B.cells: 	SmillieC_2019_31348891 (Broad) ~ more or less low global, but higher local
+
+```{r}
+to_do <- list(
+  
+  # both low
+  "Low_global.Low_local" = c(
+    "Multiplet",
+    "AdamsT_2020_32832599__low_res.rds"
+  ),
+  
+  # high global, low local
+  "High_global.Low_local" = c(
+    "Mono.prolif",
+    "StephensonE_2021_33879890_preprocessed__low_res.rds"
+  ),
+  
+  # high global, high local
+  "High_global.High_local" = c(
+    "pDC",
+    "BassezA_2021_33958794whole__low_res.rds"
+  ),
+  
+  # low global, higher local
+  "Low_global.High_local" = c(
+    "B.cells",
+    "SmillieC_2019_31348891__low_res.rds"
+  ),
+  
+  # mid global, mid local
+  "Mid_global.Mid_local" = c(
+    "Neutrophils",
+    "JoaI_2022_35773407_Nofilt_whole__low_res.rds"
+  )
+)
+```
+
+ISC scatter pointing at these celltypes
+```{r}
+cts <- lapply(to_do, function(x) x[[1]]) %>% unlist()
+dts <- lapply(to_do, function(x) {
+  strsplit(x[[2]], "__")[[1]][1]}) %>%
+  unlist()
+cons_filt <- scatter_df %>% 
+  filter(celltype %in% cts &
+         dataset %in% dts &
+           annotation == "Broad")
+
+scatter +
+  geom_point(data = cons_filt,
+             color = "red") +
+  ggrepel::geom_text_repel(data = cons_filt,
+             aes(label = celltype))
+```
+
+
+
+## Function for pseudobulk insets
+
+Insets show representative examples from each regime. For each example, pseudobulk profiles (per sample and cell type) are embedded by PCA as in Fig. 1; the highlighted cell type is colored by its sample-level reciprocal match rate (fraction of other samples in which that cell type is reciprocally matched), while other points from other cell types are shown in grey. Note that this per-sample reciprocal match rate differs from the ISCL metric, which quantifies silhouette scores using reciprocal-classification dissimilarity across all samples for each cell type.
+
+```{r}
+match_perSample <- function(sceval,
+                            celltype){
+  mat <- sceval@dissimilarity$`RecipClassif:Match`@dissimilarity
+  celltypes <- sceval@dissimilarity$`RecipClassif:Match`@ident[[1]]
+  keep <- which(celltypes == celltype)
+  mat <- as.data.frame(as.matrix(mat)[keep,])
+  mat$comp1 <- rownames(mat)
+  df_long <- mat |>
+    tidyr::pivot_longer(-comp1,
+                        values_to = "hit",
+                        names_to = "comp2") |>
+    dplyr::mutate(hit = ifelse(hit > 0, 0, 1)) |>
+    # do not account for self-comparisons
+    dplyr::filter(comp1 != comp2) |>
+    tidyr::separate(comp1, sep = "_",
+                    into = c("sample1", "celltype1")) |>
+    tidyr::separate(comp2, sep = "_",
+                    into = c("sample2", "celltype2")) |> 
+    dplyr::filter(celltype1 == celltype2) |>
+    dplyr::group_by(sample1) |>
+    dplyr::summarize(prop_match = sum(hit)/n()) |>
+    dplyr::rename("sample" = "sample1")
+   
+   return(df_long)
+}
+```
+
+
+```{r qr_pca}
+theme_clean_square <- theme_void() +
+  theme(
+    panel.background = element_rect(fill = "white", color = "black", linewidth = 1),
+    plot.background  = element_rect(fill = "white", color = NA)
+  )
+qr_pca <- function(sceval,
+                   celltype,
+                   dims = c(1,2),
+                   dot.size = 4,
+                   umap = FALSE
+){
+  assay <- sceval@reductions$pseudobulk
+  ident <- assay@ident[[1]]
+  sample <- assay@sample
+  
+  if(umap){
+    emb <- scale(t(assay@embeddings))
+    um <- uwot::umap(emb,
+                     seed = 22,
+                     metric = "euclidean",
+                     min_dist = 0.7,
+                     n_neighbors = 15,
+                     spread = 1.5
+    ) |>
+      as.data.frame()
+  } else {
+    um <- t(assay@embeddings[dims,]) |>
+      as.data.frame() 
+  }
+  
+  df <-  um |>
+    dplyr::mutate(ident = ident,
+                  sample = sample)
+  
+  # add recipmatch per sample
+  sample_recip <- match_perSample(sceval = sceval,
+                                  celltype = celltype) |>
+    dplyr::mutate(ident = celltype) 
+  
+  df2 <- left_join(df, sample_recip, by = c("ident", "sample"))
+  
+  df2_na <- df2 %>% dplyr::filter(is.na(.data[["prop_match"]]))
+  df2_ok <- df2 %>% dplyr::filter(!is.na(.data[["prop_match"]]))
+  
+  low_col <- "#0072B2"
+  high_col <- "#D55E00"
+  # Use a non-grey midpoint so intermediate values don't look like NA.
+  # (Okabe–Ito palette; colorblind-friendly, publication-ready)
+  mid_col <- "#009E73"
+  na_col <- "grey70"
+  
+  pl <- ggplot2::ggplot() +
+    ggplot2::geom_point(
+      data = df2_na,
+      ggplot2::aes(
+        x = .data[[names(df)[1]]],
+        y = .data[[names(df)[2]]]
+      ),
+      color = na_col,
+      alpha = 0.7,
+      size = dot.size*0.8,
+      show.legend = FALSE
+    ) +
+    ggplot2::geom_point(
+      data = df2_ok,
+      ggplot2::aes(
+        x = .data[[names(df)[1]]],  # First column
+        y = .data[[names(df)[2]]],  # Second column
+        color = .data[["prop_match"]]
+      ),
+      alpha = 0.8,
+      size = dot.size*1.1,
+      show.legend = TRUE
+    ) +
+    ggplot2::scale_color_gradientn(
+      colours = c(low_col, mid_col, high_col),
+      values = c(0, 0.5, 1),
+      limits = c(0, 1),
+      oob = scales::squish,
+      na.value = na_col,
+      breaks = c(0, 0.25, 0.5, 0.75, 1)
+    ) +
+    labs(color = "RecipClassif:Match",
+         title = celltype) +
+    theme_clean_square +
+    theme(title = element_text(size = 18))
+  
+  pl
+}
+```
+
+
+### Render PCA custom plots
+
+```{r}
+qr_pca_plots <- bplapply(to_do,
+                         BPPARAM = MulticoreParam(workers = 5,
+                                                  progressbar = T),
+                         function(d){
+                           path <- d[2]
+                           name_dataset <- strsplit(path, "__")[[1]][1]
+                           name_dataset <- format_dataset_label(name_dataset)
+                           sceval <- readRDS(file.path(sct_dir, path))
+                           celltype <- d[1]
+                           
+                           qr_pca(sceval,
+                                  celltype,
+                                  dot.size = 3.5) +
+                             ggtitle(paste0(celltype, " - ", name_dataset)) +
+                             theme(plot.title = element_text(hjust = 0.5))
+                         })
+qr_pca_plots
+```
+
+#### export pdf
+
+```{r}
+for(a in names(qr_pca_plots)){
+   fpath <- file.path(fdir, paste0(a, "_PCA", ".pdf"))
+   pdf(fpath, width = 7, height = 5)
+   print(qr_pca_plots[[a]])
+   dev.off()
+}
+```
+
