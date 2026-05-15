@@ -51,16 +51,22 @@ fit_constant <- function(x, y,
    
    # Calculate mean of y
    y_mean <- mean(y)
-   # Extract residual
+   # Extract residuals
    residuals <- y - y_mean
    # Compute Root Mean Squared Error (RMSE)
-   rss <- sqrt(mean(residuals^2))
-   
-   if(inverse){
-      rss <- 1 - rss
+   rmse <- sqrt(mean(residuals^2))
+   # Normalize by 0.5: the maximum possible RMSE for a metric bounded in [0,1]
+   # is 0.5 (achieved when values are split between 0 and 1), so dividing by 0.5
+   # maps nRMSE to [0,1] and makes the flatness score span the full range.
+   nrmse <- rmse / 0.5
+
+   if (inverse) {
+      rss <- 1 - nrmse
+   } else {
+      rss <- nrmse
    }
-   # keep between 0 an 1
-   if(lim){
+   # keep between 0 and 1
+   if (lim) {
       rss <- pmin(pmax(rss, 0), 1)
    }
    
