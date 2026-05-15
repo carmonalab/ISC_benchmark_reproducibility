@@ -63,8 +63,10 @@ normalize_metadata_name <- function(x) {
   if (is.factor(x)) x <- as.character(x)
   if (!is.character(x)) return(x)
   
+  # Replace underscores with dots
+  x <- stringr::str_replace_all(x, "_", ".")
   # Replace non-alphanumeric (except . and -) with dots
-  x <- stringr::str_replace_all(x, "[^a-zA-Z0-9._-]", ".")
+  x <- stringr::str_replace_all(x, "[^a-zA-Z0-9.-]", ".")
   # Collapse consecutive dots
   x <- stringr::str_replace_all(x, "\\.+", ".")
   # Trim whitespace
