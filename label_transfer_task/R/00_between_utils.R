@@ -101,7 +101,7 @@ list_between_dataset_pairs <- function(params = NULL) {
 
   specs <- read.csv(specs_path, stringsAsFactors = FALSE, check.names = FALSE)
 
-  required_cols <- c("Annotation reference", "Condition", "Batch", "Label-Transfer Task")
+  required_cols <- c("# Annotation frameworks", "Annotation reference", "Condition", "Batch", "Label-Transfer Task")
   missing_cols <- setdiff(required_cols, colnames(specs))
   if (length(missing_cols) > 0) {
     stop("Missing columns in specs_datasets.csv: ", paste(missing_cols, collapse = ", "))
@@ -119,7 +119,7 @@ list_between_dataset_pairs <- function(params = NULL) {
   )
   specs <- specs[specs$dataset_id %in% available_ids, , drop = FALSE]
 
-  group_key <- paste(specs[["Annotation reference"]], specs[["Condition"]], sep = "__")
+  group_key <- specs[["# Annotation frameworks"]]
   groups <- split(specs, group_key)
 
   all_pairs <- lapply(groups, function(g) {
@@ -136,6 +136,7 @@ list_between_dataset_pairs <- function(params = NULL) {
       query_dataset_id = g$dataset_id[cmb[2, ]],
       reference_batch = g[["Batch"]][cmb[1, ]],
       query_batch = g[["Batch"]][cmb[2, ]],
+      annotation_framework = g[["# Annotation frameworks"]][cmb[1, ]],
       annotation_reference = g[["Annotation reference"]][cmb[1, ]],
       condition = g[["Condition"]][cmb[1, ]],
       stringsAsFactors = FALSE
@@ -145,6 +146,7 @@ list_between_dataset_pairs <- function(params = NULL) {
       query_dataset_id = g$dataset_id[cmb[1, ]],
       reference_batch = g[["Batch"]][cmb[2, ]],
       query_batch = g[["Batch"]][cmb[1, ]],
+      annotation_framework = g[["# Annotation frameworks"]][cmb[1, ]],
       annotation_reference = g[["Annotation reference"]][cmb[1, ]],
       condition = g[["Condition"]][cmb[1, ]],
       stringsAsFactors = FALSE
@@ -160,6 +162,7 @@ list_between_dataset_pairs <- function(params = NULL) {
       pair_id = character(0),
       reference_dataset_id = character(0),
       query_dataset_id = character(0),
+      annotation_framework = character(0),
       annotation_reference = character(0),
       condition = character(0)
     ))
@@ -176,6 +179,7 @@ list_between_dataset_pairs <- function(params = NULL) {
     "pair_id",
     "reference_dataset_id",
     "query_dataset_id",
+    "annotation_framework",
     "annotation_reference",
     "condition"
   )]))
