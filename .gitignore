@@ -31,7 +31,8 @@ activate.R
 .Rprofile
 
 # targets
-*/_targets/
+*/_targets*/
+
 
 # hpc logs
 */logs/
