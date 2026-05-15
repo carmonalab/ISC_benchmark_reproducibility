@@ -60,7 +60,7 @@ normalize_specs_token <- function(x) {
 prefix_from_annotation_reference <- function(annotation_reference) {
   ar <- as.character(annotation_reference)
 
-  if (grepl("Stephenson", ar, fixed = TRUE)) return("StephensonE")
+  if (grepl("Stephenson", ar, fixed = TRUE)) return("Stephenson")
   if (grepl("Joanito", ar, fixed = TRUE)) return("JoaI")
   if (grepl("Gondal", ar, fixed = TRUE)) return("ICBAtlas")
   if (grepl("Sikkema", ar, fixed = TRUE)) return("LungAtlas")
