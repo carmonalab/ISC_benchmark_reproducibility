@@ -66,7 +66,7 @@ renv::load(project = project_root)
 library(targets)
 targets::tar_make(
   script = "_targets_between_datasets.R",
-  store = "results/_targets_between",
+  store = "_targets_between",
   callr_function = NULL
 )
 RS
