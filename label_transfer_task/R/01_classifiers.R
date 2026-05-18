@@ -84,8 +84,18 @@ run_label_transfer_classifier_targets <- function(
     NA
   })
 
+  # Treat scalar NA or length mismatch as classifier failure and do not emit an output file.
+  n_query <- ncol(query$counts)
+  failed <- (length(predictions) == 1L && is.na(predictions)) || (length(predictions) != n_query)
+  if (failed) {
+    stop(sprintf(
+      "Classifier '%s' failed on '%s' (rep %d): predictions invalid (length=%d, expected=%d)",
+      classifier_name, dataset_id, rep, length(predictions), n_query
+    ))
+  }
+
   # Ensure predictions can be aligned downstream
-  if (!all(is.na(predictions)) && length(predictions) == ncol(query$counts)) {
+  if (!all(is.na(predictions)) && length(predictions) == n_query) {
     names(predictions) <- colnames(query$counts)
   }
   
