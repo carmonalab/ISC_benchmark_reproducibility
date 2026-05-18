@@ -78,15 +78,39 @@ classify_SingleR <- function(ref_counts, ref_labels, query_counts, method = "pea
     # SingleR: use all genes (reference-based, needs full gene set)
     sce_ref <- SingleCellExperiment::SingleCellExperiment(list(counts = ref_counts))
     sce_query <- SingleCellExperiment::SingleCellExperiment(list(counts = query_counts))
-    
-    sce_ref <- scuttle::logNormCounts(sce_ref)
-    sce_query <- scuttle::logNormCounts(sce_query)
+
+    workers <- max(1L, as.integer(ncores))
+    has_futurize <- requireNamespace("futurize", quietly = TRUE) &&
+      requireNamespace("future", quietly = TRUE)
+    use_parallel_norm <- workers > 1L && has_futurize
+
+    if (use_parallel_norm) {
+      old_plan <- future::plan()
+      on.exit(future::plan(old_plan), add = TRUE)
+      future::plan(future::multisession, workers = workers)
+
+      sce_ref <- futurize::futurize(scuttle::logNormCounts(sce_ref))
+      sce_query <- futurize::futurize(scuttle::logNormCounts(sce_query))
+    } else {
+      sce_ref <- scuttle::logNormCounts(sce_ref)
+      sce_query <- scuttle::logNormCounts(sce_query)
+    }
+
+    message(sprintf(
+      "SingleR logNormCounts parallel=%s backend=%s workers=%d",
+      ifelse(use_parallel_norm, "TRUE", "FALSE"),
+      ifelse(use_parallel_norm, "futurize", "sequential(no-futurize)"),
+      ifelse(use_parallel_norm, workers, 1L)
+    ))
+
+    bpparam <- BiocParallel::MulticoreParam(workers = workers, progressbar = FALSE)
+    message(sprintf("SingleR using %d BiocParallel workers", BiocParallel::bpnworkers(bpparam)))
     
     pred <- SingleR::SingleR(
       test = sce_query,
       ref = sce_ref,
       labels = ref_labels,
-      BPPARAM = BiocParallel::MulticoreParam(workers = ncores)
+      BPPARAM = bpparam
     )
     
     pred <- as.data.frame(pred)
@@ -150,9 +174,43 @@ classify_LogisticRegression <- function(ref_counts, ref_labels, query_counts) {
     
     # Use CV when we have enough samples per class
     nfolds <- min(5L, min_class_size)
-    cv_fit <- cv.glmnet(X_train, y_train, family = "multinomial", 
-                        alpha = 1, type.measure = "class",
-                        nfolds = nfolds)
+    workers <- max(1L, as.integer(ncores))
+    has_futurize <- requireNamespace("futurize", quietly = TRUE) &&
+      requireNamespace("future", quietly = TRUE)
+
+    use_parallel <- workers > 1L && has_futurize
+    if (use_parallel) {
+      old_plan <- future::plan()
+      on.exit(future::plan(old_plan), add = TRUE)
+      future::plan(future::multisession, workers = workers)
+    }
+
+    message(sprintf(
+      "LogisticRegression cv.glmnet parallel=%s backend=%s workers=%d",
+      ifelse(use_parallel, "TRUE", "FALSE"),
+      ifelse(use_parallel, "futurize", "sequential(no-futurize)"),
+      ifelse(use_parallel, workers, 1L)
+    ))
+
+    cv_fit <- if (use_parallel) {
+      futurize::futurize(
+        cv.glmnet(
+          X_train, y_train,
+          family = "multinomial",
+          alpha = 1,
+          type.measure = "class",
+          nfolds = nfolds
+        )
+      )
+    } else {
+      cv.glmnet(
+        X_train, y_train,
+        family = "multinomial",
+        alpha = 1,
+        type.measure = "class",
+        nfolds = nfolds
+      )
+    }
     pred_prob <- predict(cv_fit, X_test, s = "lambda.min", type = "class")
     
     as.character(pred_prob[, 1])
@@ -698,10 +756,32 @@ classify_scPred <- function(ref_counts, ref_labels, query_counts) {
     # Preprocess query: normalize only (scPred will align to reference)
     seurat_query <- seurat_query %>%
       Seurat::NormalizeData()
+
+    workers <- max(1L, as.integer(ncores))
+    has_futurize <- requireNamespace("futurize", quietly = TRUE) &&
+      requireNamespace("future", quietly = TRUE)
+    use_parallel_train <- workers > 1L && has_futurize
+
+    if (use_parallel_train) {
+      old_plan <- future::plan()
+      on.exit(future::plan(old_plan), add = TRUE)
+      future::plan(future::multisession, workers = workers)
+    }
+
+    message(sprintf(
+      "scPred trainModel parallel=%s backend=%s workers=%d",
+      ifelse(use_parallel_train, "TRUE", "FALSE"),
+      ifelse(use_parallel_train, "futurize", "sequential(no-futurize)"),
+      ifelse(use_parallel_train, workers, 1L)
+    ))
     
     # Train scPred models on reference
     seurat_ref <- scPred::getFeatureSpace(seurat_ref, "cell_type")
-    seurat_ref <- scPred::trainModel(seurat_ref)
+    seurat_ref <- if (use_parallel_train) {
+      futurize::futurize(scPred::trainModel(seurat_ref))
+    } else {
+      scPred::trainModel(seurat_ref)
+    }
     
     # Predict on query using scPred
     seurat_query <- scPred::scPredict(seurat_query, seurat_ref)
