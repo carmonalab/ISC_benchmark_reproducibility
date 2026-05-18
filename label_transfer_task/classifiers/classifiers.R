@@ -80,28 +80,8 @@ classify_SingleR <- function(ref_counts, ref_labels, query_counts, method = "pea
     sce_query <- SingleCellExperiment::SingleCellExperiment(list(counts = query_counts))
 
     workers <- max(1L, as.integer(ncores))
-    has_futurize <- requireNamespace("futurize", quietly = TRUE) &&
-      requireNamespace("future", quietly = TRUE)
-    use_parallel_norm <- workers > 1L && has_futurize
-
-    if (use_parallel_norm) {
-      old_plan <- future::plan()
-      on.exit(future::plan(old_plan), add = TRUE)
-      future::plan(future::multisession, workers = workers)
-
-      sce_ref <- futurize::futurize(scuttle::logNormCounts(sce_ref))
-      sce_query <- futurize::futurize(scuttle::logNormCounts(sce_query))
-    } else {
-      sce_ref <- scuttle::logNormCounts(sce_ref)
-      sce_query <- scuttle::logNormCounts(sce_query)
-    }
-
-    message(sprintf(
-      "SingleR logNormCounts parallel=%s backend=%s workers=%d",
-      ifelse(use_parallel_norm, "TRUE", "FALSE"),
-      ifelse(use_parallel_norm, "futurize", "sequential(no-futurize)"),
-      ifelse(use_parallel_norm, workers, 1L)
-    ))
+    sce_ref <- scuttle::logNormCounts(sce_ref)
+    sce_query <- scuttle::logNormCounts(sce_query)
 
     bpparam <- BiocParallel::MulticoreParam(workers = workers, progressbar = FALSE)
     message(sprintf("SingleR using %d BiocParallel workers", BiocParallel::bpnworkers(bpparam)))
