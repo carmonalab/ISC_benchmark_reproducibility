@@ -414,7 +414,15 @@ load_dataset_specs <- function(specs_path) {
 get_batch_pairs <- function(specs, batch_col = "batch") {
   if (is.null(specs)) return(NULL)
 
-  scope_col <- if ("Sampletype" %in% names(specs)) "Sampletype" else "Dataset reference"
+  scope_col <- if ("Annotation reference" %in% names(specs)) {
+    "Annotation reference"
+  } else if ("Annotation" %in% names(specs)) {
+    "Annotation"
+  } else if ("# Annotation frameworks" %in% names(specs)) {
+    "# Annotation frameworks"
+  } else {
+    stop("None of 'Annotation reference', 'Annotation', or '# Annotation frameworks' found in specs")
+  }
   batch_comp_col <- "Batch comparison"
   if (!batch_comp_col %in% names(specs)) {
     stop("Column not found in specs: ", batch_comp_col)
@@ -423,10 +431,7 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
   # Filter for batch comparison datasets
   batch_specs <- specs %>%
     filter(.data[[batch_comp_col]] == "yes") %>%
-    # Normalize batch names: dots → underscores (to match actual file naming)
-    mutate(batch_norm = gsub("\\.", "_", .data[["Batch"]], fixed = FALSE)) %>%
     mutate(dataset_key = paste0(.data[[scope_col]], "_",
-                                 .data[["Annotation"]], "_",
                                  .data[["Condition"]]))
   
   if (nrow(batch_specs) == 0) return(NULL)
@@ -450,15 +455,12 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
     if (length(batches) >= 2) {
       combos <- combn(batches, 2, simplify = FALSE)
       for (combo in combos) {
-        # Use normalized batch names for resolver matching
-        batch1_norm <- gsub("\\.", "_", combo[1], fixed = FALSE)
-        batch2_norm <- gsub("\\.", "_", combo[2], fixed = FALSE)
         pair_list[[length(pair_list) + 1]] <- list(
           dataset = pairs$dataset_ref[i],
           annotation = pairs$annotation[i],
           condition = pairs$condition[i],
-          batch1 = batch1_norm,
-          batch2 = batch2_norm,
+          batch1 = combo[1],
+          batch2 = combo[2],
             pair_name = paste0(combo[1], "-", combo[2])
         )
       }
@@ -486,7 +488,15 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
 get_perturbation_pairs <- function(specs, batch_col = "batch") {
   if (is.null(specs)) return(NULL)
 
-  scope_col <- if ("Sampletype" %in% names(specs)) "Sampletype" else "Dataset reference"
+  scope_col <- if ("Annotation reference" %in% names(specs)) {
+    "Annotation reference"
+  } else if ("Annotation" %in% names(specs)) {
+    "Annotation"
+  } else if ("# Annotation frameworks" %in% names(specs)) {
+    "# Annotation frameworks"
+  } else {
+    stop("None of 'Annotation reference', 'Annotation', or '# Annotation frameworks' found in specs")
+  }
   pert_comp_col <- "Perturbation comparison"
   if (!pert_comp_col %in% names(specs)) {
     stop("Column not found in specs: ", pert_comp_col)
@@ -495,10 +505,7 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
   # Filter for perturbation comparison datasets
   pert_specs <- specs %>%
     filter(.data[[pert_comp_col]] == "yes") %>%
-    # Normalize batch names: dots → underscores (to match actual file naming)
-    mutate(batch_norm = gsub("\\.", "_", .data[["Batch"]], fixed = FALSE)) %>%
     mutate(dataset_key = paste0(.data[[scope_col]], "_",
-                                 .data[["Annotation"]], "_",
                                  .data[["Batch"]]))
   
   if (nrow(pert_specs) == 0) return(NULL)
@@ -510,7 +517,7 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
     summarise(
       dataset_ref = first(.data[[scope_col]]),
       annotation = first(.data[["Annotation"]]),
-      batch = first(.data[["batch_norm"]]),  # Use normalized batch name for resolver
+      batch = first(.data[["Batch"]]),
       conditions = list(unique(.data[["Condition"]])),
       .groups = "drop"
     )
