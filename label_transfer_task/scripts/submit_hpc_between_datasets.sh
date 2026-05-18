@@ -1,9 +1,9 @@
 #!/bin/bash
 #SBATCH --job-name=ISC_label_transfer_between
-#SBATCH --partition=shared-cpu
-#SBATCH --time=12:00:00
+#SBATCH --partition=public-cpu
+#SBATCH --time=36:00:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
 #SBATCH --output=label_transfer_task/logs/label_transfer_between_%j.log
 #SBATCH --error=label_transfer_task/logs/label_transfer_between_%j.err
