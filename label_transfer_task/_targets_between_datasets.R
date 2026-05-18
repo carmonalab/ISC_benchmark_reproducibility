@@ -15,6 +15,8 @@ source("R/01_classifiers.R")
 source("R/02_plots_tables.R")
 source("R/03_consistency.R")
 
+tar_option_set(error = "continue")
+
 list(
   tar_target(
     lt_between_params,
