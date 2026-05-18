@@ -407,6 +407,7 @@ list(
       result
     },
     pattern = map(task_grid),
+    iteration = "list",
     error = "continue"  # Continue pipeline even if one task fails
   ),
   
