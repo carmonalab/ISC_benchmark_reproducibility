@@ -12,11 +12,11 @@ Colorectal cancer,"Joanito et al., 2022",KUL3,Tumor,cell.type,14,8.9,"Joanito et
 Colorectal cancer,"Joanito et al., 2022",KUL5,Tumor,cell.type,13,8.9,"Joanito et al., 2022",yes,yes,no,yes
 Colorectal cancer,"Lee et al., 2020",SMC,Normal,cell.type,10,9.3,"Joanito et al., 2022",yes,yes,yes,yes
 Colorectal cancer,"Lee et al., 2020",SMC,Tumor,cell.type,15,9.9,"Joanito et al., 2022",yes,yes,yes,yes
-Melanoma,"Alvarez-Breckenridge et al., 2022",Alvarez.Breckenridge,Pre,cell_type,9,1.2,"Gondal et al., 2025",yes,yes,no,no
+Melanoma,"Alvarez-Breckenridge et al., 2022",Alvarez.Breckenridge,Pre,cell_type,9,1.2,"Gondal et al., 2025",yes,no,no,no
 Breast Cancer,"Bassez et al.,  2021",Bassez,Post,cell_type,15,5.9,"Gondal et al., 2025",yes,yes,yes,yes
 Breast Cancer,"Bassez et al.,  2021",Bassez,Pre,cell_type,15,5.8,"Gondal et al., 2025",yes,yes,yes,yes
 Melanoma,"Jerby-Arnon et al., 2018",Jerby.Arnon,Post,cell_type,7,1.7,"Gondal et al., 2025",yes,no,no,no
-Melanoma,"Tirosh et al., 2016",Tirosh,Post,cell_type,7,3,"Gondal et al., 2025",yes,no,no,no
+Melanoma,"Tirosh et al., 2016",Tirosh,Post,cell_type,7,3,"Gondal et al., 2025",yes,yes,no,no
 Basal Cell Carcinoma,"Yost et al., 2019",Yost,Post,cell_type,14,6.9,"Gondal et al., 2025",yes,yes,yes,yes
 Basal Cell Carcinoma,"Yost et al., 2019",Yost,Pre,cell_type,14,7.4,"Gondal et al., 2025",yes,yes,yes,yes
 Healthy Lung,"Habermann et al., 2020",Banovich.Kropski.2020,lung.parenchyma,"cell_type, ann_level_3, ann_level_4",15,36.5,"Sikkema et al., 2023",yes,yes,no,yes
