@@ -75,6 +75,7 @@ select_hvg <- function(counts, n_hvg = 2000) {
 # ============================================================================
 classify_SingleR <- function(ref_counts, ref_labels, query_counts, method = "pearson") {
   res <- tryCatch({
+    message("Running classifier: SingleR")
     # SingleR: use all genes (reference-based, needs full gene set)
     sce_ref <- SingleCellExperiment::SingleCellExperiment(list(counts = ref_counts))
     sce_query <- SingleCellExperiment::SingleCellExperiment(list(counts = query_counts))
@@ -108,6 +109,7 @@ classify_SingleR <- function(ref_counts, ref_labels, query_counts, method = "pea
 # ============================================================================
 classify_LogisticRegression <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: LogisticRegression")
     # Select highly variable genes
     hvg_idx <- select_hvg(ref_counts, n_hvg = 2000)
     
@@ -154,43 +156,14 @@ classify_LogisticRegression <- function(ref_counts, ref_labels, query_counts) {
     
     # Use CV when we have enough samples per class
     nfolds <- min(5L, min_class_size)
-    workers <- max(1L, as.integer(ncores))
-    has_futurize <- requireNamespace("futurize", quietly = TRUE) &&
-      requireNamespace("future", quietly = TRUE)
 
-    use_parallel <- workers > 1L && has_futurize
-    if (use_parallel) {
-      old_plan <- future::plan()
-      on.exit(future::plan(old_plan), add = TRUE)
-      future::plan(future::multisession, workers = workers)
-    }
-
-    message(sprintf(
-      "LogisticRegression cv.glmnet parallel=%s backend=%s workers=%d",
-      ifelse(use_parallel, "TRUE", "FALSE"),
-      ifelse(use_parallel, "futurize", "sequential(no-futurize)"),
-      ifelse(use_parallel, workers, 1L)
-    ))
-
-    cv_fit <- if (use_parallel) {
-      futurize::futurize(
-        cv.glmnet(
-          X_train, y_train,
-          family = "multinomial",
-          alpha = 1,
-          type.measure = "class",
-          nfolds = nfolds
-        )
-      )
-    } else {
-      cv.glmnet(
-        X_train, y_train,
-        family = "multinomial",
-        alpha = 1,
-        type.measure = "class",
-        nfolds = nfolds
-      )
-    }
+    cv_fit <- cv.glmnet(
+      X_train, y_train,
+      family = "multinomial",
+      alpha = 1,
+      type.measure = "class",
+      nfolds = nfolds
+    )
     pred_prob <- predict(cv_fit, X_test, s = "lambda.min", type = "class")
     
     as.character(pred_prob[, 1])
@@ -207,6 +180,7 @@ classify_LogisticRegression <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_XGBoost <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: XGBoost")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -255,6 +229,7 @@ classify_XGBoost <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_MLP <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: MLP")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -342,6 +317,7 @@ classify_MLP <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_RandomForest <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: RandomForest")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -371,6 +347,7 @@ classify_RandomForest <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_SVM <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: SVM")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -438,6 +415,7 @@ classify_SVM <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_kNN <- function(ref_counts, ref_labels, query_counts, k = 15) {
   res <- tryCatch({
+    message("Running classifier: kNN")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -496,6 +474,7 @@ classify_kNN <- function(ref_counts, ref_labels, query_counts, k = 15) {
 # ============================================================================
 classify_NaiveBayes <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: NaiveBayes")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -563,6 +542,7 @@ classify_NaiveBayes <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_LDA <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: LDA")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -600,6 +580,7 @@ classify_LDA <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_SeuratTransfer <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: SeuratTransfer")
     # SeuratTransfer: use all genes (Seurat does FindVariableFeatures internally)
     ref_seurat <- Seurat::CreateSeuratObject(counts = ref_counts)
     query_seurat <- Seurat::CreateSeuratObject(counts = query_counts)
@@ -638,6 +619,7 @@ classify_SeuratTransfer <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_DecisionTree <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: DecisionTree")
     # Log-normalize FULL gene set, then subset to HVGs
     ref_norm_full <- Log_Normalize(ref_counts, scale.factor = 1e4, margin = 2L)
     query_norm_full <- Log_Normalize(query_counts, scale.factor = 1e4, margin = 2L)
@@ -709,6 +691,7 @@ classify_DecisionTree <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_scPred <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: scPred")
     # Create Seurat objects directly from raw counts
     # scPred handles all preprocessing internally (normalization, HVG, scaling, PCA)
     seurat_ref <- Seurat::CreateSeuratObject(counts = ref_counts, min.cells = 0, min.features = 0)
@@ -737,31 +720,9 @@ classify_scPred <- function(ref_counts, ref_labels, query_counts) {
     seurat_query <- seurat_query %>%
       Seurat::NormalizeData()
 
-    workers <- max(1L, as.integer(ncores))
-    has_futurize <- requireNamespace("futurize", quietly = TRUE) &&
-      requireNamespace("future", quietly = TRUE)
-    use_parallel_train <- workers > 1L && has_futurize
-
-    if (use_parallel_train) {
-      old_plan <- future::plan()
-      on.exit(future::plan(old_plan), add = TRUE)
-      future::plan(future::multisession, workers = workers)
-    }
-
-    message(sprintf(
-      "scPred trainModel parallel=%s backend=%s workers=%d",
-      ifelse(use_parallel_train, "TRUE", "FALSE"),
-      ifelse(use_parallel_train, "futurize", "sequential(no-futurize)"),
-      ifelse(use_parallel_train, workers, 1L)
-    ))
-    
     # Train scPred models on reference
     seurat_ref <- scPred::getFeatureSpace(seurat_ref, "cell_type")
-    seurat_ref <- if (use_parallel_train) {
-      futurize::futurize(scPred::trainModel(seurat_ref))
-    } else {
-      scPred::trainModel(seurat_ref)
-    }
+    seurat_ref <- scPred::trainModel(seurat_ref)
     
     # Predict on query using scPred
     seurat_query <- scPred::scPredict(seurat_query, seurat_ref)
@@ -784,6 +745,7 @@ classify_scPred <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_Random <- function(ref_counts, ref_labels, query_counts) {
   res <- tryCatch({
+    message("Running classifier: Random")
     # Get unique cell types from reference
     cell_types <- unique(ref_labels)
     
@@ -804,6 +766,7 @@ classify_Random <- function(ref_counts, ref_labels, query_counts) {
 # ============================================================================
 classify_Ensemble <- function(predictions_list) {
   res <- tryCatch({
+    message("Running classifier: Ensemble")
     n_cells <- length(predictions_list[[1]])
     
     ensemble_pred <- sapply(1:n_cells, function(i) {
