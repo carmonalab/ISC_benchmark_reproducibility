@@ -455,13 +455,15 @@ get_batch_pairs <- function(specs, batch_col = "batch") {
     if (length(batches) >= 2) {
       combos <- combn(batches, 2, simplify = FALSE)
       for (combo in combos) {
+        left_key <- paste0(combo[1], "_", pairs$condition[i])
+        right_key <- paste0(combo[2], "_", pairs$condition[i])
         pair_list[[length(pair_list) + 1]] <- list(
           dataset = pairs$dataset_ref[i],
           annotation = pairs$annotation[i],
           condition = pairs$condition[i],
           batch1 = combo[1],
           batch2 = combo[2],
-            pair_name = paste0(combo[1], "-", combo[2])
+            pair_name = paste0(left_key, "-", right_key)
         )
       }
     }
@@ -531,13 +533,15 @@ get_perturbation_pairs <- function(specs, batch_col = "batch") {
     if (length(conds) >= 2) {
       combos <- combn(conds, 2, simplify = FALSE)
       for (combo in combos) {
+        left_key <- paste0(pairs$batch[i], "_", combo[1])
+        right_key <- paste0(pairs$batch[i], "_", combo[2])
         pair_list[[length(pair_list) + 1]] <- list(
           dataset = pairs$dataset_ref[i],
           annotation = pairs$annotation[i],
           batch = pairs$batch[i],
           condition1 = combo[1],
           condition2 = combo[2],
-            pair_name = paste0(combo[1], "-", combo[2])
+            pair_name = paste0(left_key, "-", right_key)
         )
       }
     }
