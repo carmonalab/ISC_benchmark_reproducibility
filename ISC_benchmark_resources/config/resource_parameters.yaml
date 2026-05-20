@@ -18,12 +18,12 @@ common:
   normalization_method: "Log1p"
   reciprocal_classifier: "SingleR"
   dissimilarity_method:
-    - "WasserStein"
     - "Pseudobulk:Euclidean"
     - "Pseudobulk:Cosine"
     - "Pseudobulk:Pearson"
     - "recip_classif:Match"
     - "recip_classif:Score"
+    - "WasserStein"
   consistency_metric:
     - "silhouette"
     - "2label_silhouette"
