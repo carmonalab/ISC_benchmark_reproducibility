@@ -45,6 +45,8 @@ results_files <- list.files(
 if (length(results_files) == 0) {
   resource_message_time("WARNING: No result files found in: ", output_root)
   aggregated <- data.frame(
+    duration_ms = numeric(),
+    peak_memory_MB = numeric(),
     duration = numeric(),
     memory_usage_MB = numeric(),
     cpu_usage = numeric(),
@@ -89,6 +91,9 @@ if (length(all_results) == 0) {
 
 aggregated <- dplyr::bind_rows(all_results)
 
+duration_col <- if ("duration_ms" %in% names(aggregated)) "duration_ms" else "duration"
+memory_col <- if ("peak_memory_MB" %in% names(aggregated)) "peak_memory_MB" else "memory_usage_MB"
+
 resource_message_time(
   "Aggregated ", nrow(aggregated), " benchmark results from ",
   length(unique(aggregated$dataset_id)), " datasets"
@@ -103,8 +108,8 @@ summary_by_dataset <- aggregated %>%
     n_metric_combos = dplyr::n_distinct(
       paste0(dissimilarity_method, "::", consistency_metric)
     ),
-    mean_duration_s = mean(duration, na.rm = TRUE),
-    mean_memory_MB = mean(memory_usage_MB, na.rm = TRUE),
+    mean_duration_ms = mean(.data[[duration_col]], na.rm = TRUE),
+    mean_peak_memory_MB = mean(.data[[memory_col]], na.rm = TRUE),
     .groups = "drop"
   ) %>%
   dplyr::arrange(dataset_id)

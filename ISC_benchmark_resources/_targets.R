@@ -12,7 +12,7 @@ source("R/resources_utils.R")
 tar_option_set(
   packages = c(
     "yaml", "dplyr", "tidyr", "Matrix",
-    "scTypeEval", "Seurat", "SeuratObject", "bench"
+    "scTypeEval", "Seurat", "SeuratObject"
   ),
   storage = "main",
   retrieval = "main",

@@ -1,6 +1,6 @@
 # ISC Resource Benchmark
 
-This pipeline benchmarks the runtime, peak memory allocation, and CPU usage of each
+This pipeline benchmarks the runtime in milliseconds, peak memory in MB, and CPU usage of each
 ISC method combination defined by:
 
 - one dissimilarity method
@@ -33,5 +33,5 @@ sbatch resources/scripts/submit_hpc.sh
 ```
 
 This submits one job per dataset. Each job uses its own targets store under
-`resources/_targets/store_<dataset>` and writes per-method `.rds` files to
-`resources/output/<dataset>/<ident>/`.
+`ISC_benchmark_resources/_targets/store_<dataset>` and writes per-method `.rds` files to
+`ISC_benchmark_resources/output/<dataset>/<ident>/`.

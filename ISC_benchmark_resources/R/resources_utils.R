@@ -4,7 +4,6 @@ suppressPackageStartupMessages({
   library(tidyr)
   library(Matrix)
   library(scTypeEval)
-  library(bench)
 })
 
 resource_proj_root <- function(start_dir = getwd()) {
@@ -222,56 +221,177 @@ read_optional_gene_list <- function(path) {
   list(custom = gene_values)
 }
 
-benchmark_wrapper <- function(expr,
-                              iterations = 3,
-                              envir = parent.frame()) {
-  dur <- numeric(iterations)
-  cpu_percent <- numeric(iterations)
-  memory_bytes <- NA_real_
-
-  expr <- base::substitute(expr)
-
-  for (i in seq_len(iterations)) {
-    gc(verbose = FALSE)
-    tm <- system.time(eval(expr, envir = envir))
-    dur[i] <- tm["elapsed"]
-    cpu_percent[i] <- if (tm["elapsed"] > 0) {
-      (tm["user.self"] + tm["sys.self"]) / tm["elapsed"]
-    } else {
-      NA_real_
-    }
+resource_time_command <- function() {
+  time_cmd <- Sys.which("time")
+  if (nzchar(time_cmd)) {
+    return(time_cmd)
   }
 
-  if (isTRUE(capabilities("profmem"))) {
-    gc(verbose = FALSE)
-    res <- tryCatch(
-      bench::mark(
-        eval(expr, envir = envir),
-        iterations = 1,
-        check = FALSE,
-        memory = TRUE,
-        time_unit = "s"
-      ),
-      error = function(e) {
-        warning(
-          "Memory profiling unavailable for benchmark_wrapper(); storing NA for memory. Cause: ",
-          conditionMessage(e),
-          call. = FALSE
-        )
-        NULL
-      }
+  if (file.exists("/usr/bin/time")) {
+    return("/usr/bin/time")
+  }
+
+  NA_character_
+}
+
+resource_parse_time_output <- function(output_lines) {
+  output_lines <- output_lines[nzchar(output_lines)]
+  if (length(output_lines) == 0) {
+    stop("No timing output captured from /usr/bin/time")
+  }
+
+  timing_line <- trimws(tail(output_lines, 1))
+  timing_values <- strsplit(timing_line, "[[:space:]]+", perl = TRUE)[[1]]
+  if (length(timing_values) < 2) {
+    stop("Unexpected timing output from /usr/bin/time: ", timing_line)
+  }
+
+  list(
+    elapsed_seconds = as.numeric(timing_values[[1]]),
+    peak_memory_kb = as.numeric(timing_values[[2]])
+  )
+}
+
+resource_write_benchmark_script <- function(script_path) {
+  script_lines <- c(
+    "project_root <- Sys.getenv('PROJECT_ROOT', unset = normalizePath(file.path(getwd(), '..')))",
+    "activate <- file.path(project_root, 'renv', 'activate.R')",
+    "if (file.exists(activate)) source(activate)",
+    "if (requireNamespace('renv', quietly = TRUE)) {",
+    "  renv::load(project = project_root)",
+    "}",
+    "",
+    "suppressPackageStartupMessages({",
+    "  library(scTypeEval)",
+    "})",
+    "",
+    "args <- commandArgs(trailingOnly = TRUE)",
+    "prepared_path <- args[[1]]",
+    "result_path <- args[[2]]",
+    "dissimilarity_method <- args[[3]]",
+    "consistency_metric <- args[[4]]",
+    "benchmark_ncores <- as.integer(args[[5]])",
+    "reduction <- tolower(args[[6]]) == 'true'",
+    "reciprocal_classifier <- args[[7]]",
+    "knn_graph_k <- as.integer(args[[8]])",
+    "hclust_method <- args[[9]]",
+    "verbose_opt <- tolower(args[[10]]) == 'true'",
+    "",
+    "prepared <- readRDS(prepared_path)",
+    "sc_tmp <- prepared$sc",
+    "timing <- system.time({",
+    "  sc_tmp <- scTypeEval::run_dissimilarity(",
+    "    scTypeEval = sc_tmp,",
+    "    method = dissimilarity_method,",
+    "    reduction = reduction,",
+    "    reciprocal_classifier = reciprocal_classifier,",
+    "    ncores = benchmark_ncores,",
+    "    verbose = verbose_opt",
+    "  )",
+    "",
+    "  invisible(scTypeEval::get_consistency(",
+    "    scTypeEval = sc_tmp,",
+    "    dissimilarity_slot = dissimilarity_method,",
+    "    consistency_metric = consistency_metric,",
+    "    knn_graph_k = knn_graph_k,",
+    "    hclust_method = hclust_method,",
+    "    normalize = FALSE,",
+    "    verbose = verbose_opt",
+    "  ))",
+    "})",
+    "",
+    "duration_ms <- unname(timing[['elapsed']]) * 1000",
+    "cpu_usage <- if (timing[['elapsed']] > 0) {",
+    "  (timing[['user.self']] + timing[['sys.self']]) / timing[['elapsed']]",
+    "} else {",
+    "  NA_real_",
+    "}",
+    "",
+    "saveRDS(",
+    "  list(duration_ms = duration_ms, cpu_usage = cpu_usage),",
+    "  result_path",
+    ")"
+  )
+
+  writeLines(script_lines, script_path)
+  script_path
+}
+
+resource_run_single_benchmark <- function(prepared_path,
+                                          dissimilarity_method,
+                                          consistency_metric,
+                                          params) {
+  time_cmd <- resource_time_command()
+  if (is.na(time_cmd)) {
+    stop("/usr/bin/time not found; peak memory reporting is unavailable on this system")
+  }
+
+  prepared <- readRDS(prepared_path)
+  benchmark_ncores <- 1L
+  configured_cores <- as.integer(params$benchmark$ncores)
+  if (!is.na(configured_cores) && configured_cores != 1L) {
+    warning(
+      "Overriding benchmark.ncores=", configured_cores,
+      " to 1 for resource measurement.",
+      call. = FALSE
     )
-
-    if (!is.null(res)) {
-      memory_bytes <- as.numeric(res$mem_alloc)
-    }
   }
 
-  data.frame(
-    duration = stats::median(dur),
-    cpu_usage = stats::median(cpu_percent),
-    memory = memory_bytes,
-    stringsAsFactors = FALSE
+  child_script <- tempfile("resource_benchmark_", fileext = ".R")
+  child_result <- tempfile("resource_benchmark_result_", fileext = ".rds")
+  on.exit(unlink(c(child_script, child_result)), add = TRUE)
+
+  resource_write_benchmark_script(child_script)
+
+  command_args <- c(
+    shQuote(time_cmd),
+    "-f",
+    shQuote("%e\t%M"),
+    shQuote(Sys.which("Rscript")),
+    "--vanilla",
+    shQuote(child_script),
+    shQuote(prepared_path),
+    shQuote(child_result),
+    shQuote(dissimilarity_method),
+    shQuote(consistency_metric),
+    shQuote(as.character(benchmark_ncores)),
+    shQuote(as.character(isTRUE(params$common$reduction))),
+    shQuote(params$common$reciprocal_classifier),
+    shQuote(as.character(params$common$knn_graph_k)),
+    shQuote(params$common$hclust_method),
+    shQuote(as.character(isTRUE(params$common$verbose)))
+  )
+
+  if (!nzchar(Sys.which("Rscript"))) {
+    stop("Rscript not found on PATH")
+  }
+
+  shell_command <- paste(command_args, collapse = " ")
+
+  timing_output <- system(
+    shell_command,
+    intern = TRUE,
+    ignore.stderr = FALSE
+  )
+
+  exit_status <- attr(timing_output, "status")
+  if (!is.null(exit_status) && !identical(exit_status, 0L)) {
+    stop(
+      "Resource benchmark failed for ", dissimilarity_method, " / ", consistency_metric,
+      " with exit status ", exit_status, ". Output:\n",
+      paste(timing_output, collapse = "\n")
+    )
+  }
+
+  timing <- resource_parse_time_output(timing_output)
+  benchmark_summary <- readRDS(child_result)
+
+  list(
+    duration_ms = as.numeric(benchmark_summary$duration_ms),
+    cpu_usage = as.numeric(benchmark_summary$cpu_usage),
+    peak_memory_MB = as.numeric(timing$peak_memory_kb) / 1024,
+    benchmark_ncores = benchmark_ncores,
+    benchmark_elapsed_seconds = as.numeric(timing$elapsed_seconds)
   )
 }
 
@@ -391,45 +511,25 @@ build_resource_output_path <- function(params,
 
 benchmark_resource_pair <- function(prepared_path, dissimilarity_method, consistency_metric, params) {
   prepared <- readRDS(prepared_path)
-  sc_template <- prepared$sc
-  iterations <- as.integer(params$benchmark$iterations)
-  benchmark_ncores <- as.integer(params$benchmark$ncores)
-  verbose_opt <- isTRUE(params$common$verbose)
 
   resource_message_time(
     "Benchmarking ", prepared$dataset_id, " / ", prepared$ident,
     " / ", consistency_metric, " / ", dissimilarity_method
   )
 
-  stats <- benchmark_wrapper(
-    expr = {
-      sc_tmp <- sc_template
-      sc_tmp <- scTypeEval::run_dissimilarity(
-        scTypeEval = sc_tmp,
-        method = dissimilarity_method,
-        reduction = isTRUE(params$common$reduction),
-        reciprocal_classifier = params$common$reciprocal_classifier,
-        ncores = benchmark_ncores,
-        verbose = verbose_opt
-      )
-
-      invisible(scTypeEval::get_consistency(
-        scTypeEval = sc_tmp,
-        dissimilarity_slot = dissimilarity_method,
-        consistency_metric = consistency_metric,
-        knn_graph_k = params$common$knn_graph_k,
-        hclust_method = params$common$hclust_method,
-        normalize = FALSE,
-        verbose = verbose_opt
-      ))
-    },
-    iterations = iterations
+  benchmark_summary <- resource_run_single_benchmark(
+    prepared_path = prepared_path,
+    dissimilarity_method = dissimilarity_method,
+    consistency_metric = consistency_metric,
+    params = params
   )
 
   output <- data.frame(
-    duration = stats$duration,
-    memory_usage_MB = stats$memory / 1024^2,
-    cpu_usage = stats$cpu_usage,
+    duration_ms = benchmark_summary$duration_ms,
+    peak_memory_MB = benchmark_summary$peak_memory_MB,
+    duration = benchmark_summary$duration_ms,
+    memory_usage_MB = benchmark_summary$peak_memory_MB,
+    cpu_usage = benchmark_summary$cpu_usage,
     method = consistency_metric,
     consistency_metric = consistency_metric,
     consistency.metric = consistency_metric,
@@ -443,8 +543,8 @@ benchmark_resource_pair <- function(prepared_path, dissimilarity_method, consist
     nsamples = prepared$nsamples,
     sparsity = prepared$sparsity,
     gene.list = prepared$gene_list_name,
-    benchmark_ncores = benchmark_ncores,
-    benchmark_iterations = iterations,
+    benchmark_ncores = benchmark_summary$benchmark_ncores,
+    benchmark_iterations = 1L,
     stringsAsFactors = FALSE
   )
 
