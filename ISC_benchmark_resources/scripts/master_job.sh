@@ -6,6 +6,8 @@ RESOURCES_DIR="${PROJECT_ROOT}/ISC_benchmark_resources"
 
 export PROJECT_ROOT
 export RESOURCES_DIR
+export RENV_PROJECT="${PROJECT_ROOT}"
+export RENV_CONFIG_AUTOLOADER_ENABLED="FALSE"
 
 log_msg() {
   local timestamp
