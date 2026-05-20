@@ -1,0 +1,42 @@
+# Resource benchmarking configuration for ISC methods
+
+seed: 22
+n_cores: 4
+
+paths:
+  data_processed: "data/processed"
+  dataset_idents_file: "ISC_benchmark/config/dataset_idents.yaml"
+  output_root: "resources/output"
+  cache_root: "resources/cache"
+
+common:
+  sample: "sample"
+  reduction: true
+  ndim: 30
+  black_list: null
+  gene_list: null
+  normalization_method: "Log1p"
+  reciprocal_classifier: "SingleR"
+  dissimilarity_method:
+    - "WasserStein"
+    - "Pseudobulk:Euclidean"
+    - "Pseudobulk:Cosine"
+    - "Pseudobulk:Pearson"
+    - "recip_classif:Match"
+    - "recip_classif:Score"
+  consistency_metric:
+    - "silhouette"
+    - "2label_silhouette"
+    - "NeighborhoodPurity"
+    - "ward_PropMatch"
+    - "Orbital_medoid"
+    - "Average_similarity"
+  min_samples: 5
+  min_cells: 10
+  knn_graph_k: 5
+  hclust_method: "ward.D2"
+  verbose: false
+
+benchmark:
+  iterations: 3
+  ncores: 1

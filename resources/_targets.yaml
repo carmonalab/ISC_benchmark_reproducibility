@@ -1,0 +1,16 @@
+# resources/_targets.yaml --- Targets configuration for ISC resource benchmarking
+
+store: _targets
+
+controller: future
+
+future:
+  plan: sequential
+
+resources:
+  # Configure HPC-specific resources in scripts/submit_hpc.sh or by exporting
+  # RESOURCE_SLURM_* variables before submission.
+
+format: file
+trust_object_timestamps: true
+seconds_timeout: 3600
