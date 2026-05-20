@@ -4,6 +4,7 @@ suppressPackageStartupMessages({
   library(tidyr)
   library(Matrix)
   library(scTypeEval)
+  library(bench)
 })
 
 resource_proj_root <- function(start_dir = getwd()) {
@@ -221,38 +222,55 @@ read_optional_gene_list <- function(path) {
   list(custom = gene_values)
 }
 
-benchmark_wrapper <- function(expr, iterations = 3, envir = parent.frame()) {
-  durations <- numeric(iterations)
+benchmark_wrapper <- function(expr,
+                              iterations = 3,
+                              envir = parent.frame()) {
+  dur <- numeric(iterations)
   cpu_percent <- numeric(iterations)
+  memory_bytes <- NA_real_
+
   expr <- base::substitute(expr)
 
   for (i in seq_len(iterations)) {
     gc(verbose = FALSE)
-    timing <- system.time(eval(expr, envir = envir))
-    durations[[i]] <- unname(timing[["elapsed"]])
-    cpu_percent[[i]] <- if (timing[["elapsed"]] > 0) {
-      (timing[["user.self"]] + timing[["sys.self"]]) / timing[["elapsed"]]
+    tm <- system.time(eval(expr, envir = envir))
+    dur[i] <- tm["elapsed"]
+    cpu_percent[i] <- if (tm["elapsed"] > 0) {
+      (tm["user.self"] + tm["sys.self"]) / tm["elapsed"]
     } else {
       NA_real_
     }
   }
 
-  gc(verbose = FALSE)
-  memory_profile <- tempfile(fileext = ".out")
-  on.exit(unlink(memory_profile), add = TRUE)
+  if (isTRUE(capabilities("profmem"))) {
+    gc(verbose = FALSE)
+    res <- tryCatch(
+      bench::mark(
+        eval(expr, envir = envir),
+        iterations = 1,
+        check = FALSE,
+        memory = TRUE,
+        time_unit = "s"
+      ),
+      error = function(e) {
+        warning(
+          "Memory profiling unavailable for benchmark_wrapper(); storing NA for memory. Cause: ",
+          conditionMessage(e),
+          call. = FALSE
+        )
+        NULL
+      }
+    )
 
-  Rprofmem(memory_profile)
-  on.exit(Rprofmem(NULL), add = TRUE)
-  eval(expr, envir = envir)
-  Rprofmem(NULL)
-
-  profile_lines <- readLines(memory_profile, warn = FALSE)
-  memory_values <- suppressWarnings(as.numeric(sub(" .*", "", profile_lines)))
+    if (!is.null(res)) {
+      memory_bytes <- as.numeric(res$mem_alloc)
+    }
+  }
 
   data.frame(
-    duration = stats::median(durations, na.rm = TRUE),
-    cpu_usage = stats::median(cpu_percent, na.rm = TRUE),
-    memory = sum(memory_values[is.finite(memory_values)], na.rm = TRUE),
+    duration = stats::median(dur),
+    cpu_usage = stats::median(cpu_percent),
+    memory = memory_bytes,
     stringsAsFactors = FALSE
   )
 }
@@ -440,4 +458,37 @@ benchmark_resource_pair <- function(prepared_path, dissimilarity_method, consist
 
   saveRDS(output, output_path)
   output_path
+}
+
+# Check if a dataset/ident combination has been processed
+is_dataset_ident_completed <- function(params, dataset_id, ident) {
+  output_root <- resource_output_dir_from_config(params)
+  dataset_dir <- file.path(output_root, sanitize_for_path(dataset_id))
+  ident_dir <- file.path(dataset_dir, sanitize_for_path(ident))
+
+  if (!dir.exists(ident_dir)) {
+    return(FALSE)
+  }
+
+  # Check if at least one metric combination file exists
+  result_files <- list.files(ident_dir, pattern = ".*\\.rds$")
+  length(result_files) > 0
+}
+
+# Filter to only incomplete dataset/ident combinations
+filter_incomplete_ident_grid <- function(ident_grid, params) {
+  if (is.null(ident_grid) || nrow(ident_grid) == 0) {
+    return(ident_grid)
+  }
+
+  incomplete <- mapply(
+    function(dataset_id, ident) {
+      !is_dataset_ident_completed(params, dataset_id, ident)
+    },
+    ident_grid$dataset_id,
+    ident_grid$ident,
+    SIMPLIFY = TRUE
+  )
+
+  ident_grid[incomplete, , drop = FALSE]
 }

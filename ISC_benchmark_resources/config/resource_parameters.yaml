@@ -6,8 +6,8 @@ n_cores: 4
 paths:
   data_processed: "data/processed"
   dataset_idents_file: "ISC_benchmark/config/dataset_idents.yaml"
-  output_root: "resources/output"
-  cache_root: "resources/cache"
+  output_root: "ISC_benchmark_resources/output"
+  cache_root: "ISC_benchmark_resources/cache"
 
 common:
   sample: "sample"

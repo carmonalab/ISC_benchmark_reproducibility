@@ -12,7 +12,7 @@ source("R/resources_utils.R")
 tar_option_set(
   packages = c(
     "yaml", "dplyr", "tidyr", "Matrix",
-    "scTypeEval", "Seurat", "SeuratObject"
+    "scTypeEval", "Seurat", "SeuratObject", "bench"
   ),
   storage = "main",
   retrieval = "main",
@@ -40,7 +40,11 @@ list(
 
   tar_target(
     resource_ident_grid,
-    build_resource_ident_grid(resource_dataset_info)
+    {
+      ident_grid <- build_resource_ident_grid(resource_dataset_info)
+      # Filter out already completed combinations
+      filter_incomplete_ident_grid(ident_grid, resource_params)
+    }
   ),
 
   tar_target(

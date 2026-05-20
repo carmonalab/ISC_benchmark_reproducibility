@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-RESOURCES_DIR="${PROJECT_ROOT}/resources"
+RESOURCES_DIR="${PROJECT_ROOT}/ISC_benchmark_resources"
 
 export PROJECT_ROOT
 export RESOURCES_DIR
@@ -34,7 +34,7 @@ if command -v module >/dev/null 2>&1; then
 fi
 
 if [[ ! -f "${RESOURCES_DIR}/config/resource_parameters.yaml" ]]; then
-  log_msg "ERROR: resources/config/resource_parameters.yaml not found."
+  log_msg "ERROR: ISC_benchmark_resources/config/resource_parameters.yaml not found."
   exit 1
 fi
 
@@ -107,7 +107,7 @@ targets::tar_make(callr_function = NULL, store = store_dir)
 message("Finished targets::tar_make(callr_function = NULL) at ", Sys.time())
 RS
   log_msg "✓ ISC resource benchmark completed successfully"
-  log_msg "Outputs: resources/output/<dataset>/<ident>/*.rds"
+  log_msg "Outputs: ISC_benchmark_resources/output/<dataset>/<ident>/*.rds"
 else
   log_msg "✗ ISC resource benchmark failed. See logs."
   exit 1
