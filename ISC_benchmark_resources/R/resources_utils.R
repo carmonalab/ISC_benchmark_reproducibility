@@ -240,15 +240,30 @@ resource_parse_time_output <- function(output_lines) {
     stop("No timing output captured from /usr/bin/time")
   }
 
-  timing_line <- trimws(tail(output_lines, 1))
+  # Use the last line that matches GNU time format: "<elapsed_seconds> <max_rss_kb>".
+  candidate_idx <- grep("^[[:space:]]*[0-9]+(\\.[0-9]+)?[[:space:]]+[0-9]+[[:space:]]*$", output_lines)
+  if (length(candidate_idx) == 0) {
+    stop(
+      "Could not find timing line in /usr/bin/time output. Output was:\n",
+      paste(output_lines, collapse = "\n")
+    )
+  }
+
+  timing_line <- trimws(output_lines[[tail(candidate_idx, 1)]])
   timing_values <- strsplit(timing_line, "[[:space:]]+", perl = TRUE)[[1]]
   if (length(timing_values) < 2) {
     stop("Unexpected timing output from /usr/bin/time: ", timing_line)
   }
 
+  elapsed_seconds <- as.numeric(timing_values[[1]])
+  peak_memory_kb <- as.numeric(timing_values[[2]])
+  if (!is.finite(elapsed_seconds) || !is.finite(peak_memory_kb)) {
+    stop("Non-numeric timing values from /usr/bin/time: ", timing_line)
+  }
+
   list(
-    elapsed_seconds = as.numeric(timing_values[[1]]),
-    peak_memory_kb = as.numeric(timing_values[[2]])
+    elapsed_seconds = elapsed_seconds,
+    peak_memory_kb = peak_memory_kb
   )
 }
 
@@ -367,6 +382,7 @@ resource_run_single_benchmark <- function(prepared_path,
   }
 
   shell_command <- paste(command_args, collapse = " ")
+  shell_command <- paste(shell_command, "2>&1")
 
   timing_output <- system(
     shell_command,
@@ -570,9 +586,27 @@ is_dataset_ident_completed <- function(params, dataset_id, ident) {
     return(FALSE)
   }
 
-  # Check if at least one metric combination file exists
-  result_files <- list.files(ident_dir, pattern = ".*\\.rds$")
-  length(result_files) > 0
+  expected_n <- length(params$common$dissimilarity_method) * length(params$common$consistency_metric)
+  result_files <- list.files(ident_dir, pattern = ".*\\.rds$", full.names = TRUE)
+
+  if (length(result_files) < expected_n) {
+    return(FALSE)
+  }
+
+  # Ensure previously produced outputs contain usable memory metrics.
+  is_valid_result <- function(path) {
+    x <- tryCatch(readRDS(path), error = function(e) NULL)
+    if (is.null(x)) {
+      return(FALSE)
+    }
+
+    peak <- if ("peak_memory_MB" %in% names(x)) x$peak_memory_MB else x$memory_usage_MB
+    dur <- if ("duration_ms" %in% names(x)) x$duration_ms else x$duration
+
+    is.finite(as.numeric(peak)) && is.finite(as.numeric(dur))
+  }
+
+  all(vapply(result_files, is_valid_result, logical(1)))
 }
 
 # Filter to only incomplete dataset/ident combinations
