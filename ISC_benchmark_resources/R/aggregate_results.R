@@ -12,6 +12,9 @@ source("R/cli_utils.R")
 source("R/shared_helpers.R")
 source(file.path("ISC_benchmark_resources", "R", "resources_utils.R"))
 
+# Change to ISC_benchmark_resources for config and output paths
+setwd(file.path(project_root, "ISC_benchmark_resources"))
+
 # Parse arguments
 args <- commandArgs(trailingOnly = TRUE)
 output_file <- "ISC_benchmark_resources/results/aggregated_benchmarks.rds"
