@@ -27,6 +27,10 @@ if command -v module >/dev/null 2>&1; then
   module purge || true
   module load GCC/12.3.0 || true
   module load R/4.3.2 || true
+  module load GLPK/5.0 || true
+  module load cairo/1.17.8 || true
+  module load freetype/2.13.0 || true
+  module load libwebp/1.3.1 || true
 fi
 
 cd "${RESOURCES_DIR}"
