@@ -6,6 +6,8 @@ suppressPackageStartupMessages({
   library(scTypeEval)
 })
 
+.resource_prepared_cache <- new.env(parent = emptyenv())
+
 resource_proj_root <- function(start_dir = getwd()) {
   current <- normalizePath(start_dir, mustWork = TRUE)
   max_depth <- 10
@@ -81,6 +83,18 @@ resource_cache_dir_from_config <- function(params) {
 
 resource_prepared_dir_from_config <- function(params) {
   resource_ensure_dir(file.path(resource_cache_dir_from_config(params), "prepared"))
+}
+
+resource_get_prepared_input <- function(prepared_path) {
+  cache_key <- normalizePath(prepared_path, mustWork = TRUE)
+
+  if (exists(cache_key, envir = .resource_prepared_cache, inherits = FALSE)) {
+    return(get(cache_key, envir = .resource_prepared_cache, inherits = FALSE))
+  }
+
+  prepared <- readRDS(cache_key)
+  assign(cache_key, prepared, envir = .resource_prepared_cache)
+  prepared
 }
 
 resolve_root_path <- function(path_value, mustWork = TRUE) {
@@ -544,7 +558,7 @@ build_resource_output_path <- function(params,
 }
 
 benchmark_resource_pair <- function(prepared_path, dissimilarity_method, consistency_metric, params) {
-  prepared <- readRDS(prepared_path)
+  prepared <- resource_get_prepared_input(prepared_path)
 
   resource_message_time(
     "Benchmarking ", prepared$dataset_id, " / ", prepared$ident,
