@@ -17,7 +17,7 @@ setwd(file.path(project_root, "ISC_benchmark_resources"))
 
 # Parse arguments
 args <- commandArgs(trailingOnly = TRUE)
-output_file <- "ISC_benchmark_resources/results/aggregated_benchmarks.rds"
+output_file <- "results/aggregated_benchmarks.rds"
 
 if (length(args) > 0) {
   for (i in seq_along(args)) {
