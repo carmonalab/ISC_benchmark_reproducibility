@@ -341,8 +341,12 @@ resource_run_single_benchmark <- function(prepared_path,
     stop("/usr/bin/time not found; peak memory reporting is unavailable on this system")
   }
 
-  prepared <- readRDS(prepared_path)
   benchmark_ncores <- 1L
+  benchmark_iterations <- as.integer(params$benchmark$iterations)
+  if (is.na(benchmark_iterations) || benchmark_iterations < 1L) {
+    benchmark_iterations <- 1L
+  }
+
   configured_cores <- as.integer(params$benchmark$ncores)
   if (!is.na(configured_cores) && configured_cores != 1L) {
     warning(
@@ -358,56 +362,70 @@ resource_run_single_benchmark <- function(prepared_path,
 
   resource_write_benchmark_script(child_script)
 
-  command_args <- c(
-    shQuote(time_cmd),
-    "-f",
-    shQuote("%e\t%M"),
-    shQuote(Sys.which("Rscript")),
-    "--vanilla",
-    shQuote(child_script),
-    shQuote(prepared_path),
-    shQuote(child_result),
-    shQuote(dissimilarity_method),
-    shQuote(consistency_metric),
-    shQuote(as.character(benchmark_ncores)),
-    shQuote(as.character(isTRUE(params$common$reduction))),
-    shQuote(params$common$reciprocal_classifier),
-    shQuote(as.character(params$common$knn_graph_k)),
-    shQuote(params$common$hclust_method),
-    shQuote(as.character(isTRUE(params$common$verbose)))
-  )
-
   if (!nzchar(Sys.which("Rscript"))) {
     stop("Rscript not found on PATH")
   }
 
-  shell_command <- paste(command_args, collapse = " ")
-  shell_command <- paste(shell_command, "2>&1")
+  duration_ms_values <- numeric(benchmark_iterations)
+  cpu_usage_values <- numeric(benchmark_iterations)
+  peak_memory_mb_values <- numeric(benchmark_iterations)
+  elapsed_seconds_values <- numeric(benchmark_iterations)
 
-  timing_output <- system(
-    shell_command,
-    intern = TRUE,
-    ignore.stderr = FALSE
-  )
-
-  exit_status <- attr(timing_output, "status")
-  if (!is.null(exit_status) && !identical(exit_status, 0L)) {
-    stop(
-      "Resource benchmark failed for ", dissimilarity_method, " / ", consistency_metric,
-      " with exit status ", exit_status, ". Output:\n",
-      paste(timing_output, collapse = "\n")
+  for (i in seq_len(benchmark_iterations)) {
+    command_args <- c(
+      shQuote(time_cmd),
+      "-f",
+      shQuote("%e\t%M"),
+      shQuote(Sys.which("Rscript")),
+      "--vanilla",
+      shQuote(child_script),
+      shQuote(prepared_path),
+      shQuote(child_result),
+      shQuote(dissimilarity_method),
+      shQuote(consistency_metric),
+      shQuote(as.character(benchmark_ncores)),
+      shQuote(as.character(isTRUE(params$common$reduction))),
+      shQuote(params$common$reciprocal_classifier),
+      shQuote(as.character(params$common$knn_graph_k)),
+      shQuote(params$common$hclust_method),
+      shQuote(as.character(isTRUE(params$common$verbose)))
     )
+
+    shell_command <- paste(command_args, collapse = " ")
+    shell_command <- paste(shell_command, "2>&1")
+
+    timing_output <- system(
+      shell_command,
+      intern = TRUE,
+      ignore.stderr = FALSE
+    )
+
+    exit_status <- attr(timing_output, "status")
+    if (!is.null(exit_status) && !identical(exit_status, 0L)) {
+      stop(
+        "Resource benchmark failed for ", dissimilarity_method, " / ", consistency_metric,
+        " at replicate ", i, " of ", benchmark_iterations,
+        " with exit status ", exit_status, ". Output:\n",
+        paste(timing_output, collapse = "\n")
+      )
+    }
+
+    timing <- resource_parse_time_output(timing_output)
+    benchmark_summary <- readRDS(child_result)
+
+    duration_ms_values[[i]] <- as.numeric(benchmark_summary$duration_ms)
+    cpu_usage_values[[i]] <- as.numeric(benchmark_summary$cpu_usage)
+    peak_memory_mb_values[[i]] <- as.numeric(timing$peak_memory_kb) / 1024
+    elapsed_seconds_values[[i]] <- as.numeric(timing$elapsed_seconds)
   }
 
-  timing <- resource_parse_time_output(timing_output)
-  benchmark_summary <- readRDS(child_result)
-
   list(
-    duration_ms = as.numeric(benchmark_summary$duration_ms),
-    cpu_usage = as.numeric(benchmark_summary$cpu_usage),
-    peak_memory_MB = as.numeric(timing$peak_memory_kb) / 1024,
+    duration_ms = stats::median(duration_ms_values, na.rm = TRUE),
+    cpu_usage = stats::median(cpu_usage_values, na.rm = TRUE),
+    peak_memory_MB = stats::median(peak_memory_mb_values, na.rm = TRUE),
     benchmark_ncores = benchmark_ncores,
-    benchmark_elapsed_seconds = as.numeric(timing$elapsed_seconds)
+    benchmark_iterations = benchmark_iterations,
+    benchmark_elapsed_seconds = stats::median(elapsed_seconds_values, na.rm = TRUE)
   )
 }
 
@@ -560,7 +578,7 @@ benchmark_resource_pair <- function(prepared_path, dissimilarity_method, consist
     sparsity = prepared$sparsity,
     gene.list = prepared$gene_list_name,
     benchmark_ncores = benchmark_summary$benchmark_ncores,
-    benchmark_iterations = 1L,
+    benchmark_iterations = benchmark_summary$benchmark_iterations,
     stringsAsFactors = FALSE
   )
 
@@ -602,8 +620,20 @@ is_dataset_ident_completed <- function(params, dataset_id, ident) {
 
     peak <- if ("peak_memory_MB" %in% names(x)) x$peak_memory_MB else x$memory_usage_MB
     dur <- if ("duration_ms" %in% names(x)) x$duration_ms else x$duration
+    expected_iterations <- as.integer(params$benchmark$iterations)
+    if (is.na(expected_iterations) || expected_iterations < 1L) {
+      expected_iterations <- 1L
+    }
+    result_iterations <- if ("benchmark_iterations" %in% names(x)) {
+      as.integer(x$benchmark_iterations)
+    } else {
+      NA_integer_
+    }
 
-    is.finite(as.numeric(peak)) && is.finite(as.numeric(dur))
+    is.finite(as.numeric(peak)) &&
+      is.finite(as.numeric(dur)) &&
+      !is.na(result_iterations) &&
+      identical(result_iterations, expected_iterations)
   }
 
   all(vapply(result_files, is_valid_result, logical(1)))
