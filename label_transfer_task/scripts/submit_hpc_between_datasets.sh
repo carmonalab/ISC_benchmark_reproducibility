@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ISC_label_transfer_between
 #SBATCH --partition=public-cpu
-#SBATCH --time=72:00:00
+#SBATCH --time=94:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=128G
