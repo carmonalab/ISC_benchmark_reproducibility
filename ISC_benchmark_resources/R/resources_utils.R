@@ -284,6 +284,8 @@ resource_parse_time_output <- function(output_lines) {
 resource_write_benchmark_script <- function(script_path) {
   script_lines <- c(
     "project_root <- Sys.getenv('PROJECT_ROOT', unset = normalizePath(file.path(getwd(), '..')))",
+    "Sys.setenv(RENV_PROJECT_EXPLICIT = project_root)",
+    "Sys.setenv(RENV_CONFIG_AUTOLOADER_ENABLED = 'FALSE')",
     "activate <- file.path(project_root, 'renv', 'activate.R')",
     "if (file.exists(activate)) source(activate)",
     "if (requireNamespace('renv', quietly = TRUE)) {",

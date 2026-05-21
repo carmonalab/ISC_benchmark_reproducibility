@@ -9,6 +9,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 RESOURCES_DIR="${PROJECT_ROOT}/ISC_benchmark_resources"
 export PROJECT_ROOT
 export RENV_PROJECT="${PROJECT_ROOT}"
+export RENV_PROJECT_EXPLICIT="${PROJECT_ROOT}"
 export RENV_CONFIG_AUTOLOADER_ENABLED="FALSE"
 
 log_msg() {
