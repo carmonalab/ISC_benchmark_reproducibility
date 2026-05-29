@@ -1,0 +1,174 @@
+---
+title: "Synthetic gene expression perturbation to evaluate ISC metrics"
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: show
+---
+
+# 1. Introduction
+Change GEX of some cell types in different ways to evaluate how ISC capture this.
+
+- Do multiple degrees (4) of gex perturbation, only on 2000 hvg to be evaluated by ISC later.
+
+- The cells to be changed should be aprox half of cells within a cell type to be studied, either:
+   * Half cells of each sample
+   * All cells of half of the samples
+   * Variant proportion of cells across samples
+
+- Then evaluate these changes in 2 situations:
+   * Same label in unchanged and changed cells
+   * Different label in unchanged and changed cells
+
+
+# 2. load depencies & set paths
+```{r, message=F, warning=F}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(BiocParallel)
+library(Seurat)
+library(scTypeEval)
+
+global = "2label_silhouette | Pseudobulk:Cosine"
+local = "silhouette | recip_classif:Match"
+```
+
+## exported figures directory
+```{r}
+fig_dir <- "figs"
+
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+
+# 3. Load dataset
+
+Use a simple dataset (PBMC) with enough samples and simplify it to different cell types.
+
+```{r}
+path <- "~/Documents/Projects/Consistency_metrics_benchmark/datasets/rds_datasets/Mitchel_Cambridge_Healthy.rds"
+cambridge_healthy <- load_single_cell_object(path)
+```
+
+## visualization
+```{r}
+seu <- CreateSeuratObject(counts = cambridge_healthy$counts,
+                          meta.data = cambridge_healthy$metadata)
+seu <- NormalizeData(seu)
+seu <- FindVariableFeatures(seu)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu)
+seu <- RunUMAP(seu, dims = 1:20)
+
+DimPlot(seu,
+        group.by = "OriginalAnnotationLevel1",
+        label = T
+      )
+DimPlot(seu,
+        group.by = "sample",
+        label = T
+      )
+```
+
+## Basal ISC
+```{r}
+data("black_list")
+bl <- list(black_list$TCR,
+           black_list$Immunoglobulins,
+           black_list$Ygenes) |>
+       unlist()
+sc <- wrapper_scTypeEval(count_matrix = cambridge_healthy$counts,
+                         metadata = cambridge_healthy$metadata,
+                         ident = "OriginalAnnotationLevel1",
+                         sample = "sample",
+                         dissimilarity_method = c("Pseudobulk:Cosine", "recip_classif:Match"),
+                         black_list = bl,
+                         ncores = 6)
+```
+
+```{r}
+consis <- get_consistency(sc,
+                          consistency_metric = c("silhouette", "2label_silhouette"))
+consis <- consis %>% 
+   mutate(method_type = paste(consistency_metric,
+                              dissimilarity_method,
+                              sep = " | ")) %>% 
+   filter(method_type %in% c(global, local)) %>% 
+   mutate(method_type = factor(method_type,
+                               levels = c(global, local),
+                               labels = c("global", "local")))
+cons_basal <- consis %>% 
+   select(method_type, measure, celltype) %>% 
+   pivot_wider(names_from = "method_type",
+               values_from = "measure") %>% 
+   mutate(product = global * local)
+```
+
+
+Based on basal ISC we picked the cell type with highest ISC.
+
+We will perturbated the cell type with most ISC basal (B_cell)
+
+```{r}
+keep <- c("B_cell", "CD14", "NK_16hi", "CD4")
+```
+
+
+## subset
+
+```{r}
+metadata <- cambridge_healthy$metadata %>% 
+   filter(OriginalAnnotationLevel1 %in% keep)
+counts <- cambridge_healthy$counts[,rownames(metadata)]
+```
+
+### Seurat umap
+```{r}
+seu <- CreateSeuratObject(counts = counts,
+                          meta.data = metadata)
+seu <- NormalizeData(seu)
+seu <- FindVariableFeatures(seu)
+seu <- ScaleData(seu)
+seu <- RunPCA(seu)
+seu <- RunUMAP(seu, dims = 1:20)
+
+DimPlot(seu,
+        group.by = "OriginalAnnotationLevel1",
+        label = T
+      )
+
+```
+
+
+### scType pca
+
+```{r}
+sc <- wrapper_scTypeEval(count_matrix = counts,
+                         metadata = metadata,
+                         ident = "OriginalAnnotationLevel1",
+                         sample = "sample",
+                         dissimilarity_method = c("Pseudobulk:Cosine", "recip_classif:Match"),
+                         black_list = bl,
+                         ncores = 6,
+                         verbose = F)
+```
+
+```{r}
+plot_pca(sc)
+```
+
+```{r}
+
+```
+
+
+
+
+
+
+
