@@ -33,6 +33,7 @@ library(tidyr)
 library(BiocParallel)
 library(Seurat)
 library(scTypeEval)
+source("utils.R")
 
 global = "2label_silhouette | Pseudobulk:Cosine"
 local = "silhouette | recip_classif:Match"
@@ -88,25 +89,12 @@ sc <- wrapper_scTypeEval(count_matrix = cambridge_healthy$counts,
                          sample = "sample",
                          dissimilarity_method = c("Pseudobulk:Cosine", "recip_classif:Match"),
                          black_list = bl,
-                         ncores = 6)
+                         ncores = 6,
+                         verbose = F)
 ```
 
 ```{r}
-consis <- get_consistency(sc,
-                          consistency_metric = c("silhouette", "2label_silhouette"))
-consis <- consis %>% 
-   mutate(method_type = paste(consistency_metric,
-                              dissimilarity_method,
-                              sep = " | ")) %>% 
-   filter(method_type %in% c(global, local)) %>% 
-   mutate(method_type = factor(method_type,
-                               levels = c(global, local),
-                               labels = c("global", "local")))
-cons_basal <- consis %>% 
-   select(method_type, measure, celltype) %>% 
-   pivot_wider(names_from = "method_type",
-               values_from = "measure") %>% 
-   mutate(product = global * local)
+cons_basal <- get_consistency_wide(sc)
 ```
 
 
@@ -116,6 +104,7 @@ We will perturbated the cell type with most ISC basal (B_cell)
 
 ```{r}
 keep <- c("B_cell", "CD14", "NK_16hi", "CD4")
+to_p <- "B_cell"
 ```
 
 
@@ -148,6 +137,7 @@ DimPlot(seu,
 ### scType pca
 
 ```{r}
+set.seed(22)
 sc <- wrapper_scTypeEval(count_matrix = counts,
                          metadata = metadata,
                          ident = "OriginalAnnotationLevel1",
@@ -156,15 +146,54 @@ sc <- wrapper_scTypeEval(count_matrix = counts,
                          black_list = bl,
                          ncores = 6,
                          verbose = F)
+hvg <- sc@gene_lists$HVG
 ```
 
 ```{r}
 plot_pca(sc)
-```
 
+(cons_basal_subset <- get_consistency_wide(sc))
+```
+## test perturbation
 ```{r}
 
+ss <- unique(metadata$sample)[1:6]
+metadata_perturb <- metadata %>% 
+   mutate(pertub_annot = ifelse(OriginalAnnotationLevel1 == to_p & sample %in% ss,
+                                "perturbed",
+                                as.character(OriginalAnnotationLevel1))
+          )
+
+cells_perturb <- metadata_perturb %>% 
+   filter(pertub_annot == "perturbed") %>% 
+   rownames()
+
+# keep only hvg
+counts_hvg <- counts[hvg,]
+   
+counts_perturb <- perturb_cells(counts_hvg,
+                                colnames = cells_perturb,
+                                noise = 1e200)
 ```
+
+#### consistency
+```{r}
+set.seed(22)
+sc <- wrapper_scTypeEval(count_matrix = counts_perturb,
+                         metadata = metadata_perturb,
+                         ident = "pertub_annot",
+                         sample = "sample",
+                         gene_list = list("hvg" = hvg),
+                         dissimilarity_method = c("Pseudobulk:Cosine", "recip_classif:Match"),
+                         black_list = bl,
+                         ncores = 6,
+                         verbose = F)
+
+plot_pca(sc)
+
+(cons_basal_test <- get_consistency_wide(sc))
+```
+
 
 
 
