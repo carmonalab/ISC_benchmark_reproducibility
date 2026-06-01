@@ -103,8 +103,10 @@ Based on basal ISC we picked the cell type with highest ISC.
 We will perturbated the cell type with most ISC basal (B_cell)
 
 ```{r}
-keep <- c("B_cell", "CD14", "NK_16hi", "CD4")
+keep <- c("B_cell", "CD14", "NK_16hi",
+          "CD4", "DCs")
 to_p <- "B_cell"
+ref_p <- "DCs" # cell type ref to add noise
 ```
 
 
@@ -158,7 +160,7 @@ plot_pca(sc)
 ```{r}
 
 ss <- unique(metadata$sample)[1:6]
-metadata_perturb <- metadata %>% 
+metadata_perturb <- metadata %>%
    mutate(pertub_annot = ifelse(OriginalAnnotationLevel1 == to_p & sample %in% ss,
                                 "perturbed",
                                 as.character(OriginalAnnotationLevel1))
@@ -168,20 +170,31 @@ cells_perturb <- metadata_perturb %>%
    filter(pertub_annot == "perturbed") %>% 
    rownames()
 
+cells_reference <- metadata_perturb %>% 
+   filter(pertub_annot == ref_p) %>% 
+   rownames()
+
 # keep only hvg
-counts_hvg <- counts[hvg,]
+counts_hvg <- counts[hvg, rownames(metadata_perturb)]
    
 counts_perturb <- perturb_cells(counts_hvg,
-                                colnames = cells_perturb,
-                                noise = 1e200)
+                                cells_perturb = cells_perturb,
+                                cells_reference = cells_reference,
+                                noise = 1)
+
+metadata_perturb <- metadata_perturb %>% 
+   filter(pertub_annot != ref_p)
+counts_perturb <- counts_perturb[, rownames(metadata_perturb)]
+
 ```
 
 #### consistency
 ```{r}
 set.seed(22)
+id <- "OriginalAnnotationLevel1"
 sc <- wrapper_scTypeEval(count_matrix = counts_perturb,
                          metadata = metadata_perturb,
-                         ident = "pertub_annot",
+                         ident = id,
                          sample = "sample",
                          gene_list = list("hvg" = hvg),
                          dissimilarity_method = c("Pseudobulk:Cosine", "recip_classif:Match"),
@@ -193,6 +206,180 @@ plot_pca(sc)
 
 (cons_basal_test <- get_consistency_wide(sc))
 ```
+
+
+# Loop all settings
+
+```{r}
+metadata <- cambridge_healthy$metadata %>% 
+   filter(OriginalAnnotationLevel1 %in% keep)
+counts <- cambridge_healthy$counts[,rownames(metadata)]
+```
+
+
+```{r, warning=F}
+noise_rates <- c(0, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 2, 3, 30, 100)
+#noise_rates <- c(0.075, 0.25, 30, 100)
+label_rates <- c("same" = "ident",
+                 "different" = "pertub_annot")
+perturbation_type <- c("per_sample", "same_sample", "different_sample")
+to_p <- "B_cell"
+ref_p <- "DCs" # cell type ref to add noise
+#results <- list()
+
+for(per in perturbation_type){
+   md_perturbed <- select_perturbed_cells(metadata,
+                                          ident = "OriginalAnnotationLevel1",
+                                          sample = "sample",
+                                          perturb_celltype = to_p,
+                                          type = per,
+                                          seed = 22)
+   cells_perturb <- md_perturbed %>% 
+      filter(pertub_annot == "perturbed") %>% 
+      rownames()
+   
+   cells_reference <- md_perturbed %>% 
+      filter(pertub_annot == ref_p) %>% 
+      rownames()
+   
+   # keep all genes
+   counts_hvg <- counts[, rownames(md_perturbed)]
+   
+   for(n in noise_rates){
+      counts_perturb <- perturb_cells(counts_hvg,
+                                      cells_perturb = cells_perturb,
+                                      cells_reference = cells_reference,
+                                      noise = n)
+      
+      md_perturbed <- md_perturbed %>% 
+         filter(pertub_annot != ref_p)
+      counts_perturb <- counts_perturb[, rownames(md_perturbed)]
+      
+      
+      for(lab in names(label_rates)){
+         
+         tit <- paste(per, n, lab)
+         cat("## Computing ISC for ", tit, "\n")
+         
+         set.seed(22)
+         sc <- wrapper_scTypeEval(count_matrix = counts_perturb,
+                                  metadata = md_perturbed,
+                                  ident = label_rates[[lab]],
+                                  sample = "sample",
+                                  dissimilarity_method = c("Pseudobulk:Cosine",
+                                                           "recip_classif:Match"),
+                                  black_list = bl,
+                                  ncores = 7,
+                                  verbose = F)
+         
+         pca <- plot_pca(sc)
+         rmm <- plot_heatmap(sc,
+                             dissimilarity_slot = "recip_classif:Match",
+                             sort_consistency = "silhouette")
+         
+         cons <- get_consistency_wide(sc, wide = F) %>% 
+            mutate(perturbation_type = per,
+                   noise = n,
+                   label = lab)
+         
+         res <- list(plot_pca = pca,
+                     rmm = rmm,
+                     consistency = cons)
+         
+         results[[tit]] <- res
+         
+      }
+   }
+}
+```
+
+## join dataframe
+```{r}
+allres <- lapply(results, function(x){x$consistency}) %>% 
+   data.table::rbindlist() %>% 
+   mutate(isc = paste(method_type, label, sep = "_"))
+```
+
+## line plots
+
+```{r line_plot}
+cols <- c(
+  "global"      = "#1B9E77",
+  "local" = "#D95F02"
+)
+
+df <- allres %>% 
+   filter(celltype == scTypeEval:::purge_label(to_p)) %>% 
+   mutate(noise = factor(noise),
+          perturbation_type = factor(perturbation_type,
+                                     levels = c("per_sample","same_sample","different_sample"),
+                                     labels = c("Different samples", "50% each sample", "25% | 75% of each sample")))
+
+pl <-  df %>% 
+   ggplot(aes(noise, measure, color = method_type)) +
+   geom_point(aes(shape = label)) +
+   geom_line(aes(group = isc,
+                 linetype = label)) +
+   scale_color_manual(values = cols) +
+   facet_wrap(~perturbation_type, ncol = 1) +
+   labs(y = "ISC",
+        x = "Perturbation degree") +
+   ggpubr::theme_classic2()
+```
+
+```{r}
+figpath <- file.path(fig_dir, "lineplots.pdf")
+
+pdf(figpath, width = 7, height = 5)
+pl
+dev.off()
+```
+
+
+
+```{r}
+allpca <- lapply(names(results),
+                 function(x){results[[x]]$plot_pca$pseudobulk +
+                       ggpubr::theme_classic2() +
+                       theme(title = element_blank(),
+                             axis.ticks = element_blank(),
+                             axis.title = element_blank(),
+                             axis.text = element_blank())})
+names(allpca) <- names(results)
+
+allpca_combi <- ggpubr::ggarrange(plotlist = allpca)
+
+allph <- lapply(names(results),
+                 function(x){results[[x]]$rmm +
+                       theme(title = element_blank(),
+                             axis.text.x = element_blank())})
+names(allph) <- names(results)
+
+allph_combi <- ggpubr::ggarrange(plotlist = allph)
+```
+
+```{r}
+figpath_pca <- file.path(fig_dir, "pca")
+dir.create(figpath_pca)
+figpath_rmm <- file.path(fig_dir, "rmm")
+dir.create(figpath_rmm)
+
+for(a in names(allpca)){
+   path <- file.path(figpath_pca, paste0(a, ".pdf"))
+   pdf(path, width = 2, height = 2)
+   print(allpca[[a]])
+   dev.off()
+   
+   path <- file.path(figpath_rmm, paste0(a, ".pdf"))
+   pdf(path, width = 2, height = 1.2)
+   print(allph[[a]])
+   dev.off()
+}
+```
+
+
+
+
 
 
 
