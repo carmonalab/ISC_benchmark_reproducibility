@@ -1,26 +1,33 @@
 # Label-Transfer Benchmark Pipeline
 
-Classifier benchmarking pipeline for automated cell-type label transfer reproducibility.
+Evaluation of inter-sample consistency (ISC) as an unsupervised predictor of supervised cell-type classification performance across 14 classifiers.
 
 ## Scope
 
-This pipeline evaluates multiple classifiers using query/reference splits built from processed datasets.
+Label projection (label transfer) is a widely-used strategy for automated cell type classification in scRNA-seq datasets. A key limitation is that evaluating performance requires ground-truth labels—unavailable when applied to unannotated datasets. This pipeline tests the hypothesis that ISC can serve as an unsupervised predictor of classification performance.
+
+This pipeline implements two complementary evaluation schemes:
+- **Intra-dataset** (within-dataset): Sample-aware train-test splits to assess generalization across biological replicates
+- **Inter-dataset** (cross-study): Train on one dataset, test on an independent dataset to emulate cross-study label transfer
+
+Both schemes compare 14 classifiers (13 methods + 1 random baseline) using ground-truth labels in held-out test sets, enabling direct assessment of classification performance.
 
 Main entrypoints:
-- `_targets.R`
-- `R/00_prepare_splits.R`
-- `scripts/master_job.sh`
-- `scripts/submit_hpc.sh`
+- `_targets.R` (intra-dataset evaluation)
+- `_targets_between_datasets.R` (inter-dataset evaluation)
+- `scripts/master_job.sh` (run _targets.R)
+- `scripts/master_job_between_datasets.sh` (run _targets_between_datasets.R)
 
 ## Inputs
 
 Required:
 - Processed datasets from `data_processing/` in `../data/processed/`
-- Pipeline parameters in `config/label_transfer_parameters.yaml`
+- Intra-dataset parameters in `config/label_transfer_parameters.yaml`
+- Inter-dataset parameters in `config/label_transfer_between_parameters.yaml`
 
 ## Quick Start
 
-From repository root:
+**Intra-dataset evaluation** (sample-aware splits, generalization across replicates):
 
 ```bash
 Rscript -e 'renv::restore()'
@@ -28,9 +35,37 @@ cd label_transfer_task
 Rscript -e 'targets::tar_make()'
 ```
 
-`targets::tar_make()` prepares query/reference splits automatically through the `lt_prepared_splits` target.
+**Inter-dataset evaluation** (cross-study label transfer):
 
-Optional standalone split preparation:
+```bash
+cd label_transfer_task
+Rscript -e 'targets::tar_make(script = "_targets_between_datasets.R", store = "_targets_between")'
+```
+
+Split preparation is automatic via `lt_prepared_splits` target. Optional manual split generation:
+
+```bash
+Rscript label_transfer_task/R/00_prepare_splits.R
+```
+
+Resume after interruption:
+
+```bash
+cd label_transfer_task
+```
+
+For between-dataset, add `script = "_targets_between_datasets.R", store = "_targets_between"` arguments.
+
+Optional direct classifier runner:
+
+For between-dataset, add `script = "_targets_between_datasets.R", store = "_targets_between"` arguments.
+
+## HPC Execution
+
+
+**Intra-dataset HPC submission:**
+
+Split preparation is automatic via `lt_prepared_splits` target. Optional manual split generation:
 
 ```bash
 Rscript label_transfer_task/R/00_prepare_splits.R
@@ -43,54 +78,93 @@ cd label_transfer_task
 Rscript -e 'targets::tar_make()'
 ```
 
-Optional direct classifier runner:
-
-```bash
-cd ..
-Rscript label_transfer_task/R/01_run_classifiers.R
-```
+For between-dataset, add `script = "_targets_between_datasets.R", store = "_targets_between"` arguments.
 
 ## HPC Execution
 
-Local/HPC wrapper (runs targets pipeline):
+**Intra-dataset HPC submission:**
+bash label_transfer_task/scripts/master_job.sh
+```
+
+**Inter-dataset HPC submission:**
+
+```bash
+bash label_transfer_task/scripts/master_job_between_datasets.sh
+```
+## Quick Start
+
+**Intra-dataset evaluation** (sample-aware splits, generalization across replicates):
+
+```bash
+Rscript -e 'renv::restore()'
+cd label_transfer_task
+Rscript -e 'targets::tar_make()'
+```
+
+**Inter-dataset evaluation** (cross-study label transfer):
+
+```bash
+cd label_transfer_task
+Rscript -e 'targets::tar_make(script = "_targets_between_datasets.R", store = "_targets_between")'
+```
+
+Split preparation is automatic via `lt_prepared_splits` target. Optional manual split generation:
+
+```bash
+Rscript label_transfer_task/R/00_prepare_splits.R
+```
+
+Resume after interruption:
+
+```bash
+cd label_transfer_task
+Rscript -e 'targets::tar_make()'
+```
+
+For between-dataset, add `script = "_targets_between_datasets.R", store = "_targets_between"` arguments.
+
+## HPC Execution
+
+**Intra-dataset HPC submission:**
 
 ```bash
 bash label_transfer_task/scripts/master_job.sh
 ```
 
-SLURM submission:
+**Inter-dataset HPC submission:**
 
 ```bash
-sbatch label_transfer_task/scripts/submit_hpc.sh
+bash label_transfer_task/scripts/master_job_between_datasets.sh
 ```
 
 ## Outputs
 
-Aggregated outputs:
-- `results/aggregated/label_transfer_metrics_aggregated.csv`
-- `results/aggregated/label_transfer_summary_stats.csv`
+**Intra-dataset results:**
 
-Figures:
-- `results/figures/`
+**Inter-dataset results:**
 
 Split inputs and prediction artifacts are written under:
-- `../data/processed/label_transfer/rep<k>/<dataset_id>/`
 
 ## Configuration
 
-Edit `config/label_transfer_parameters.yaml`:
-- `seed`
-- `n_cores`
-- `n_replicates`
-- `data_preparation.min_samples`
-- `data_preparation.prop_query`
-- `classifiers.methods`
+**Intra-dataset** (`config/label_transfer_parameters.yaml`):
+
+**Inter-dataset** (`config/label_transfer_between_parameters.yaml`):
+Resume after interruption:
+
+```bash
+cd label_transfer_task
+Rscript -e 'targets::tar_make()'
+```
+
+For between-dataset, add `script = "_targets_between_datasets.R", store = "_targets_between"` arguments.
 
 ## Troubleshooting
 
-- Missing split files: rerun `targets::tar_make()` (it regenerates splits via `lt_prepared_splits`) or run `R/00_prepare_splits.R` manually.
-- Empty/partial results: rerun `targets::tar_make()` to resume.
-- Classifier failures: check package availability in the project `renv` environment.
+- Missing split files: rerun `targets::tar_make()` (splits are generated by `lt_prepared_splits` target)
+- Empty results: rerun pipeline to resume execution
+- Classifier failures: verify classifier packages are installed in renv environment
+- Between-dataset execution: use `script = "_targets_between_datasets.R"` argument to run inter-dataset pipeline separately
 
 ## Related
 
