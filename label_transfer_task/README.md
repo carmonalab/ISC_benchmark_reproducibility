@@ -24,9 +24,16 @@ From repository root:
 
 ```bash
 Rscript -e 'renv::restore()'
-Rscript label_transfer_task/R/00_prepare_splits.R
 cd label_transfer_task
 Rscript -e 'targets::tar_make()'
+```
+
+`targets::tar_make()` prepares query/reference splits automatically through the `lt_prepared_splits` target.
+
+Optional standalone split preparation:
+
+```bash
+Rscript label_transfer_task/R/00_prepare_splits.R
 ```
 
 Resume after interruption:
@@ -81,7 +88,7 @@ Edit `config/label_transfer_parameters.yaml`:
 
 ## Troubleshooting
 
-- Missing split files: run `R/00_prepare_splits.R` first.
+- Missing split files: rerun `targets::tar_make()` (it regenerates splits via `lt_prepared_splits`) or run `R/00_prepare_splits.R` manually.
 - Empty/partial results: rerun `targets::tar_make()` to resume.
 - Classifier failures: check package availability in the project `renv` environment.
 
