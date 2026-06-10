@@ -12,6 +12,7 @@ This repository is organized around four main reproducibility layers:
 
 - Process all core raw datasets into standardized outputs (`data_processing`)
 - Run the ISC benchmark (`ISC_benchmark/`)
+- Run saturation analysis on ISC metrics (`ISC_benchmark_saturation/`)
 - Run the label-transfer benchmark (supervised classification) (`label_transfer_task/`)
 - Run meta-study using top ISC metrics (`Meta_study/`)
 - Render manuscript figure notebooks from processed outputs (`Figures_notebooks/`)
@@ -62,6 +63,22 @@ Details and HPC submission options:
 - `ISC_benchmark/scripts/`
 - `ISC_benchmark/config/`
 
+## Run ISC Saturation Analysis
+
+The saturation pipeline evaluates ranking stability by assessing method rankings across progressively larger subsets of datasets. It measures whether top-performing methods remain robust to dataset selection and predicts ranking convergence at larger dataset numbers.
+
+```bash
+cd ISC_benchmark_saturation
+Rscript -e 'targets::tar_make()'
+```
+
+Main outputs:
+- `ISC_benchmark_saturation/results/` — Ranking stability analysis, correlation distributions, and trend curves
+
+Details and optional runner script:
+- `ISC_benchmark_saturation/README.md`
+- `ISC_benchmark_saturation/scripts/`
+
 ### Label-transfer benchmark
 
 The label-transfer pipeline benchmarks supervised classifiers on query/reference splits generated from processed datasets.
@@ -110,6 +127,7 @@ Details and optional runner script:
 
 - `data_processing/README.md`
 - `ISC_benchmark/README.md`
+- `ISC_benchmark_saturation/README.md`
 - `label_transfer_task/README.md`
 - `Meta_study/README.md`
 
@@ -138,11 +156,12 @@ Notebook respective inputs are listed within notebooks.
 2. Download Zenodo raw files to `data/raw/`
 3. Run `data_processing/`
 4. Run `ISC_benchmark/`
-5. Run `label_transfer_task/`
-6. Run `Meta_study/`
-7. Render notebooks in `Figures_notebooks/`
+5. Run `ISC_benchmark_saturation/`
+6. Run `label_transfer_task/`
+7. Run `Meta_study/`
+8. Render notebooks in `Figures_notebooks/`
 
 ## Troubleshooting
 
-- If a pipeline cannot find paths, run commands from the module directory (`data_processing/`, `ISC_benchmark/`, `label_transfer_task/`, `Meta_study/`)
+- If a pipeline cannot find paths, run commands from the module directory (`data_processing/`, `ISC_benchmark/`, `ISC_benchmark_saturation/`, `label_transfer_task/`, `Meta_study/`)
 - If outputs are partial after interruption, rerun `targets::tar_make()` in the same module to resume
