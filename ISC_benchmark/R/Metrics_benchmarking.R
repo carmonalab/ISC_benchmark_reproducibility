@@ -290,8 +290,15 @@ wr_missclasify <- function(count_matrix,
                                                              ncores = ncores,
                                                              verbose = verbose
                              )
-                             # data.frame with consistency outcome
-                             res <- get_consistency(sc_tmp, verbose = verbose)
+                                           # data.frame with consistency outcome
+                                           res <- get_consistency(
+                                              sc_tmp,
+                                              dissimilarity_slot = dissimilarity_method,
+                                              consistency_metric = int_val_metric,
+                                              knn_graph_k = knn_graph_k,
+                                              hclust_method = hclust_method,
+                                              verbose = verbose
+                                           )
                              
                              # accommodate extra data
                              res <- res |>
@@ -453,8 +460,15 @@ wr_nsamples <- function(count_matrix,
                                                              ncores = ncores,
                                                              verbose = verbose
                              )
-                             # data.frame with consistency outcome
-                             res <- get_consistency(sc_tmp, verbose = verbose)
+                                           # data.frame with consistency outcome
+                                           res <- get_consistency(
+                                              sc_tmp,
+                                              dissimilarity_slot = dissimilarity_method,
+                                              consistency_metric = int_val_metric,
+                                              knn_graph_k = knn_graph_k,
+                                              hclust_method = hclust_method,
+                                              verbose = verbose
+                                           )
                              
                              # accommodate extra data
                              res <- res |>
@@ -603,8 +617,15 @@ wr_nct <- function(count_matrix,
                                                              ncores = ncores,
                                                              verbose = verbose
                              )
-                             # data.frame with consistency outcome
-                             res <- get_consistency(sc_tmp, verbose = verbose)
+                                           # data.frame with consistency outcome
+                                           res <- get_consistency(
+                                              sc_tmp,
+                                              dissimilarity_slot = dissimilarity_method,
+                                              consistency_metric = int_val_metric,
+                                              knn_graph_k = knn_graph_k,
+                                              hclust_method = hclust_method,
+                                              verbose = verbose
+                                           )
                              
                              # accommodate extra data
                              res <- res |>
@@ -783,8 +804,15 @@ wr_ncell <- function(count_matrix,
                                                              ncores = ncores,
                                                              verbose = verbose
                              )
-                             # data.frame with consistency outcome
-                             res <- get_consistency(sc_tmp, verbose = verbose)
+                                           # data.frame with consistency outcome
+                                           res <- get_consistency(
+                                              sc_tmp,
+                                              dissimilarity_slot = dissimilarity_method,
+                                              consistency_metric = int_val_metric,
+                                              knn_graph_k = knn_graph_k,
+                                              hclust_method = hclust_method,
+                                              verbose = verbose
+                                           )
                              
                              # accommodate extra data
                              res <- res |>
@@ -966,8 +994,15 @@ wr_merge_ct <- function(count_matrix,
                                                              ncores = ncores,
                                                              verbose = verbose
                              )
-                             # data.frame with consistency outcome
-                             res <- get_consistency(sc_tmp, verbose = verbose)
+                                           # data.frame with consistency outcome
+                                           res <- get_consistency(
+                                              sc_tmp,
+                                              dissimilarity_slot = dissimilarity_method,
+                                              consistency_metric = int_val_metric,
+                                              knn_graph_k = knn_graph_k,
+                                              hclust_method = hclust_method,
+                                              verbose = verbose
+                                           )
                              
                              # accommodate extra data
                              res <- res |>
@@ -1122,8 +1157,15 @@ wr_split_cell_type <- function(count_matrix,
                                                              ncores = ncores,
                                                              verbose = verbose
                              )
-                             # data.frame with consistency outcome
-                             res <- get_consistency(sc_tmp, verbose = verbose)
+                                           # data.frame with consistency outcome
+                                           res <- get_consistency(
+                                              sc_tmp,
+                                              dissimilarity_slot = dissimilarity_method,
+                                              consistency_metric = int_val_metric,
+                                              knn_graph_k = knn_graph_k,
+                                              hclust_method = hclust_method,
+                                              verbose = verbose
+                                           )
                              
                              # accommodate extra data
                              res <- res |>
