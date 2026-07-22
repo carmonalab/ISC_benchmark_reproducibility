@@ -1239,8 +1239,9 @@ wr_assay_plot <- function(df,
       stop("Not supported grouping, it has to be either celltype or ident")
    }
    
-   # remove NA or NaN
-   rsq <- rsq[complete.cases(rsq),]
+   # remove NA
+   rsq <- rsq %>% 
+      filter(!is.na(measure))
    
    type <- type[1] |> tolower()
    
