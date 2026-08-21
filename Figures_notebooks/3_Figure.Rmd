@@ -81,32 +81,6 @@ minmax_scale <- function(x) {
   (x - rng[1]) / diff(rng)
 }
 
-#' Calculate ratio between single and multi-batch consistency
-#' @param mb Multi-batch identifier
-#' @param df Data frame with consistency measures
-#' @return Data frame with consistency ratios
-calculate_batch_ratio <- function(mb, df) {
-  singles <- str_split(mb, "-", simplify = TRUE) %>% as.vector()
-  
-  r <- df %>%
-    filter(batch %in% c(mb, singles)) %>%
-    group_by(dissimilarity_method, consistency.metric,
-             celltype, dataset, ident) %>%
-    summarise(
-      multi_measure = measure[batch == mb],
-      single_mean   = mean(measure[batch %in% singles], na.rm = TRUE),
-      .groups = "drop"
-    ) %>%
-    filter(!is.na(multi_measure), !is.na(single_mean)) %>%
-    mutate(
-      batch = mb,
-      drop = single_mean - multi_measure,
-      score_celltype = if_else(drop < 0, 0, drop),
-      score_celltype = 1 - score_celltype
-    )
-  return(r)
-}
-
 #' Standardize method names
 #' @param df Data frame
 #' @return Data frame with standardized method names
@@ -117,16 +91,11 @@ standardize_methods <- function(df) {
     df <- df %>% rename(dissimilarity_method = dissimilarity.method)
   }
   
-    if (!"consistency.metric" %in% colnames(df)) {
-    df <- df %>% rename(consistency.metric = method)
-  }
-  
   df %>%
     mutate(
-      consistency.metric = gsub("Orbital\\.medoid", "Nearest.medoid", consistency.metric),
-      consistency.metric = gsub("ward\\.PropMatch", "Clustering.agreement", consistency.metric),
-      dissimilarity_method = gsub("BestHit", "RecipClassif", dissimilarity_method),
-      method_type = paste(consistency.metric, dissimilarity_method, sep = " | ")
+      consistency_metric = gsub("Orbital_medoid", "Nearest_medoid", consistency_metric),
+      consistency_metric = gsub("ward_PropMatch", "Clustering_agreement", consistency_metric),
+      method_type = paste(consistency_metric, dissimilarity_method, sep = " | ")
     )
 }
 
@@ -221,7 +190,7 @@ compute_residual_effects <- function(task_summary_df, for_plot = FALSE) {
 ```{r load-resources}
 message("Loading resources data...")
 
-li.fi <- list.files(file.path(wd, "resources/output"),
+li.fi <- list.files(file.path("resources/output"),
                     recursive = TRUE,
                     pattern = "[.]rds",
                     full.names = TRUE)
@@ -242,12 +211,17 @@ message("✓ Resources data loaded: ", nrow(resources_data), " rows")
 ```{r load-benchmarking, warning=F}
 message("Loading benchmarking tasks data...")
 
-li.fi <- list.files(file.path(wd, "../ISC_benchmark/results"),
-                    pattern = "rds$",
+li.fi <- list.files(file.path("../ISC_benchmark/results_MN"),
+                    pattern = "metrics[.]rds$",
                     recursive = TRUE,
                     full.names = TRUE)
+# remove batch effects and biological
+li.fi <- grep("batch_effect|biological_perturbation",
+              li.fi,
+              value = T,
+              invert = T)
 
-tasks_data <- bplapply(
+tmp <- bplapply(
   li.fi,
   BPPARAM = MulticoreParam(workers = CONFIG$n_workers, progressbar = TRUE),
   function(fi) {
@@ -259,24 +233,22 @@ tasks_data <- bplapply(
     
     if (length(unique(df0$rate)) < 2) return(NULL)
     
-    dataset <- str_remove(strsplit(fi, "/")[[1]][9], "_\\d+_\\d+$")
+    dataset <- str_remove(strsplit(fi, "/")[[1]][4], "_\\d+_\\d+$")
     
     # Infer assay type from filename
     assay_type <- case_when(
-      grepl("Missclassific", fi, ignore.case = TRUE) ~ "Signal-degradation",
+      grepl("Missclassif", fi, ignore.case = TRUE) ~ "Signal-degradation",
       grepl("NSamples", fi, ignore.case = TRUE) ~ "Number-samples",
       grepl("NCell", fi, ignore.case = TRUE) ~ "Number-cells",
       grepl("Nct", fi, ignore.case = TRUE) ~ "Complexity",
-      grepl("mergeCT", fi, ignore.case = TRUE) ~ "Granularity",
+      grepl("complexi", fi, ignore.case = TRUE) ~ "Granularity",
       grepl("SplitCelltype", fi, ignore.case = TRUE) ~ "Overpartitioning",
       TRUE ~ "Unknown"
     )
     
     # Filter for specific cell types if needed
     if (assay_type %in% c("Number-cells", "Overpartitioning") && CONFIG$onlyCell) {
-      fname <- basename(fi)
-      cell_type_raw <- strsplit(fname, split = "_")[[1]][2]
-      cell_type <- scTypeEval:::purge_label(cell_type_raw)
+      cell_type <- unique(df0$perturbed_ctype)
       
       if ("celltype" %in% colnames(df0)) {
         df0 <- df0 %>% filter(celltype == cell_type)
@@ -285,7 +257,7 @@ tasks_data <- bplapply(
     
     if (nrow(df0) < 1) return(NULL)
     
-    ident <- unique(df0$original.ident)
+    ident <- unique(df0$original_ident)
     
     # Standardize rates
     if (assay_type == "Number-samples") {
@@ -304,20 +276,20 @@ tasks_data <- bplapply(
     # Calculate benchmarking scores
     if (CONFIG$benchmarking_scores) {
       summ_type <- case_when(
-        grepl("Missclassific", fi, ignore.case = TRUE) ~ "Monotonic",
+        grepl("Missclassif", fi, ignore.case = TRUE) ~ "Monotonic",
         grepl("NSamples", fi, ignore.case = TRUE) ~ "Constant",
         grepl("NCell", fi, ignore.case = TRUE) ~ "Constant",
         grepl("Nct", fi, ignore.case = TRUE) ~ "Constant",
-        grepl("mergeCT", fi, ignore.case = TRUE) ~ "Constant",
+        grepl("complexi", fi, ignore.case = TRUE) ~ "Constant",
         grepl("SplitCelltype", fi, ignore.case = TRUE) ~ "drop",
         TRUE ~ "Unknown"
       )
       
       g <- if (assay_type == "Granularity") "ident" else CONFIG$group
       
-      df0 <- wr.assayPlot(df0,
+      df0 <- wr_assay_plot(df0,
                           type = summ_type,
-                          return.df = TRUE,
+                          return_df = T,
                           group = g)
     }
     
@@ -328,8 +300,9 @@ tasks_data <- bplapply(
     return(df0)
   }
   
-) %>%
-  rbindlist(use.names = TRUE, fill = TRUE) %>%
+) 
+
+tasks_data <- tmp %>% rbindlist(use.names = TRUE, fill = TRUE) %>%
   standardize_methods()
 
 message("✓ Tasks data loaded: ", nrow(tasks_data), " rows")
@@ -337,82 +310,53 @@ message("✓ Tasks data loaded: ", nrow(tasks_data), " rows")
 ```
 
 
-## 3. Batch Effect Data
+## 3. Batch Effect and pertrubation Data
 
 ```{r load-batch-effect}
-message("Loading batch effect data...")
+message("Loading batch effect and perturbation data...")
 
-li.fi <- list.files(file.path(wd, "BatchEffect_singleRun/output"),
+li.fi <- list.files(file.path("../ISC_benchmark/results_MN"),
+                    pattern = "metrics[.]rds$",
                     recursive = TRUE,
-                    full.names = TRUE) %>%
-  grep("output_281025", ., invert = TRUE, value = TRUE)
+                    full.names = TRUE)
+# remove batch effects and biological
+li.fi <- grep("batch_effect|biological_perturbation",
+              li.fi,
+              value = T)
 
 mult_dataset <- bplapply(
   li.fi,
   BPPARAM = MulticoreParam(workers = CONFIG$n_workers, progressbar = TRUE),
   function(fi) {
-    df <- readRDS(fi)
-    if (is.null(df$Consistency)) return(NULL)
-    
-    df$Consistency %>%
-      mutate(rate = stringr::str_count(as.character(batch), "-") + 1)
+    readRDS(fi)
   }
 ) %>%
-  data.table::rbindlist() 
+  data.table::rbindlist()
 
-batch_data <- mult_dataset %>%
-  filter(
-    !grepl("Healthy|Normal|Tirosh|Jerby|Bassez|Alvarez|nose|airway", batch) &
-      rate < 3
-  )
-
-message("✓ Batch effect data loaded: ", nrow(batch_data), " rows")
+message("✓ Batch effect data loaded: ", nrow(mult_dataset), " rows")
 ```
 
-## 4. Process Batch Effect Scores
+## 4. Process Batch Effect/perturbation Scores
 
 ```{r process-batch-effect}
 # Identify multi-batches
-multi_batches <- unique(batch_data$batch[str_detect(batch_data$batch, "-")])
-
-batch_scores <- lapply(multi_batches, function(x) {
-  calculate_batch_ratio(mb = x, df = batch_data)
-}) %>%
-  data.table::rbindlist() %>%
-  standardize_methods() %>%
-  mutate(assay = "Batch-effect",
-         dataset = batch)
-
-message("✓ Batch effect scores calculated: ", nrow(batch_scores), " rows")
+multi_batches <- mult_dataset %>% 
+  group_by(task, dissimilarity_method, consistency_metric,
+             celltype, dataset_id, pair_id, ident) %>% 
+  summarise(
+      multi_measure = measure[source == "merged"],
+      single_mean   = mean(measure[source == "single"], na.rm = TRUE),
+      .groups = "drop"
+    ) %>%
+    filter(!is.na(multi_measure), !is.na(single_mean)) %>%
+    mutate(
+      drop = single_mean - multi_measure,
+      score_celltype = if_else(drop < 0, 0, drop),
+      score_celltype = 1 - score_celltype,
+      assay = task
+    ) %>% 
+  standardize_methods()
 ```
-
-## 5. Perturbation Effect Data
-
-```{r process-perturbation}
-message("Processing perturbation effect data...")
-
-# Identify perturbation conditions
-multi_condition <- mult_dataset %>%
-  filter(rate < 3) %>%
-  separate(batch, sep = "-", into = c("d1", "d2"), remove = FALSE) %>%
-  separate(d1, sep = "_", into = c("source1", "condition1")) %>%
-  separate(d2, sep = "_", into = c("source2", "condition2")) %>%
-  filter(source1 == source2) %>%
-  pull(batch) %>%
-  unique() %>%
-  .[str_detect(., "-")]
-
-perturbation_scores <- lapply(multi_condition, function(x) {
-  calculate_batch_ratio(mb = x, df = mult_dataset)
-}) %>%
-  data.table::rbindlist() %>%
-  standardize_methods() %>%
-  mutate(assay = "Perturbation-effect",
-         dataset = batch)
-
-message("✓ Perturbation scores calculated: ", nrow(perturbation_scores), " rows")
-```
-
 
 
 # Data Processing
@@ -421,12 +365,12 @@ message("✓ Perturbation scores calculated: ", nrow(perturbation_scores), " row
 
 ```{r combine-tasks}
 # Combine all task data
-all_tasks <- list(tasks_data, batch_scores, perturbation_scores) %>%
+all_tasks <- list(tasks_data, multi_batches) %>%
   data.table::rbindlist(use.names = TRUE, fill = TRUE)
 
 # Aggregate by group
 all_tasks_agg <- all_tasks %>%
-  group_by(dissimilarity_method, consistency.metric, method_type,
+  group_by(dissimilarity_method, consistency_metric, method_type,
            assay, dataset, ident) %>%
   summarise(score = mean(score_celltype, na.rm = TRUE), .groups = "drop")
 
@@ -446,8 +390,8 @@ weight_vector <- c(
   "Complexity" = 0.10,
   "Number-samples" = 0.10,
   "Number-cells" = 0.10,
-  "Batch-effect" = 0.10,
-  "Perturbation-effect" = 0.10
+  "batch_effects" = 0.10,
+  "biological_perturbations" = 0.10
 )
 
 # Verify weights sum to 1
@@ -512,8 +456,8 @@ task_summary <- task_summary %>%
         "Complexity",
         "Number-samples",
         "Number-cells",
-        "Batch-effect",
-        "Perturbation-effect"
+        "batch_effects",
+        "biological_perturbations"
       ),
       labels = c(
         "Signal degradation",
