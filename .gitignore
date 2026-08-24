@@ -3,6 +3,7 @@
 *.rds
 *troubleshooting*
 */figs/
+ign_*
 
 # R
 .Rhistory
@@ -29,6 +30,7 @@ audits/
 renv/
 activate.R
 .Rprofile
+.venv*/
 
 # targets
 */_targets*/
