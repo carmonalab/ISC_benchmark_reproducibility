@@ -7,7 +7,7 @@ ign_*
 
 # R
 .Rhistory
-.RData
+*.RData
 .Rproj.user/
 *.Rproj
 
