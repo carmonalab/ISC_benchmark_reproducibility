@@ -145,6 +145,22 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   wr_result <- NULL
   task_metrics <- NULL
   skip_persist <- FALSE
+  ext_cfg <- get_external_methods_config(config)
+  external_state_callback <- NULL
+
+  if (!is.null(ext_cfg)) {
+    external_state_callback <- function(sc_obj_state, state) {
+      run_external_methods_for_state(
+        sc_obj = sc_obj_state,
+        task_name = task_name,
+        dataset_id = dataset_id,
+        ident_col = ident_col,
+        output_dir = task_output_dir,
+        config = config,
+        state = state
+      )
+    }
+  }
   
   tryCatch({
     message_step("TASK", sprintf("Running %s...", task_name))
@@ -165,32 +181,38 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     switch(task_name,
       "missclassify" = {
         wr_result <- run_task_missclassify(obj_prepared, config, task_config, task_output_dir,
-                                             baseline_df = baseline_df)
+                                             baseline_df = baseline_df,
+                                             external_state_callback = external_state_callback)
         task_metrics <- wr_result
       },
       "SplitCelltype" = {
         wr_result <- run_task_SplitCelltype(obj_prepared, config, task_config, task_output_dir,
-                                              baseline_df = baseline_df)
+                                              baseline_df = baseline_df,
+                                              external_state_callback = external_state_callback)
         task_metrics <- wr_result
       },
       "Nct" = {
         wr_result <- run_task_Nct(obj_prepared, config, task_config, task_output_dir,
-                                    baseline_df = baseline_df)
+                                    baseline_df = baseline_df,
+                                    external_state_callback = external_state_callback)
         task_metrics <- wr_result
       },
       "cellular_complexity" = {
         wr_result <- run_task_cellular_complexity(obj_prepared, config, task_config, task_output_dir,
-                                                   baseline_df = baseline_df)
+                                                   baseline_df = baseline_df,
+                                                   external_state_callback = external_state_callback)
         task_metrics <- wr_result
       },
       "Nsamples" = {
         wr_result <- run_task_Nsamples(obj_prepared, config, task_config, task_output_dir,
-                                         baseline_df = baseline_df)
+                                         baseline_df = baseline_df,
+                                         external_state_callback = external_state_callback)
         task_metrics <- wr_result
       },
       "NCell" = {
         wr_result <- run_task_NCell(obj_prepared, config, task_config, task_output_dir,
-                                      baseline_df = baseline_df)
+                                      baseline_df = baseline_df,
+                                      external_state_callback = external_state_callback)
         task_metrics <- wr_result
       },
       "batch_effects" = {
@@ -198,7 +220,8 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
         wr_result <- run_task_batch_effects(obj_prepared, config, config[["task_batch_effects"]], task_output_dir,
                                              specs_path    = specs_file,
                                              results_root  = config$output$dir,
-                                             dataset_stems = dataset_stems)
+                                             dataset_stems = dataset_stems,
+                                             external_state_callback = external_state_callback)
         if (!is.null(wr_result)) {
           task_metrics <- wr_result %>%
             mutate(task = task_name,
@@ -215,7 +238,8 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
         wr_result <- run_task_biological_perturbations(obj_prepared, config, config[["task_biological_perturbations"]],
                                                         task_output_dir, specs_path = specs_file,
                                                         results_root  = config$output$dir,
-                                                        dataset_stems = dataset_stems)
+                                                        dataset_stems = dataset_stems,
+                                                        external_state_callback = external_state_callback)
         if (!is.null(wr_result)) {
           task_metrics <- wr_result %>%
             mutate(task = task_name,
@@ -250,21 +274,25 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   
   # ========== STEP 4: Save results ==========
   if (!is.null(task_metrics)) {
-    external_metrics <- tryCatch(
-      run_external_methods_for_task(
-        obj_prepared = obj_prepared,
-        task_metrics = task_metrics,
-        task_name = task_name,
-        dataset_id = dataset_id,
-        ident_col = ident_col,
-        output_dir = task_output_dir,
-        config = config
-      ),
-      error = function(e) {
-        message_step("EXTERNAL", sprintf("External methods failed for %s: %s", task_name, e$message))
-        NULL
-      }
-    )
+    external_metrics <- attr(wr_result, "external_state_scores")
+
+    if (is.null(external_metrics) && !is.null(ext_cfg)) {
+      external_metrics <- tryCatch(
+        run_external_methods_for_task(
+          obj_prepared = obj_prepared,
+          task_metrics = task_metrics,
+          task_name = task_name,
+          dataset_id = dataset_id,
+          ident_col = ident_col,
+          output_dir = task_output_dir,
+          config = config
+        ),
+        error = function(e) {
+          message_step("EXTERNAL", sprintf("External methods failed for %s: %s", task_name, e$message))
+          NULL
+        }
+      )
+    }
 
     if (!is.null(external_metrics) && nrow(external_metrics) > 0) {
       task_metrics <- dplyr::bind_rows(task_metrics, external_metrics)
