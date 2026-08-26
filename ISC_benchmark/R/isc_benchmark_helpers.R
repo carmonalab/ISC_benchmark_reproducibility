@@ -113,6 +113,174 @@ build_external_method_rows <- function(method_name,
 }
 
 
+sanitize_state_tag <- function(x) {
+  x <- as.character(x)
+  x[is.na(x)] <- "na"
+  x <- gsub("[^A-Za-z0-9._-]", "_", x)
+  paste(x, collapse = "_")
+}
+
+
+build_external_method_rows_from_state <- function(method_name,
+                                                  method_score_df,
+                                                  dataset_id,
+                                                  ident_col,
+                                                  task_name,
+                                                  state = list()) {
+  if (is.null(method_score_df) || nrow(method_score_df) == 0) {
+    return(NULL)
+  }
+
+  state_df <- as.data.frame(state, stringsAsFactors = FALSE)
+  if (nrow(state_df) == 0) {
+    state_df <- data.frame(.tmp = 1L, stringsAsFactors = FALSE)
+  }
+  if (nrow(state_df) != 1) {
+    stop("state must describe exactly one perturbation state")
+  }
+
+  method_score_df <- method_score_df %>%
+    dplyr::mutate(
+      celltype = as.character(celltype),
+      level = ifelse(celltype == "__global__", "global", "celltype"),
+      measure = as.numeric(score),
+      consistency_metric = method_name,
+      dissimilarity_method = "external",
+      task = task_name,
+      dataset_id = dataset_id,
+      ident = ident_col
+    ) %>%
+    dplyr::select(dataset_id, ident, task, consistency_metric, dissimilarity_method, level, celltype, measure)
+
+  out <- tidyr::crossing(method_score_df, state_df)
+  if (".tmp" %in% names(out)) {
+    out$.tmp <- NULL
+  }
+  out
+}
+
+
+run_external_methods_for_state <- function(sc_obj,
+                                           task_name,
+                                           dataset_id,
+                                           ident_col,
+                                           output_dir,
+                                           config,
+                                           state = list()) {
+  ext_cfg <- get_external_methods_config(config)
+  if (is.null(ext_cfg)) {
+    return(NULL)
+  }
+
+  active_ident <- state$active_ident %||% ident_col
+  state_tag <- if (length(state) == 0) {
+    "state"
+  } else {
+    sanitize_state_tag(unlist(state, use.names = TRUE))
+  }
+
+  all_rows <- list()
+
+  py_specs <- list()
+  if (is_external_method_enabled_for_task(ext_cfg$sccaf, task_name)) {
+    py_specs[["sccaf"]] <- pipeline_spec_sccaf(
+      name = "sccaf",
+      cluster_key = active_ident,
+      n = as.integer(ext_cfg$sccaf$params$n %||% 100)
+    )
+  }
+  if (is_external_method_enabled_for_task(ext_cfg$anticor_features, task_name)) {
+    py_specs[["anticor_features"]] <- pipeline_spec_anticor_features(
+      name = "anticor_features",
+      cluster_key = active_ident,
+      min_cells = as.integer(ext_cfg$anticor_features$params$min_cells %||% 10),
+      species = ext_cfg$anticor_features$params$species %||% "hsapiens",
+      score_k = as.numeric(ext_cfg$anticor_features$params$score_k %||% 1.0)
+    )
+  }
+
+  if (length(py_specs) > 0) {
+    py_results <- tryCatch(
+      run_sample_agnostic_python_pipelines(
+        scTypeEval = sc_obj,
+        pipelines = py_specs,
+        tmp_dir = file.path(output_dir, "external_tmp"),
+        file_prefix = paste(dataset_id, ident_col, task_name, state_tag, sep = "_"),
+        assign_to_env = FALSE,
+        cleanup = TRUE
+      ),
+      error = function(e) {
+        message("[external] Python pipeline execution failed for state ", state_tag, ": ", e$message)
+        NULL
+      }
+    )
+
+    if (!is.null(py_results$sccaf)) {
+      all_rows[[length(all_rows) + 1]] <- build_external_method_rows_from_state(
+        method_name = "SCCAF",
+        method_score_df = py_results$sccaf,
+        dataset_id = dataset_id,
+        ident_col = ident_col,
+        task_name = task_name,
+        state = state
+      )
+    }
+
+    if (!is.null(py_results$anticor_features)) {
+      all_rows[[length(all_rows) + 1]] <- build_external_method_rows_from_state(
+        method_name = "anticor_features",
+        method_score_df = py_results$anticor_features,
+        dataset_id = dataset_id,
+        ident_col = ident_col,
+        task_name = task_name,
+        state = state
+      )
+    }
+  }
+
+  if (is_external_method_enabled_for_task(ext_cfg$scshc, task_name)) {
+    filt <- scTypeEval:::get_filtered_raw_matrix(sc_obj)
+    ident_vec <- filt$metadata[[active_ident]]
+
+    scshc_score <- tryCatch(
+      run_scSHC(
+        scTypeEval = sc_obj,
+        ident = ident_vec,
+        var.genes = rownames(filt$counts),
+        parallel = isTRUE(ext_cfg$scshc$params$parallel %||% FALSE),
+        cores = as.integer(ext_cfg$scshc$params$cores %||% 1)
+      ),
+      error = function(e) {
+        message("[external] sc-SHC failed for state ", state_tag, ": ", e$message)
+        NA_real_
+      }
+    )
+
+    if (!is.na(scshc_score)) {
+      scshc_df <- data.frame(
+        celltype = "__global__",
+        score = as.numeric(scshc_score),
+        stringsAsFactors = FALSE
+      )
+      all_rows[[length(all_rows) + 1]] <- build_external_method_rows_from_state(
+        method_name = "scSHC",
+        method_score_df = scshc_df,
+        dataset_id = dataset_id,
+        ident_col = ident_col,
+        task_name = task_name,
+        state = state
+      )
+    }
+  }
+
+  if (length(all_rows) == 0) {
+    return(NULL)
+  }
+
+  dplyr::bind_rows(all_rows)
+}
+
+
 run_external_methods_for_task <- function(obj_prepared,
                                           task_metrics,
                                           task_name,
@@ -836,7 +1004,8 @@ get_ratio <- function(mb, df, col = "batch") {
 
 #' Run Task 1: Sensitivity to cell type signal degradation (label noise)
 run_task_missclassify <- function(obj_prepared, config, task_config, output_dir,
-                                   baseline_df = NULL) {
+                                   baseline_df = NULL,
+                                   external_state_callback = NULL) {
   message("Running Task 1: Sensitivity to cell type signal degradation (Label Noise)")
   
   if (!is.null(baseline_df)) {
@@ -849,7 +1018,7 @@ run_task_missclassify <- function(obj_prepared, config, task_config, output_dir,
     config$common,
     task_config,
     # Disable internal wr_* file writing; orchestrator saves final baseline-inclusive result.
-    list(dir = NULL)
+    list(dir = NULL, external_state_callback = external_state_callback)
   )
   
   wr <- do.call(wr_missclasify, params)
@@ -863,7 +1032,8 @@ run_task_missclassify <- function(obj_prepared, config, task_config, output_dir,
 
 #' Run Task 2: Sensitivity to cell type over-partitioning (artificial subtypes)
 run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir,
-                                    baseline_df = NULL) {
+                                    baseline_df = NULL,
+                                    external_state_callback = NULL) {
   message("Running Task 2: Sensitivity to cell type over-partitioning")
   
   if (!is.null(baseline_df)) {
@@ -875,7 +1045,7 @@ run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir
     obj_prepared,
     config$common,
     task_config,
-    list(dir = NULL)
+    list(dir = NULL, external_state_callback = external_state_callback)
   )
   
   wr <- do.call(wr_split_cell_type, params)
@@ -889,7 +1059,8 @@ run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir
 
 #' Run Task 3: Robustness to annotation granularity (coarse vs fine)
 #' @return Result list from wr_nct()
-run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline_df = NULL) {
+run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline_df = NULL,
+                         external_state_callback = NULL) {
   message("Running Task 3: Robustness to annotation granularity")
 
   if (!is.null(baseline_df)) {
@@ -901,7 +1072,7 @@ run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline
     obj_prepared,
     config$common,
     task_config,
-    list(dir = NULL)
+    list(dir = NULL, external_state_callback = external_state_callback)
   )
 
   wr <- do.call(wr_nct, params)
@@ -917,7 +1088,8 @@ run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline
 }
 
 #' Run Task 4: Robustness to cellular complexity (high vs low variability)
-run_task_cellular_complexity <- function(obj_prepared, config, task_config, output_dir, baseline_df = NULL) {
+run_task_cellular_complexity <- function(obj_prepared, config, task_config, output_dir, baseline_df = NULL,
+                                         external_state_callback = NULL) {
   message("Running Task 4: Robustness to cellular complexity")
 
   if (!is.null(baseline_df)) {
@@ -929,7 +1101,7 @@ run_task_cellular_complexity <- function(obj_prepared, config, task_config, outp
     obj_prepared,
     config$common,
     task_config,
-    list(dir = NULL)
+    list(dir = NULL, external_state_callback = external_state_callback)
   )
 
   wr <- do.call(wr_merge_ct, params)
@@ -945,7 +1117,8 @@ run_task_cellular_complexity <- function(obj_prepared, config, task_config, outp
 
 #' Run Task 5: Robustness to dataset size - samples (varying sample count)
 run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir,
-                               baseline_df = NULL) {
+                               baseline_df = NULL,
+                               external_state_callback = NULL) {
   message("Running Task 5: Robustness to dataset size (samples)")
   
   if (!is.null(baseline_df)) {
@@ -957,7 +1130,7 @@ run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir,
     obj_prepared,
     config$common,
     task_config,
-    list(dir = NULL)
+    list(dir = NULL, external_state_callback = external_state_callback)
   )
   
   wr <- do.call(wr_nsamples, params)
@@ -971,7 +1144,8 @@ run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir,
 
 #' Run Task 6: Robustness to dataset size - cells (varying cells per cell type)
 run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
-                            baseline_df = NULL) {
+                            baseline_df = NULL,
+                            external_state_callback = NULL) {
   message("Running Task 6: Robustness to dataset size (cells)")
   
   if (!is.null(baseline_df)) {
@@ -983,7 +1157,7 @@ run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
     obj_prepared,
     config$common,
     task_config,
-    list(dir = NULL)
+    list(dir = NULL, external_state_callback = external_state_callback)
   )
   
   wr <- do.call(wr_ncell, params)
@@ -1008,7 +1182,8 @@ run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
 run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir,
                                    specs_path = NULL,
                                    results_root = NULL,
-                                   dataset_stems = NULL) {
+                                   dataset_stems = NULL,
+                                   external_state_callback = NULL) {
   message("Running Task 7: Robustness to batch effects")
 
   metadata    <- obj_prepared$metadata
@@ -1049,6 +1224,7 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
   message(sprintf("  Retained %d resolvable batch pair(s)", length(batch_pairs)))
 
   tidy_results     <- data.frame()
+  external_rows    <- list()
   single_isc_cache <- new.env(parent = emptyenv())
 
   for (pair_idx in seq_along(batch_pairs)) {
@@ -1125,6 +1301,27 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
             source = "single"
           )
 
+        if (!is.null(external_state_callback)) {
+          sc_ext_batch1 <- scTypeEval::create_scTypeEval(
+            matrix = count_matrix[, batch1_cells, drop = FALSE],
+            metadata = metadata[batch1_cells, , drop = FALSE],
+            active_ident = ident
+          )
+          ext_batch1 <- external_state_callback(
+            sc_ext_batch1,
+            list(
+              batch = batch1,
+              condition = pair$condition,
+              pair_id = pair_name,
+              source = "single",
+              active_ident = ident
+            )
+          )
+          if (!is.null(ext_batch1) && nrow(ext_batch1) > 0) {
+            external_rows[[length(external_rows) + 1]] <- ext_batch1
+          }
+        }
+
         batch2_tidy <- get_single_batch_consistency(batch2_stem, batch2_cells) |>
           dplyr::mutate(
             batch = batch2,
@@ -1133,6 +1330,27 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
             pair_id = pair_name,
             source = "single"
           )
+
+        if (!is.null(external_state_callback)) {
+          sc_ext_batch2 <- scTypeEval::create_scTypeEval(
+            matrix = count_matrix[, batch2_cells, drop = FALSE],
+            metadata = metadata[batch2_cells, , drop = FALSE],
+            active_ident = ident
+          )
+          ext_batch2 <- external_state_callback(
+            sc_ext_batch2,
+            list(
+              batch = batch2,
+              condition = pair$condition,
+              pair_id = pair_name,
+              source = "single",
+              active_ident = ident
+            )
+          )
+          if (!is.null(ext_batch2) && nrow(ext_batch2) > 0) {
+            external_rows[[length(external_rows) + 1]] <- ext_batch2
+          }
+        }
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(batch1_cells, batch2_cells)
@@ -1165,6 +1383,27 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
             source = "merged"
           )
 
+        if (!is.null(external_state_callback)) {
+          sc_ext_merged <- scTypeEval::create_scTypeEval(
+            matrix = count_matrix[, combined_cells, drop = FALSE],
+            metadata = metadata[combined_cells, , drop = FALSE],
+            active_ident = ident
+          )
+          ext_merged <- external_state_callback(
+            sc_ext_merged,
+            list(
+              batch = pair_name,
+              condition = pair$condition,
+              pair_id = pair_name,
+              source = "merged",
+              active_ident = ident
+            )
+          )
+          if (!is.null(ext_merged) && nrow(ext_merged) > 0) {
+            external_rows[[length(external_rows) + 1]] <- ext_merged
+          }
+        }
+
         pair_tidy  <- dplyr::bind_rows(batch1_tidy, batch2_tidy, combined_tidy)
         tidy_results <- dplyr::bind_rows(tidy_results, pair_tidy)
       }
@@ -1178,6 +1417,10 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
   if (nrow(tidy_results) == 0) {
     message("  WARNING: No valid batch comparisons could be computed")
     return(NULL)
+  }
+
+  if (length(external_rows) > 0) {
+    attr(tidy_results, "external_state_scores") <- dplyr::bind_rows(external_rows)
   }
 
   message(sprintf("  Computed consistency for %d batch pair(s)", length(batch_pairs)))
@@ -1196,7 +1439,8 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
 run_task_biological_perturbations <- function(obj_prepared, config, task_config, output_dir,
                                               specs_path = NULL,
                                               results_root = NULL,
-                                              dataset_stems = NULL) {
+                                              dataset_stems = NULL,
+                                              external_state_callback = NULL) {
   message("Running Task 8: Robustness to biological perturbations")
 
   metadata     <- obj_prepared$metadata
@@ -1237,6 +1481,7 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   message(sprintf("  Retained %d resolvable condition pair(s)", length(condition_pairs)))
 
   tidy_results     <- data.frame()
+  external_rows    <- list()
   single_isc_cache <- new.env(parent = emptyenv())
 
   for (pair_idx in seq_along(condition_pairs)) {
@@ -1312,6 +1557,27 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
             source = "single"
           )
 
+        if (!is.null(external_state_callback)) {
+          sc_ext_cond1 <- scTypeEval::create_scTypeEval(
+            matrix = count_matrix[, cond1_cells, drop = FALSE],
+            metadata = metadata[cond1_cells, , drop = FALSE],
+            active_ident = ident
+          )
+          ext_cond1 <- external_state_callback(
+            sc_ext_cond1,
+            list(
+              condition = cond1,
+              batch = pair$batch,
+              pair_id = pair_name,
+              source = "single",
+              active_ident = ident
+            )
+          )
+          if (!is.null(ext_cond1) && nrow(ext_cond1) > 0) {
+            external_rows[[length(external_rows) + 1]] <- ext_cond1
+          }
+        }
+
         cond2_tidy <- get_single_condition_consistency(cond2_stem, cond2_cells) |>
           dplyr::mutate(
             condition = cond2,
@@ -1320,6 +1586,27 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
             pair_id = pair_name,
             source = "single"
           )
+
+        if (!is.null(external_state_callback)) {
+          sc_ext_cond2 <- scTypeEval::create_scTypeEval(
+            matrix = count_matrix[, cond2_cells, drop = FALSE],
+            metadata = metadata[cond2_cells, , drop = FALSE],
+            active_ident = ident
+          )
+          ext_cond2 <- external_state_callback(
+            sc_ext_cond2,
+            list(
+              condition = cond2,
+              batch = pair$batch,
+              pair_id = pair_name,
+              source = "single",
+              active_ident = ident
+            )
+          )
+          if (!is.null(ext_cond2) && nrow(ext_cond2) > 0) {
+            external_rows[[length(external_rows) + 1]] <- ext_cond2
+          }
+        }
 
         # --- merged object: always compute fresh ---
         combined_cells <- c(cond1_cells, cond2_cells)
@@ -1352,6 +1639,27 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
             source = "merged"
           )
 
+        if (!is.null(external_state_callback)) {
+          sc_ext_merged <- scTypeEval::create_scTypeEval(
+            matrix = count_matrix[, combined_cells, drop = FALSE],
+            metadata = metadata[combined_cells, , drop = FALSE],
+            active_ident = ident
+          )
+          ext_merged <- external_state_callback(
+            sc_ext_merged,
+            list(
+              condition = pair_name,
+              batch = pair$batch,
+              pair_id = pair_name,
+              source = "merged",
+              active_ident = ident
+            )
+          )
+          if (!is.null(ext_merged) && nrow(ext_merged) > 0) {
+            external_rows[[length(external_rows) + 1]] <- ext_merged
+          }
+        }
+
         pair_tidy   <- dplyr::bind_rows(cond1_tidy, cond2_tidy, combined_tidy)
         tidy_results <- dplyr::bind_rows(tidy_results, pair_tidy)
       }
@@ -1365,6 +1673,10 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
   if (nrow(tidy_results) == 0) {
     message("  WARNING: No valid condition comparisons could be computed")
     return(NULL)
+  }
+
+  if (length(external_rows) > 0) {
+    attr(tidy_results, "external_state_scores") <- dplyr::bind_rows(external_rows)
   }
 
   message(sprintf("  Computed consistency for %d condition pair(s)", length(condition_pairs)))
