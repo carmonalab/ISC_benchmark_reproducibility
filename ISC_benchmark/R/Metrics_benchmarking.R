@@ -188,6 +188,20 @@ wrapper_plots <- function(scTypeEval,
 }
 
 
+.invoke_external_state_callback <- function(external_state_callback, sc_obj, state) {
+   if (is.null(external_state_callback)) {
+      return(NULL)
+   }
+   tryCatch(
+      external_state_callback(sc_obj, state),
+      error = function(e) {
+         message("[external] state callback failed: ", e$message)
+         NULL
+      }
+   )
+}
+
+
 # wrapper to evaluate the missclassifiction rate 
 wr_missclasify <- function(count_matrix,
                            metadata,
@@ -216,7 +230,8 @@ wr_missclasify <- function(count_matrix,
                            knn_graph_k = 5,
                            hclust_method = "ward.D2",
                            save_plots = TRUE,
-                           verbose = TRUE){
+                           verbose = TRUE,
+                           external_state_callback = NULL){
    
    if(!is.null(dir)){
       if(verbose){message("\nResults will be stored at ", dir)}
@@ -273,6 +288,7 @@ wr_missclasify <- function(count_matrix,
    }
    
    if(verbose){message("Running loop of annotations ")}
+   external_rows <- list()
    df_res <- lapply(annotations,
                     function(ann){
                        tryCatch(
@@ -308,6 +324,18 @@ wr_missclasify <- function(count_matrix,
                                               perturbed_ctype = NA_character_,
                                               task = "Missclassification"
                                 )
+
+                             state <- list(
+                                rate = as.numeric(as.character(strsplit(ann, "_")[[1]][3])),
+                                rep = strsplit(ann, "_")[[1]][2],
+                                original_ident = ident,
+                                perturbed_ctype = NA_character_,
+                                active_ident = ann
+                             )
+                             ext_rows <- .invoke_external_state_callback(external_state_callback, sc_tmp, state)
+                             if (!is.null(ext_rows) && nrow(ext_rows) > 0) {
+                                external_rows[[length(external_rows) + 1]] <<- ext_rows
+                             }
                              
                              # render PCAs
                              # only produce for one replicate of the seeds
@@ -333,6 +361,9 @@ wr_missclasify <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
+   if (length(external_rows) > 0) {
+      attr(df_res, "external_state_scores") <- dplyr::bind_rows(external_rows)
+   }
    
    if(!is.null(dir)){
       saveRDS(df_res,
@@ -371,7 +402,8 @@ wr_nsamples <- function(count_matrix,
                         knn_graph_k = 5,
                         hclust_method = "ward.D2",
                         save_plots = TRUE,
-                        verbose = TRUE){
+                        verbose = TRUE,
+                        external_state_callback = NULL){
    
    if(!is.null(dir)){
       if(verbose){message("\nResults will be stored at ", dir)}
@@ -435,6 +467,7 @@ wr_nsamples <- function(count_matrix,
    }
    
    if(verbose){message("Running loop of annotations ")}
+   external_rows <- list()
    df_res <- lapply(names(nss),
                     function(ns){
                        tryCatch(
@@ -478,6 +511,18 @@ wr_nsamples <- function(count_matrix,
                                               perturbed_ctype = NA_character_,
                                               task = "NSamples"
                                 )
+
+                             state <- list(
+                                rate = as.numeric(as.character(strsplit(ns, "_")[[1]][3])),
+                                rep = strsplit(ns, "_")[[1]][2],
+                                original_ident = ident,
+                                perturbed_ctype = NA_character_,
+                                active_ident = ident
+                             )
+                             ext_rows <- .invoke_external_state_callback(external_state_callback, sc_tmp, state)
+                             if (!is.null(ext_rows) && nrow(ext_rows) > 0) {
+                                external_rows[[length(external_rows) + 1]] <<- ext_rows
+                             }
                              
                              # render PCAs
                              # only produce for one replicate of the seeds
@@ -502,6 +547,9 @@ wr_nsamples <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
+   if (length(external_rows) > 0) {
+      attr(df_res, "external_state_scores") <- dplyr::bind_rows(external_rows)
+   }
    if(is.null(df_res) || nrow(df_res) == 0){
       stop("wr_nsamples produced no valid result rows")
    }
@@ -544,7 +592,8 @@ wr_nct <- function(count_matrix,
                    save_plots = TRUE,
                    verbose = TRUE,
                    down_sample_comb = 30,
-                   run_baseline = FALSE){
+                   run_baseline = FALSE,
+                   external_state_callback = NULL){
    
    if(!is.null(dir)){
       if(verbose){message("Results will be stored at ", dir)}
@@ -594,6 +643,7 @@ wr_nct <- function(count_matrix,
       gl <- gene_list
    }
    
+   external_rows <- list()
    df_res <- lapply(names(cts),
                     function(ns){
                        tryCatch(
@@ -635,6 +685,18 @@ wr_nct <- function(count_matrix,
                                               perturbed_ctype = NA_character_,
                                               task = "Nct"
                                 )
+
+                             state <- list(
+                                rate = ns,
+                                rep = NA,
+                                original_ident = ident,
+                                perturbed_ctype = NA_character_,
+                                active_ident = ident
+                             )
+                             ext_rows <- .invoke_external_state_callback(external_state_callback, sc_tmp, state)
+                             if (!is.null(ext_rows) && nrow(ext_rows) > 0) {
+                                external_rows[[length(external_rows) + 1]] <<- ext_rows
+                             }
                              
                              # render plots
                              # save pdf if indicated
@@ -661,6 +723,9 @@ wr_nct <- function(count_matrix,
       dplyr::mutate(rate = factor(rate,
                                   levels = names(cts))
       )
+   if (length(external_rows) > 0) {
+      attr(df_res, "external_state_scores") <- dplyr::bind_rows(external_rows)
+   }
    
    if(!is.null(dir)){
       saveRDS(df_res,
@@ -700,7 +765,8 @@ wr_ncell <- function(count_matrix,
                      knn_graph_k = 5,
                      hclust_method = "ward.D2",
                      save_plots = TRUE,
-                     verbose = TRUE
+                     verbose = TRUE,
+                     external_state_callback = NULL
 ){
    
    if(!is.null(dir)){
@@ -765,6 +831,7 @@ wr_ncell <- function(count_matrix,
    
    combi <- expand.grid(rep_id = names(sds), rate = rates, stringsAsFactors = FALSE)
    
+   external_rows <- list()
    df_res <- lapply(seq_len(nrow(combi)),
                     function(i){
                        tryCatch(
@@ -822,6 +889,18 @@ wr_ncell <- function(count_matrix,
                                               perturbed_ctype = ctype,
                                               task = "NCell"
                                 )
+
+                             state <- list(
+                                rate = as.numeric(as.character(ns)),
+                                rep = s,
+                                original_ident = ident,
+                                perturbed_ctype = ctype,
+                                active_ident = ident
+                             )
+                             ext_rows <- .invoke_external_state_callback(external_state_callback, sc_tmp, state)
+                             if (!is.null(ext_rows) && nrow(ext_rows) > 0) {
+                                external_rows[[length(external_rows) + 1]] <<- ext_rows
+                             }
                              
                              # render PCAs
                              # only produce for one replicate of the seeds
@@ -846,6 +925,9 @@ wr_ncell <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
+   if (length(external_rows) > 0) {
+      attr(df_res, "external_state_scores") <- dplyr::bind_rows(external_rows)
+   }
    if(is.null(df_res) || nrow(df_res) == 0){
       stop("wr_ncell produced no valid result rows")
    }
@@ -891,7 +973,8 @@ wr_merge_ct <- function(count_matrix,
                        hclust_method = "ward.D2",
                        save_plots = TRUE,
                        verbose = TRUE,
-                       run_original = FALSE){
+                       run_original = FALSE,
+                       external_state_callback = NULL){
    
    if(!is.null(dir)){
       if(verbose){message("\nResults will be stored at ", dir)}
@@ -977,6 +1060,7 @@ wr_merge_ct <- function(count_matrix,
                            gene_lists = gl,
                            black_list = black_list)
    
+   external_rows <- list()
    df_res <- lapply(annotations,
                     function(ann){
                        tryCatch(
@@ -1013,6 +1097,18 @@ wr_merge_ct <- function(count_matrix,
                                    perturbed_ctype = NA_character_,
                                    task = "mergeCT"
                                 )
+
+                             state <- list(
+                                rate = as.numeric(as.character(strsplit(ann, "_")[[1]][2])),
+                                rep = NA,
+                                original_ident = ident,
+                                perturbed_ctype = NA_character_,
+                                active_ident = ann
+                             )
+                             ext_rows <- .invoke_external_state_callback(external_state_callback, sc_tmp, state)
+                             if (!is.null(ext_rows) && nrow(ext_rows) > 0) {
+                                external_rows[[length(external_rows) + 1]] <<- ext_rows
+                             }
                              
                              # render PCAs
                              # save pdf if indicated
@@ -1034,6 +1130,9 @@ wr_merge_ct <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
+   if (length(external_rows) > 0) {
+      attr(df_res, "external_state_scores") <- dplyr::bind_rows(external_rows)
+   }
    
    if(!is.null(dir)){
       saveRDS(df_res,
@@ -1074,7 +1173,8 @@ wr_split_cell_type <- function(count_matrix,
                              knn_graph_k = 5,
                              hclust_method = "ward.D2",
                              save_plots = TRUE,
-                             verbose = TRUE){
+                             verbose = TRUE,
+                             external_state_callback = NULL){
    
    if(!is.null(dir)){
       if(verbose){message("\nResults will be stored at ", dir)}
@@ -1140,6 +1240,7 @@ wr_split_cell_type <- function(count_matrix,
    }
    
    if(verbose){message("Running loop of annotations ")}
+   external_rows <- list()
    df_res <- lapply(annotations,
                     function(ann){
                        tryCatch(
@@ -1175,6 +1276,18 @@ wr_split_cell_type <- function(count_matrix,
                                               perturbed_ctype = ctype,
                                               task = "SplitCelltype"
                                 )
+
+                             state <- list(
+                                rate = as.numeric(as.character(strsplit(ann, "_")[[1]][3])),
+                                rep = strsplit(ann, "_")[[1]][2],
+                                original_ident = ident,
+                                perturbed_ctype = ctype,
+                                active_ident = ann
+                             )
+                             ext_rows <- .invoke_external_state_callback(external_state_callback, sc_tmp, state)
+                             if (!is.null(ext_rows) && nrow(ext_rows) > 0) {
+                                external_rows[[length(external_rows) + 1]] <<- ext_rows
+                             }
                              
                              # render PCAs
                              # only produce for one replicate of the seeds
@@ -1200,6 +1313,9 @@ wr_split_cell_type <- function(count_matrix,
    
    # concatenate all results
    df_res <- do.call(rbind, df_res)
+   if (length(external_rows) > 0) {
+      attr(df_res, "external_state_scores") <- dplyr::bind_rows(external_rows)
+   }
    ctype_name <- scTypeEval:::purge_label(ctype)
    
    if(!is.null(dir)){
