@@ -93,6 +93,131 @@ library(Matrix)
 }
 
 
+.append_flag <- function(args, flag, value) {
+  if (is.null(value)) {
+    return(args)
+  }
+  c(args, flag, as.character(value))
+}
+
+
+.append_bool_flag <- function(args, flag, value) {
+  if (isTRUE(value)) {
+    return(c(args, flag))
+  }
+  args
+}
+
+
+pipeline_spec_sccaf <- function(
+  name = "sccaf",
+  cluster_key = NULL,
+  n = 100,
+  extra_args = character()
+) {
+  args <- character()
+  args <- .append_flag(args, "--cluster-key", cluster_key)
+  args <- .append_flag(args, "--n", n)
+  args <- c(args, extra_args)
+
+  list(name = name, script = "sccaf.py", args = args)
+}
+
+
+pipeline_spec_cellhint <- function(
+  name = "cellhint",
+  cluster_key = NULL,
+  dataset_key = NULL,
+  random_state = 2,
+  extra_args = character()
+) {
+  args <- character()
+  args <- .append_flag(args, "--cluster-key", cluster_key)
+  args <- .append_flag(args, "--dataset-key", dataset_key)
+  args <- .append_flag(args, "--random-state", random_state)
+  args <- c(args, extra_args)
+
+  list(name = name, script = "cellhint.py", args = args)
+}
+
+
+pipeline_spec_anticor_features <- function(
+  name = "anticor_features",
+  cluster_key = NULL,
+  min_cells = 10,
+  max_cell_types = NULL,
+  species = "hsapiens",
+  n_rand_feat = 2000,
+  fpr = 0.001,
+  fdr = 1 / 15,
+  num_pos_cor = 10,
+  bin_size = 5000,
+  scratch_dir = NULL,
+  offline_mode = FALSE,
+  use_live_pathway_lookup = FALSE,
+  score_k = 1.0,
+  extra_args = character()
+) {
+  args <- character()
+  args <- .append_flag(args, "--cluster-key", cluster_key)
+  args <- .append_flag(args, "--min-cells", min_cells)
+  args <- .append_flag(args, "--max-cell-types", max_cell_types)
+  args <- .append_flag(args, "--species", species)
+  args <- .append_flag(args, "--n-rand-feat", n_rand_feat)
+  args <- .append_flag(args, "--fpr", fpr)
+  args <- .append_flag(args, "--fdr", fdr)
+  args <- .append_flag(args, "--num-pos-cor", num_pos_cor)
+  args <- .append_flag(args, "--bin-size", bin_size)
+  args <- .append_flag(args, "--scratch-dir", scratch_dir)
+  args <- .append_bool_flag(args, "--offline-mode", offline_mode)
+  args <- .append_bool_flag(args, "--use-live-pathway-lookup", use_live_pathway_lookup)
+  args <- .append_flag(args, "--score-k", score_k)
+  args <- c(args, extra_args)
+
+  list(name = name, script = "anticor_features.py", args = args)
+}
+
+
+pipeline_spec_popv <- function(
+  name = "popv",
+  reference = NULL,
+  ref_labels_key = NULL,
+  ref_batch_key = NULL,
+  query_batch_key = NULL,
+  query_celltype_key = NULL,
+  prediction_mode = "fast",
+  methods = NULL,
+  pretrained_model_repo = "popV/tabula_sapiens_All_Cells",
+  hub_cache_dir = NULL,
+  n_samples_per_label = 300,
+  hvg = 4000,
+  unknown_celltype_label = "unknown",
+  save_path_trained_models = "tmp/popv_models",
+  extra_args = character()
+) {
+  args <- character()
+  args <- .append_flag(args, "--reference", reference)
+  args <- .append_flag(args, "--ref-labels-key", ref_labels_key)
+  args <- .append_flag(args, "--ref-batch-key", ref_batch_key)
+  args <- .append_flag(args, "--query-batch-key", query_batch_key)
+  args <- .append_flag(args, "--query-celltype-key", query_celltype_key)
+  args <- .append_flag(args, "--prediction-mode", prediction_mode)
+  if (!is.null(methods)) {
+    method_value <- if (length(methods) > 1) paste(methods, collapse = ",") else methods
+    args <- .append_flag(args, "--methods", method_value)
+  }
+  args <- .append_flag(args, "--pretrained-model-repo", pretrained_model_repo)
+  args <- .append_flag(args, "--hub-cache-dir", hub_cache_dir)
+  args <- .append_flag(args, "--n-samples-per-label", n_samples_per_label)
+  args <- .append_flag(args, "--hvg", hvg)
+  args <- .append_flag(args, "--unknown-celltype-label", unknown_celltype_label)
+  args <- .append_flag(args, "--save-path-trained-models", save_path_trained_models)
+  args <- c(args, extra_args)
+
+  list(name = name, script = "popv.py", args = args)
+}
+
+
 .resolve_script_path <- function(script, repo_root) {
   if (grepl("^/", script)) {
     path <- script
@@ -138,6 +263,7 @@ run_sample_agnostic_python_pipelines <- function(
   assign_to_env = FALSE,
   envir = parent.frame(),
   read_csv = utils::read.csv,
+  required_output_cols = c("celltype", "score"),
   cleanup = FALSE
 ) {
   repo_root <- .find_repo_root()
@@ -220,6 +346,17 @@ run_sample_agnostic_python_pipelines <- function(
       stringsAsFactors = FALSE,
       check.names = FALSE
     )
+
+    missing_cols <- setdiff(required_output_cols, colnames(results[[spec$name]]))
+    if (length(missing_cols) > 0) {
+      stop(
+        "Pipeline output is missing required column(s) for ", spec$name, ": ",
+        paste(missing_cols, collapse = ", "),
+        ". Expected at least: ", paste(required_output_cols, collapse = ", "),
+        ". Output file: ", output_csv
+      )
+    }
+
     result_paths[[spec$name]] <- output_csv
 
     if (isTRUE(assign_to_env)) {
