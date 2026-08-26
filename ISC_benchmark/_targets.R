@@ -221,7 +221,7 @@ normalize_result_schema <- function(df) {
 
   char_cols <- c(
     "dataset_id", "ident", "task", "status", "error",
-    "celltype", "measure", "consistency_metric", "dissimilarity_method",
+    "celltype", "level", "measure", "consistency_metric", "dissimilarity_method",
     "rate", "rep", "original_ident", "perturbed_ctype",
     "batch", "dataset", "pair_id", "source", "condition"
   )
