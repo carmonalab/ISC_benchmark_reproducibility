@@ -90,9 +90,18 @@ standardize_methods <- function(df) {
       !"dissimilarity_method" %in% colnames(df)) {
     df <- df %>% rename(dissimilarity_method = dissimilarity.method)
   }
+
+  if (!("level" %in% colnames(df))) {
+    if ("celltype" %in% colnames(df)) {
+      df$level <- ifelse(as.character(df$celltype) == "__global__", "global", "celltype")
+    } else {
+      df$level <- "celltype"
+    }
+  }
   
   df %>%
     mutate(
+      level = ifelse(is.na(level) | level == "", "celltype", as.character(level)),
       consistency_metric = gsub("Orbital_medoid", "Nearest_medoid", consistency_metric),
       consistency_metric = gsub("ward_PropMatch", "Clustering_agreement", consistency_metric),
       method_type = paste(consistency_metric, dissimilarity_method, sep = " | ")
@@ -140,41 +149,41 @@ compute_residual_effects <- function(task_summary_df, for_plot = FALSE) {
     )
 
   assay_grand_mean <- df %>%
-    group_by(assay) %>%
+    group_by(level, assay) %>%
     summarise(grand_mean = mean(mean_score, na.rm = TRUE), .groups = "drop")
 
   metric_effects <- df %>%
-    group_by(assay, consistency_metric) %>%
+    group_by(level, assay, consistency_metric) %>%
     summarise(
       mean_score = mean(mean_score, na.rm = TRUE),
       n_combos = dplyr::n(),
       .groups = "drop"
     ) %>%
-    left_join(assay_grand_mean, by = "assay") %>%
+    left_join(assay_grand_mean, by = c("level", "assay")) %>%
     mutate(
       component = "Consistency metric",
-      level = consistency_metric,
+      component_level = consistency_metric,
       residual_effect = mean_score - grand_mean
     ) %>%
-    select(assay, component, level, mean_score, residual_effect, n_combos)
+    select(level, assay, component, component_level, mean_score, residual_effect, n_combos)
 
   dissim_effects <- df %>%
-    group_by(assay, dissimilarity_method) %>%
+    group_by(level, assay, dissimilarity_method) %>%
     summarise(
       mean_score = mean(mean_score, na.rm = TRUE),
       n_combos = dplyr::n(),
       .groups = "drop"
     ) %>%
-    left_join(assay_grand_mean, by = "assay") %>%
+    left_join(assay_grand_mean, by = c("level", "assay")) %>%
     mutate(
       component = "Dissimilarity method",
-      level = dissimilarity_method,
+      component_level = dissimilarity_method,
       residual_effect = mean_score - grand_mean
     ) %>%
-    select(assay, component, level, mean_score, residual_effect, n_combos)
+    select(level, assay, component, component_level, mean_score, residual_effect, n_combos)
 
   bind_rows(metric_effects, dissim_effects) %>%
-    group_by(assay, component) %>%
+    group_by(level, assay, component) %>%
     mutate(
       rank_residual = rank(-residual_effect, ties.method = "average"),
       rank_mean = rank(-mean_score, ties.method = "average")
@@ -370,7 +379,7 @@ all_tasks <- list(tasks_data, multi_batches) %>%
 
 # Aggregate by group
 all_tasks_agg <- all_tasks %>%
-  group_by(dissimilarity_method, consistency_metric, method_type,
+  group_by(level, dissimilarity_method, consistency_metric, method_type,
            assay, dataset, ident) %>%
   summarise(score = mean(score_celltype, na.rm = TRUE), .groups = "drop")
 
@@ -399,9 +408,9 @@ stopifnot(abs(sum(weight_vector) - 1.0) < 0.001)
 
 # Calculate weighted overall scores
 overall_scores <- all_tasks_agg %>%
-  group_by(method_type, assay) %>%
+  group_by(level, method_type, assay) %>%
   summarise(score = mean(score, na.rm = TRUE), .groups = "drop") %>%
-  group_by(method_type) %>%
+  group_by(level, method_type) %>%
   summarise(
     overall_score = weighted.mean(score, w = weight_vector[assay], na.rm = TRUE),
     .groups = "drop"
@@ -416,7 +425,7 @@ message("✓ Overall scores calculated for ", nrow(overall_scores), " methods")
 ```{r prepare-viz-data}
 # Create summary statistics for each method-task combination
 task_summary <- all_tasks_agg %>%
-  group_by(method_type, assay) %>%
+  group_by(level, method_type, assay) %>%
   summarise(
     mean_score = mean(score, na.rm = TRUE),
     median_score = median(score, na.rm = TRUE),
@@ -424,19 +433,20 @@ task_summary <- all_tasks_agg %>%
     n = n(),
     .groups = "drop"
   ) %>%
-  group_by(assay) %>% 
+  group_by(level, assay) %>% 
   mutate(scaled_mean = minmax_scale(mean_score)) %>% 
   left_join(
     overall_scores %>%
-      select(method_type, overall_score) %>% 
+      select(level, method_type, overall_score) %>% 
+      group_by(level) %>%
       mutate(overall_rank = rank(-overall_score, ties.method = "average")
   ),
-    by = "method_type"
+    by = c("level", "method_type")
   )
 
 # Add ranking information
 task_summary <- task_summary %>%
-  group_by(assay) %>%
+  group_by(level, assay) %>%
   mutate(
     rank_in_task = rank(-mean_score, ties.method = "average"),
     percentile = rank_in_task / n() * 100
@@ -474,11 +484,15 @@ task_summary <- task_summary %>%
 
 # Order methods by overall score (best to worst)
 method_order <- overall_scores %>%
-  arrange(desc(overall_score)) %>%
-  pull(method_type)
+  arrange(level, desc(overall_score)) %>%
+  dplyr::distinct(level, method_type)
 
 task_summary <- task_summary %>%
-  mutate(method_type = factor(method_type, levels = method_order))
+  left_join(
+    method_order %>% mutate(method_order_idx = dplyr::row_number()),
+    by = c("level", "method_type")
+  ) %>%
+  arrange(level, method_order_idx, assay)
 
 message("✓ Visualization data prepared")
 ```
@@ -505,13 +519,17 @@ message("✓ Residual effects computed: ", nrow(residual_effects_all), " rows (a
 # Task scores (wide) - keep absolute values for sizing
 plot_data <- task_summary %>%
   filter_metrics(for_plot = TRUE) %>%
-  select(method_type, assay, median_score)
+  select(level, method_type, assay, median_score)
 
 task_wide <- plot_data %>%
-  tidyr::pivot_wider(names_from = assay, values_from = median_score)
+  tidyr::pivot_wider(
+    id_cols = c(level, method_type),
+    names_from = assay,
+    values_from = median_score
+  )
 
 # Extract task columns and reorder to match specification
-task_cols <- setdiff(colnames(task_wide), "method_type")
+task_cols <- setdiff(colnames(task_wide), c("level", "method_type"))
 
 # Define correct task order
 task_order <- c(
@@ -528,26 +546,28 @@ task_order <- c(
 # Reorder task_wide columns to match specification
 task_cols_ordered <- task_order[task_order %in% task_cols]
 task_wide <- task_wide %>%
-  dplyr::select(method_type, all_of(task_cols_ordered))
+  dplyr::select(level, method_type, all_of(task_cols_ordered))
 
 task_cols <- task_cols_ordered
 
 # Overall scores with absolute values and rank-normalized coloring
 overall_plot_data <- overall_scores %>%
   filter_metrics(for_plot = TRUE) %>%
-  arrange(desc(overall_score)) %>%
+  group_by(level) %>%
+  arrange(desc(overall_score), .by_group = TRUE) %>%
   mutate(
     rank = rank(-overall_score, ties.method = "average"),
-    overall_score_color = (rank - 1) / (n() - 1),
+    overall_score_color = ifelse(n() <= 1, 0, (rank - 1) / (n() - 1)),
     overall_score_display = round(overall_score, 2)
   ) %>%
-  select(method_type, overall_score,
+  ungroup() %>%
+  select(level, method_type, overall_score,
          overall_score_color, overall_score_display)
 
 # Resources with rank-normalized colors (no log scale)
 resources_summary <- resources_data %>%
   filter_metrics(for_plot = TRUE) %>%
-  group_by(method_type) %>%
+  group_by(level, method_type) %>%
   summarise(
     median_duration_ms = median(`Duration (ms)`, na.rm = TRUE),
     median_memory_mb = median(`Peak memory (MB)`, na.rm = TRUE),
@@ -558,13 +578,13 @@ resources_summary <- resources_data %>%
     median_duration_scaled = minmax_scale(median_duration_ms),
     median_memory_scaled = minmax_scale(median_memory_mb)
   ) %>%
-  select(method_type, median_duration_ms, median_memory_mb,
+  select(level, method_type, median_duration_ms, median_memory_mb,
          median_duration_scaled, median_memory_scaled)
 
 # Split method into consistency/dissimilarity
 method_info <- overall_scores %>%
   filter_metrics(for_plot = TRUE) %>%
-  select(method_type) %>%
+  select(level, method_type) %>%
   tidyr::separate(method_type,
                   into = c("consistency_metric", "dissimilarity_method"),
                   sep = " \\| ",
@@ -574,25 +594,34 @@ method_info <- overall_scores %>%
 # Combine to single data frame for funkyheatmap
 # Order by descending overall_score
 fh_data <- method_info %>%
-  left_join(task_wide, by = "method_type") %>%
-  left_join(overall_plot_data, by = "method_type") %>%
-  left_join(resources_summary, by = "method_type") %>%
-  mutate(id = method_type) %>%
-  arrange(desc(overall_score))
+  left_join(task_wide, by = c("level", "method_type")) %>%
+  left_join(overall_plot_data, by = c("level", "method_type")) %>%
+  left_join(resources_summary, by = c("level", "method_type")) %>%
+  mutate(id = paste(level, method_type, sep = " :: ")) %>%
+  arrange(level, desc(overall_score))
 
 # For tasks: create ranking columns for color
 n_methods <- nrow(fh_data)
 for (col in task_cols) {
   scores <- fh_data[[col]]
-  # Higher score is better, so best should be rank 0 (green)
-  ranks <- rank(-scores, ties.method = "average", na.last = "keep")
-  fh_data[[paste0(col, "_color")]] <- ifelse(is.na(scores), NA, (ranks - 1) / (n_methods - 1))
+  # Higher score is better; ranks are computed within level strata.
+  ranks <- ave(
+    -scores,
+    fh_data$level,
+    FUN = function(x) rank(x, ties.method = "average", na.last = "keep")
+  )
+  n_by_level <- ave(scores, fh_data$level, FUN = function(x) sum(!is.na(x)))
+  fh_data[[paste0(col, "_color")]] <- ifelse(
+    is.na(scores) | n_by_level <= 1,
+    NA,
+    (ranks - 1) / (n_by_level - 1)
+  )
 }
 
 # Select columns: metadata, overall (color, value, display), tasks (value), task colors, resources
 task_cols_color <- paste0(task_cols, "_color")
 fh_data <- fh_data %>%
-  dplyr::select(id, consistency_metric, dissimilarity_method, overall_score_color,
+  dplyr::select(id, level, consistency_metric, dissimilarity_method, overall_score_color,
                 overall_score, overall_score_display, 
                 all_of(task_cols), all_of(task_cols_color),
                 median_duration_ms, median_memory_mb)
@@ -606,21 +635,21 @@ fh_data <- fh_data %>%
 
 # Column info for funkyheatmap (use official id_color/id_size/overlay fields)
 cinfo_metadata <- tibble::tibble(
-  id = c("consistency_metric", "dissimilarity_method", "overall_score", "overall_score_display"),
-  id_color = c(NA_character_, NA_character_, "overall_score_color", NA_character_),
-  id_size = c(NA_character_, NA_character_, "overall_score", NA_character_),
-  group = c("Method", "Method", "Overall", "Overall"),
-  name = c("Metric", "Dissimilarity", "", ""),
-  geom = c("text", "text", "bar", "text"),
-  palette = c(NA_character_, NA_character_, "overall_palette", NA_character_),
-  width = c(7, 7, 4, 4),
-  overlay = c(FALSE, FALSE, FALSE, TRUE),
-  legend = c(FALSE, FALSE, TRUE, FALSE),
-  label = c("consistency_metric", "dissimilarity_method", NA_character_, "overall_score_display"),
-  size = c(4, 4, NA_real_, 5.5),
-  fontface = c("plain", "plain", NA_character_, "bold"),
-  hjust = c(0, 0, NA_real_, 0.5),
-  vjust = c(0.5, 0.5, NA_real_, 0.5)
+  id = c("level", "consistency_metric", "dissimilarity_method", "overall_score", "overall_score_display"),
+  id_color = c(NA_character_, NA_character_, NA_character_, "overall_score_color", NA_character_),
+  id_size = c(NA_character_, NA_character_, NA_character_, "overall_score", NA_character_),
+  group = c("Method", "Method", "Method", "Overall", "Overall"),
+  name = c("Level", "Metric", "Dissimilarity", "", ""),
+  geom = c("text", "text", "text", "bar", "text"),
+  palette = c(NA_character_, NA_character_, NA_character_, "overall_palette", NA_character_),
+  width = c(3, 7, 7, 4, 4),
+  overlay = c(FALSE, FALSE, FALSE, FALSE, TRUE),
+  legend = c(FALSE, FALSE, FALSE, TRUE, FALSE),
+  label = c("level", "consistency_metric", "dissimilarity_method", NA_character_, "overall_score_display"),
+  size = c(4, 4, 4, NA_real_, 5.5),
+  fontface = c("plain", "plain", "plain", NA_character_, "bold"),
+  hjust = c(0, 0, 0, NA_real_, 0.5),
+  vjust = c(0.5, 0.5, 0.5, NA_real_, 0.5)
 )
 
 cinfo_tasks <- tibble::tibble(
@@ -679,7 +708,7 @@ memory_labels <- c(
   as.character(round(memory_range[[2]], 0))
 )
 
-rank_labels <- as.character(c(1, "", "", "", n_methods))
+rank_labels <- c("best", "", "", "", "worst")
 
 legends <- list(
   list(
@@ -768,18 +797,19 @@ metric_df <- residual_effects_plot %>%
   filter(component == "Consistency metric")
 
 metric_levels <- metric_df %>%
-  group_by(level) %>%
+  group_by(component_level) %>%
   summarise(avg_resid = mean(residual_effect, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(avg_resid)) %>%
-  pull(level)
+  pull(component_level)
 
 metric_df <- metric_df %>%
-  mutate(level = factor(level, levels = metric_levels))
+  mutate(component_level = factor(component_level, levels = metric_levels))
 
-metric_plot <- ggplot(metric_df, aes(x = assay, y = level, fill = residual_effect)) +
+metric_plot <- ggplot(metric_df, aes(x = assay, y = component_level, fill = residual_effect)) +
   geom_tile(color = "white", linewidth = 0.3) +
   geom_text(aes(label = as.integer(rank_residual)), size = 3.2, color = "black") +
   fill_scale +
+  facet_wrap(~ level, scales = "free_y") +
   labs(
     x = NULL,
     y = NULL,
@@ -793,18 +823,19 @@ dissim_df <- residual_effects_plot %>%
   filter(component == "Dissimilarity method")
 
 dissim_levels <- dissim_df %>%
-  group_by(level) %>%
+  group_by(component_level) %>%
   summarise(avg_resid = mean(residual_effect, na.rm = TRUE), .groups = "drop") %>%
   arrange(desc(avg_resid)) %>%
-  pull(level)
+  pull(component_level)
 
 dissim_df <- dissim_df %>%
-  mutate(level = factor(level, levels = dissim_levels))
+  mutate(component_level = factor(component_level, levels = dissim_levels))
 
-dissim_plot <- ggplot(dissim_df, aes(x = assay, y = level, fill = residual_effect)) +
+dissim_plot <- ggplot(dissim_df, aes(x = assay, y = component_level, fill = residual_effect)) +
   geom_tile(color = "white", linewidth = 0.3) +
   geom_text(aes(label = as.integer(rank_residual)), size = 3.2, color = "black") +
   fill_scale +
+  facet_wrap(~ level, scales = "free_y") +
   labs(
     x = NULL,
     y = NULL,
