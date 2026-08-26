@@ -270,6 +270,16 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       task_metrics <- dplyr::bind_rows(task_metrics, external_metrics)
     }
 
+    if (!("level" %in% colnames(task_metrics))) {
+      task_metrics$level <- "celltype"
+    } else {
+      task_metrics$level <- ifelse(
+        !is.na(task_metrics$celltype) & task_metrics$celltype == "__global__",
+        "global",
+        ifelse(is.na(task_metrics$level) | task_metrics$level == "", "celltype", as.character(task_metrics$level))
+      )
+    }
+
     save_ok <- tryCatch({
       save_task_results(
         results = task_metrics,
