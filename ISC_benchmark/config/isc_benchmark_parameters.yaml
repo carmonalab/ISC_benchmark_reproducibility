@@ -107,6 +107,33 @@ common:
   progressbar: false                    # Progress bars for BiocParallel
 
 # ============================================================================
+# EXTERNAL METHODS (added on top of scTypeEval methods)
+# ============================================================================
+external_methods:
+  enabled: true
+
+  sccaf:
+    enabled: true
+    tasks: "all"
+    params:
+      n: 100
+
+  anticor_features:
+    enabled: true
+    tasks: "all"
+    params:
+      min_cells: 10
+      species: "hsapiens"
+      score_k: 1.0
+
+  scshc:
+    enabled: true
+    tasks: "all"
+    params:
+      parallel: false
+      cores: 1
+
+# ============================================================================
 # TASK-SPECIFIC PARAMETERS
 # ============================================================================
 

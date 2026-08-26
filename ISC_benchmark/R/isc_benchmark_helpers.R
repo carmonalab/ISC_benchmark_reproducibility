@@ -26,6 +26,10 @@ suppressPackageStartupMessages({
 source("R/assays_utils.R")
 source("R/Metrics_benchmarking.R")
 
+# Optional external benchmark helpers (Python/R tools).
+source("../sample_agnostic_utils/run_python_pipelines.R")
+source("../sample_agnostic_utils/scshc.R")
+
 #' Get default gene blacklist (TCR, Immunoglobulins, Y-genes) from scTypeEval
 get_default_blacklist <- function() {
   data("black_list", package = "scTypeEval", envir = environment())
@@ -34,6 +38,199 @@ get_default_blacklist <- function() {
     black_list$Immunoglobulins,
     black_list$Ygenes
   ))
+}
+
+`%||%` <- function(x, y) {
+  if (is.null(x)) y else x
+}
+
+
+# ============================================================================
+# EXTERNAL METHOD INTEGRATION (SCCAF, anticor_features, sc-SHC)
+# ============================================================================
+
+get_external_methods_config <- function(config) {
+  ext <- config$external_methods
+  if (is.null(ext) || is.null(ext$enabled) || !isTRUE(ext$enabled)) {
+    return(NULL)
+  }
+  ext
+}
+
+
+is_external_method_enabled_for_task <- function(spec, task_name) {
+  if (is.null(spec) || !isTRUE(spec$enabled)) {
+    return(FALSE)
+  }
+  tasks <- spec$tasks %||% "all"
+  if (length(tasks) == 1 && identical(tasks[[1]], "all")) {
+    return(TRUE)
+  }
+  task_name %in% unlist(tasks)
+}
+
+
+build_external_method_rows <- function(method_name,
+                                       method_score_df,
+                                       task_metrics,
+                                       dataset_id,
+                                       ident_col,
+                                       task_name) {
+  if (is.null(method_score_df) || nrow(method_score_df) == 0) {
+    return(NULL)
+  }
+
+  state_cols <- intersect(
+    c("rate", "rep", "original_ident", "perturbed_ctype", "batch", "condition", "pair_id", "source"),
+    names(task_metrics)
+  )
+
+  if (length(state_cols) > 0) {
+    state_template <- dplyr::distinct(task_metrics[, state_cols, drop = FALSE])
+  } else {
+    state_template <- data.frame(.tmp = 1L)
+  }
+
+  method_score_df <- method_score_df %>%
+    dplyr::mutate(
+      celltype = as.character(celltype),
+      measure = as.numeric(score),
+      consistency_metric = method_name,
+      dissimilarity_method = "external",
+      task = task_name,
+      dataset_id = dataset_id,
+      ident = ident_col
+    ) %>%
+    dplyr::select(dataset_id, ident, task, consistency_metric, dissimilarity_method, celltype, measure)
+
+  if (".tmp" %in% names(state_template)) {
+    state_template$.tmp <- NULL
+  }
+
+  out <- tidyr::crossing(method_score_df, state_template)
+  out
+}
+
+
+run_external_methods_for_task <- function(obj_prepared,
+                                          task_metrics,
+                                          task_name,
+                                          dataset_id,
+                                          ident_col,
+                                          output_dir,
+                                          config) {
+  ext_cfg <- get_external_methods_config(config)
+  if (is.null(ext_cfg)) {
+    return(NULL)
+  }
+
+  # Build a minimal scTypeEval object to reuse the sample_agnostic wrapper.
+  sc_obj <- scTypeEval::create_scTypeEval(
+    matrix = obj_prepared$count_matrix,
+    metadata = obj_prepared$metadata,
+    active_ident = ident_col
+  )
+
+  all_rows <- list()
+
+  # Python tools: SCCAF + anticor_features
+  py_specs <- list()
+  if (is_external_method_enabled_for_task(ext_cfg$sccaf, task_name)) {
+    py_specs[["sccaf"]] <- pipeline_spec_sccaf(
+      name = "sccaf",
+      cluster_key = ident_col,
+      n = as.integer(ext_cfg$sccaf$params$n %||% 100)
+    )
+  }
+  if (is_external_method_enabled_for_task(ext_cfg$anticor_features, task_name)) {
+    py_specs[["anticor_features"]] <- pipeline_spec_anticor_features(
+      name = "anticor_features",
+      cluster_key = ident_col,
+      min_cells = as.integer(ext_cfg$anticor_features$params$min_cells %||% 10),
+      species = ext_cfg$anticor_features$params$species %||% "hsapiens",
+      score_k = as.numeric(ext_cfg$anticor_features$params$score_k %||% 1.0)
+    )
+  }
+
+  if (length(py_specs) > 0) {
+    py_results <- tryCatch(
+      run_sample_agnostic_python_pipelines(
+        scTypeEval = sc_obj,
+        pipelines = py_specs,
+        tmp_dir = file.path(output_dir, "external_tmp"),
+        file_prefix = paste0(dataset_id, "_", ident_col, "_", task_name),
+        assign_to_env = FALSE,
+        cleanup = TRUE
+      ),
+      error = function(e) {
+        message("[external] Python pipeline execution failed: ", e$message)
+        NULL
+      }
+    )
+
+    if (!is.null(py_results)) {
+      if (!is.null(py_results$sccaf)) {
+        all_rows[[length(all_rows) + 1]] <- build_external_method_rows(
+          method_name = "SCCAF",
+          method_score_df = py_results$sccaf,
+          task_metrics = task_metrics,
+          dataset_id = dataset_id,
+          ident_col = ident_col,
+          task_name = task_name
+        )
+      }
+
+      if (!is.null(py_results$anticor_features)) {
+        all_rows[[length(all_rows) + 1]] <- build_external_method_rows(
+          method_name = "anticor_features",
+          method_score_df = py_results$anticor_features,
+          task_metrics = task_metrics,
+          dataset_id = dataset_id,
+          ident_col = ident_col,
+          task_name = task_name
+        )
+      }
+    }
+  }
+
+  # R tool: sc-SHC (global score only)
+  if (is_external_method_enabled_for_task(ext_cfg$scshc, task_name)) {
+    scshc_score <- tryCatch(
+      run_scSHC(
+        scTypeEval = sc_obj,
+        ident = obj_prepared$metadata[[ident_col]],
+        var.genes = rownames(obj_prepared$count_matrix),
+        parallel = isTRUE(ext_cfg$scshc$params$parallel %||% FALSE),
+        cores = as.integer(ext_cfg$scshc$params$cores %||% 1)
+      ),
+      error = function(e) {
+        message("[external] sc-SHC failed: ", e$message)
+        NA_real_
+      }
+    )
+
+    if (!is.na(scshc_score)) {
+      scshc_df <- data.frame(
+        celltype = "__global__",
+        score = as.numeric(scshc_score),
+        stringsAsFactors = FALSE
+      )
+      all_rows[[length(all_rows) + 1]] <- build_external_method_rows(
+        method_name = "scSHC",
+        method_score_df = scshc_df,
+        task_metrics = task_metrics,
+        dataset_id = dataset_id,
+        ident_col = ident_col,
+        task_name = task_name
+      )
+    }
+  }
+
+  if (length(all_rows) == 0) {
+    return(NULL)
+  }
+
+  dplyr::bind_rows(all_rows)
 }
 
 

@@ -250,6 +250,26 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   
   # ========== STEP 4: Save results ==========
   if (!is.null(task_metrics)) {
+    external_metrics <- tryCatch(
+      run_external_methods_for_task(
+        obj_prepared = obj_prepared,
+        task_metrics = task_metrics,
+        task_name = task_name,
+        dataset_id = dataset_id,
+        ident_col = ident_col,
+        output_dir = task_output_dir,
+        config = config
+      ),
+      error = function(e) {
+        message_step("EXTERNAL", sprintf("External methods failed for %s: %s", task_name, e$message))
+        NULL
+      }
+    )
+
+    if (!is.null(external_metrics) && nrow(external_metrics) > 0) {
+      task_metrics <- dplyr::bind_rows(task_metrics, external_metrics)
+    }
+
     save_ok <- tryCatch({
       save_task_results(
         results = task_metrics,
