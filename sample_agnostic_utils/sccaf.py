@@ -14,6 +14,7 @@ import csv
 from collections import Counter
 from pathlib import Path
 
+import numpy as np
 import scanpy as sc
 from SCCAF import SCCAF_assessment
 from sklearn.metrics import precision_recall_fscore_support
@@ -96,6 +97,10 @@ def run_sccaf_per_cluster(h5ad_path, output_csv, cluster_key=None, n=100):
 		labels=all_clusters,
 		zero_division=0,
 	)
+	precision = np.asarray(precision, dtype=float)
+	recall = np.asarray(recall, dtype=float)
+	f1 = np.asarray(f1, dtype=float)
+	support = np.asarray(support, dtype=int)
 
 	with output_path.open("w", newline="") as handle:
 		writer = csv.DictWriter(
@@ -103,6 +108,8 @@ def run_sccaf_per_cluster(h5ad_path, output_csv, cluster_key=None, n=100):
 			fieldnames=[
 				"input_h5ad",
 				"cluster_key",
+				"celltype",
+				"score",
 				"cluster",
 				"n_cells_input",
 				"n_cells_test",
@@ -124,6 +131,8 @@ def run_sccaf_per_cluster(h5ad_path, output_csv, cluster_key=None, n=100):
 				{
 					"input_h5ad": str(Path(h5ad_path).resolve()),
 					"cluster_key": key,
+					"celltype": cluster,
+					"score": float(f1[i]),
 					"cluster": cluster,
 					"n_cells_input": int(input_counts.get(cluster, 0)),
 					"n_cells_test": test_support,

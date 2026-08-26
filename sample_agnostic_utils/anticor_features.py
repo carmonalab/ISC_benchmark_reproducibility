@@ -135,6 +135,8 @@ def run_anticor_per_celltype(
 		row = {
 			"input_h5ad": input_path,
 			"cluster_key": cluster_col,
+			"celltype": cell_type,
+			"score": np.nan,
 			"cell_type": cell_type,
 			"n_cells": n_cells,
 			"n_features_total": np.nan,
@@ -188,6 +190,7 @@ def run_anticor_per_celltype(
 				n_features_expressed=n_features_expressed,
 				score_k=score_k,
 			)
+			row["score"] = row["anticor_score_0_1"]
 		except Exception as exc:
 			row["status"] = "failed"
 			row["error"] = str(exc)

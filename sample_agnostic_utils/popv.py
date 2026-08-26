@@ -133,6 +133,8 @@ def _build_summary(
 		.reset_index()
 		.rename(columns={group_col: "query_cell_type"})
 	)
+	summary["celltype"] = summary["query_cell_type"].astype(str)
+	summary["score"] = summary["agreement_likelihood_mean"].astype(float)
 
 	summary["n_methods"] = int(n_methods)
 	summary["query_h5ad"] = str(Path(query_h5ad).resolve())

@@ -141,6 +141,8 @@ def run_cellhint_per_cluster(
 				"input_h5ad": input_path,
 				"dataset_key": dataset_col,
 				"cluster_key": cluster_col,
+				"celltype": cell_type,
+				"score": dominant_fraction,
 				"cell_type": cell_type,
 				"n_cells": n_cells,
 				"n_harmonized_groups": int(len(group_counts)),
