@@ -94,6 +94,7 @@ build_external_method_rows <- function(method_name,
   method_score_df <- method_score_df %>%
     dplyr::mutate(
       celltype = as.character(celltype),
+      level = ifelse(celltype == "__global__", "global", "celltype"),
       measure = as.numeric(score),
       consistency_metric = method_name,
       dissimilarity_method = "external",
@@ -101,7 +102,7 @@ build_external_method_rows <- function(method_name,
       dataset_id = dataset_id,
       ident = ident_col
     ) %>%
-    dplyr::select(dataset_id, ident, task, consistency_metric, dissimilarity_method, celltype, measure)
+    dplyr::select(dataset_id, ident, task, consistency_metric, dissimilarity_method, level, celltype, measure)
 
   if (".tmp" %in% names(state_template)) {
     state_template$.tmp <- NULL
