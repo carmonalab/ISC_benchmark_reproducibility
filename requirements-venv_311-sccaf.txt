@@ -1,1 +1,0 @@
-SCCAF @ https://github.com/SCCAF/sccaf/archive/refs/heads/master.zip#sha256=fa549f51b5b2c464700050e0df694572870faa351e20a9b57b773eb346c2b6ad
