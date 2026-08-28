@@ -1,4 +1,4 @@
-library(anndata)
+library(anndataR)
 library(Matrix)
 
 .find_repo_root <- function(start_dir = getwd()) {
@@ -25,12 +25,14 @@ library(Matrix)
 .default_python_bin <- function(repo_root) {
   candidates <- c(
     file.path(repo_root, ".venv", "bin", "python"),
-    file.path(repo_root, ".venv_311", "bin", "python")
+    file.path(repo_root, ".venv_311", "bin", "python"),
+    file.path(repo_root, ".venv_anticor_feat", "bin", "python"),
+    file.path(repo_root, ".venv_cellhint", "bin", "python")
   )
 
   for (candidate in candidates) {
     if (file.exists(candidate)) {
-      return(normalizePath(candidate, mustWork = TRUE))
+      return(candidate)
     }
   }
 
@@ -40,6 +42,15 @@ library(Matrix)
   }
 
   "python"
+}
+
+.default_sccaf_python_bin <- function(repo_root) {
+  candidate <- file.path(repo_root, ".venv_sccaf", "bin", "python")
+  if (file.exists(candidate)) {
+    return(candidate)
+  }
+
+  .default_python_bin(repo_root)
 }
 
 
@@ -240,11 +251,11 @@ pipeline_spec_popv <- function(
 .export_sctypeeval_to_h5ad <- function(scTypeEval, h5ad_path) {
   filt_data <- scTypeEval:::get_filtered_raw_matrix(scTypeEval)
 
-  adata <- anndata::AnnData(
+  adata <- anndataR::AnnData(
     X = Matrix::t(filt_data$counts),
     obs = as.data.frame(filt_data$metadata)
   )
-  anndata::write_h5ad(adata, h5ad_path)
+  anndataR::write_h5ad(adata, h5ad_path)
   h5ad_path
 }
 
@@ -264,6 +275,7 @@ run_sample_agnostic_python_pipelines <- function(
   envir = parent.frame(),
   read_csv = utils::read.csv,
   required_output_cols = c("celltype", "score"),
+  continue_on_error = FALSE,
   cleanup = FALSE
 ) {
   repo_root <- .find_repo_root()
@@ -288,6 +300,7 @@ run_sample_agnostic_python_pipelines <- function(
 
   results <- vector("list", length(specs))
   result_paths <- vector("list", length(specs))
+  pipeline_errors <- list()
   names(results) <- vapply(specs, `[[`, character(1), "name")
   names(result_paths) <- names(results)
 
@@ -311,6 +324,22 @@ run_sample_agnostic_python_pipelines <- function(
       )
     }
 
+    pipeline_python_bin <- python_bin
+    if (identical(spec$name, "sccaf")) {
+      pipeline_python_bin <- .default_sccaf_python_bin(repo_root)
+    }
+
+    if (!file.exists(pipeline_python_bin)) {
+      stop(
+        "Python interpreter not found for ", spec$name, ": ", pipeline_python_bin
+      )
+    }
+    if (file.access(pipeline_python_bin, mode = 1) != 0) {
+      stop(
+        "Python interpreter is not executable for ", spec$name, ": ", pipeline_python_bin
+      )
+    }
+
     cmd_args <- c(
       script_path,
       .input_flag_for_script(script_path),
@@ -320,41 +349,126 @@ run_sample_agnostic_python_pipelines <- function(
       spec$args
     )
 
-    run_log <- system2(
-      command = python_bin,
-      args = cmd_args,
-      stdout = TRUE,
-      stderr = TRUE
+    cmd_display <- paste(
+      c(shQuote(pipeline_python_bin), shQuote(cmd_args)),
+      collapse = " "
     )
-    exit_code <- attr(run_log, "status") %||% 0L
+
+    stdout_log <- tempfile(pattern = "py_pipeline_stdout_", fileext = ".log")
+    stderr_log <- tempfile(pattern = "py_pipeline_stderr_", fileext = ".log")
+
+    run_status <- tryCatch(
+      suppressWarnings(
+        system2(
+          command = pipeline_python_bin,
+          args = cmd_args,
+          stdout = stdout_log,
+          stderr = stderr_log
+        )
+      ),
+      error = function(e) e
+    )
+
+    read_log_file <- function(path) {
+      if (!file.exists(path)) {
+        return(character())
+      }
+      lines <- readLines(path, warn = FALSE)
+      if (length(lines) == 0) {
+        return(character())
+      }
+      lines
+    }
+
+    stdout_lines <- read_log_file(stdout_log)
+    stderr_lines <- read_log_file(stderr_log)
+    unlink(c(stdout_log, stderr_log), force = TRUE)
+
+    if (inherits(run_status, "error")) {
+      failure_message <- paste0(
+        "Python pipeline failed for ", spec$name, " (", basename(script_path), ").\n",
+        "Launcher error: ", conditionMessage(run_status), "\n",
+        "Command: ", cmd_display, "\n",
+        "stdout:\n", paste(stdout_lines, collapse = "\n"), "\n",
+        "stderr:\n", paste(stderr_lines, collapse = "\n")
+      )
+      if (isTRUE(continue_on_error)) {
+        message("[external] ", failure_message)
+        pipeline_errors[[spec$name]] <- failure_message
+        next
+      }
+      stop(failure_message)
+    }
+
+    exit_code <- as.integer(run_status)
 
     if (!identical(exit_code, 0L)) {
-      stop(
+      signal_note <- ""
+      if (!is.na(exit_code) && exit_code >= 128L) {
+        signal_note <- paste0(" (possible signal ", exit_code - 128L, ")")
+      }
+      failure_message <- paste0(
         "Python pipeline failed for ", spec$name, " (", basename(script_path), ").\n",
-        paste(run_log, collapse = "\n")
+        "Exit code: ", exit_code, signal_note, "\n",
+        "Command: ", cmd_display, "\n",
+        "stdout:\n", paste(stdout_lines, collapse = "\n"), "\n",
+        "stderr:\n", paste(stderr_lines, collapse = "\n")
       )
+      if (isTRUE(continue_on_error)) {
+        message("[external] ", failure_message)
+        pipeline_errors[[spec$name]] <- failure_message
+        next
+      }
+      stop(failure_message)
     }
 
     if (!file.exists(output_csv)) {
-      stop(
+      failure_message <- paste0(
         "Pipeline completed but output CSV was not created for ", spec$name, ": ", output_csv
       )
+      if (isTRUE(continue_on_error)) {
+        message("[external] ", failure_message)
+        pipeline_errors[[spec$name]] <- failure_message
+        next
+      }
+      stop(failure_message)
     }
 
-    results[[spec$name]] <- read_csv(
-      output_csv,
-      stringsAsFactors = FALSE,
-      check.names = FALSE
+    parsed_result <- tryCatch(
+      read_csv(
+        output_csv,
+        stringsAsFactors = FALSE,
+        check.names = FALSE
+      ),
+      error = function(e) e
     )
+    if (inherits(parsed_result, "error")) {
+      failure_message <- paste0(
+        "Pipeline output parsing failed for ", spec$name, ": ", conditionMessage(parsed_result)
+      )
+      if (isTRUE(continue_on_error)) {
+        message("[external] ", failure_message)
+        pipeline_errors[[spec$name]] <- failure_message
+        next
+      }
+      stop(failure_message)
+    }
+    results[[spec$name]] <- parsed_result
 
     missing_cols <- setdiff(required_output_cols, colnames(results[[spec$name]]))
     if (length(missing_cols) > 0) {
-      stop(
+      failure_message <- paste0(
         "Pipeline output is missing required column(s) for ", spec$name, ": ",
         paste(missing_cols, collapse = ", "),
         ". Expected at least: ", paste(required_output_cols, collapse = ", "),
         ". Output file: ", output_csv
       )
+      if (isTRUE(continue_on_error)) {
+        message("[external] ", failure_message)
+        pipeline_errors[[spec$name]] <- failure_message
+        next
+      }
+      stop(failure_message)
     }
 
     result_paths[[spec$name]] <- output_csv
@@ -366,5 +480,6 @@ run_sample_agnostic_python_pipelines <- function(
 
   attr(results, "input_h5ad") <- h5ad_path
   attr(results, "output_csvs") <- result_paths
+  attr(results, "pipeline_errors") <- pipeline_errors
   results
 }
