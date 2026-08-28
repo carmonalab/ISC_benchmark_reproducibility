@@ -207,6 +207,7 @@ run_external_methods_for_state <- function(sc_obj,
         tmp_dir = file.path(output_dir, "external_tmp"),
         file_prefix = paste(dataset_id, ident_col, task_name, state_tag, sep = "_"),
         assign_to_env = FALSE,
+        continue_on_error = TRUE,
         cleanup = TRUE
       ),
       error = function(e) {
@@ -247,8 +248,8 @@ run_external_methods_for_state <- function(sc_obj,
         scTypeEval = sc_obj,
         ident = ident_vec,
         var.genes = rownames(filt$counts),
-        parallel = isTRUE(ext_cfg$scshc$params$parallel %||% FALSE),
-        cores = as.integer(ext_cfg$scshc$params$cores %||% 1)
+        parallel = FALSE,
+        cores = 1
       ),
       error = function(e) {
         message("[external] sc-SHC failed for state ", state_tag, ": ", e$message)
@@ -329,6 +330,7 @@ run_external_methods_for_task <- function(obj_prepared,
         tmp_dir = file.path(output_dir, "external_tmp"),
         file_prefix = paste0(dataset_id, "_", ident_col, "_", task_name),
         assign_to_env = FALSE,
+        continue_on_error = TRUE,
         cleanup = TRUE
       ),
       error = function(e) {
@@ -369,8 +371,8 @@ run_external_methods_for_task <- function(obj_prepared,
         scTypeEval = sc_obj,
         ident = obj_prepared$metadata[[ident_col]],
         var.genes = rownames(obj_prepared$count_matrix),
-        parallel = isTRUE(ext_cfg$scshc$params$parallel %||% FALSE),
-        cores = as.integer(ext_cfg$scshc$params$cores %||% 1)
+        parallel = FALSE,
+        cores = 1
       ),
       error = function(e) {
         message("[external] sc-SHC failed: ", e$message)
@@ -520,6 +522,9 @@ get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
   min_samples <- config$common$min_samples
   min_cells   <- config$common$min_cells
   diss_method <- config$common$dissimilarity_method
+  int_val_metric <- config$common$int_val_metric
+  knn_graph_k <- as.integer(config$common$knn_graph_k %||% 5)
+  hclust_method <- config$common$hclust_method %||% "ward.D2"
   verbose_opt <- isTRUE(config$common$verbose)
 
   sc <- scTypeEval::wrapper_scTypeEval(
