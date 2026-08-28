@@ -51,8 +51,8 @@ ensure_r_environment() {
 
   if command -v module >/dev/null 2>&1; then
     module purge 2>/dev/null || true
-    module load GCC/12.3.0 2>/dev/null || true
-    module load R/4.3.2 2>/dev/null || true
+    module load GCC/14.3.0 2>/dev/null || true
+    module load R/4.5.2 2>/dev/null || true
     module load GLPK/5.0 2>/dev/null || true
     module load cairo/1.17.8 2>/dev/null || true
     module load freetype/2.13.0 2>/dev/null || true
@@ -193,8 +193,7 @@ run_dataset_locally() {
   cd "$PROJECT_DIR"
   ISC_DATASET_ID="$dataset_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
-r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-project_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+project_lib <- file.path(project_root, "renv", "library", "linux-rocky-9.8", "R-4.5", "x86_64-pc-linux-gnu")
 if (dir.exists(project_lib)) {
   .libPaths(unique(c(project_lib, .libPaths())))
 }
@@ -232,8 +231,7 @@ run_family_locally() {
   cd "$PROJECT_DIR"
   ISC_DATASET_FAMILIES="$family_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
-r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-project_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+project_lib <- file.path(project_root, "renv", "library", "linux-rocky-9.8", "R-4.5", "x86_64-pc-linux-gnu")
 if (dir.exists(project_lib)) {
   .libPaths(unique(c(project_lib, .libPaths())))
 }
@@ -300,8 +298,10 @@ set -euo pipefail
 
 if command -v module >/dev/null 2>&1; then
   module purge 2>/dev/null || true
-  module load GCC/12.3.0 2>/dev/null || true
-  module load R/4.3.2 2>/dev/null || true
+  module load GCCcore/10.3.0 2>/dev/null || true
+  module load Python/3.9.5-bare 2>/dev/null || true
+  module load GCC/14.3.0 2>/dev/null || true
+  module load R/4.5.2 2>/dev/null || true
   module load GLPK/5.0 2>/dev/null || true
   module load cairo/1.17.8 2>/dev/null || true
   module load freetype/2.13.0 2>/dev/null || true
@@ -321,8 +321,7 @@ echo "================================="
 
 Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
-r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-project_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+project_lib <- file.path(project_root, "renv", "library", "linux-rocky-9.8", "R-4.5", "x86_64-pc-linux-gnu")
 if (dir.exists(project_lib)) {
   .libPaths(unique(c(project_lib, .libPaths())))
 }
