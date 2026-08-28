@@ -38,6 +38,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   
   set.seed(config$seed)
   dir.create(output_dir, showWarnings = FALSE, recursive = TRUE)
+  ext_cfg <- get_external_methods_config(config)
 
   # Use default blacklist (TCR, Ig, Y-genes) if none specified in config
   if (is.null(config$common$black_list)) {
@@ -119,6 +120,148 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     )
   }
 
+  build_baseline_external_state <- function(task_name, obj_prepared) {
+    base_state <- list(
+      rep = 1L,
+      original_ident = ident_col,
+      perturbed_ctype = NA_character_,
+      active_ident = ident_col
+    )
+
+    switch(task_name,
+      "missclassify" = {
+        c(base_state, list(rate = 1))
+      },
+      "SplitCelltype" = {
+        c(base_state, list(rate = 1))
+      },
+      "Nsamples" = {
+        c(base_state, list(rate = 1))
+      },
+      "NCell" = {
+        c(base_state, list(rate = 1))
+      },
+      "Nct" = {
+        all_cts <- unique(obj_prepared$metadata[[obj_prepared$ident]])
+        all_cts <- all_cts[!is.na(all_cts)]
+        c(base_state, list(rate = paste(sort(as.character(all_cts)), collapse = "-"), rep = NA_integer_))
+      },
+      "cellular_complexity" = {
+        n_cts <- length(unique(obj_prepared$metadata[[obj_prepared$ident]]))
+        c(base_state, list(rate = as.numeric(n_cts), rep = NA_integer_))
+      },
+      NULL
+    )
+  }
+
+  expected_external_metrics <- function(ext_cfg, task_name) {
+    metrics <- character(0)
+    if (!is.null(ext_cfg) && is_external_method_enabled_for_task(ext_cfg$sccaf, task_name)) {
+      metrics <- c(metrics, "SCCAF")
+    }
+    if (!is.null(ext_cfg) && is_external_method_enabled_for_task(ext_cfg$anticor_features, task_name)) {
+      metrics <- c(metrics, "anticor_features")
+    }
+    if (!is.null(ext_cfg) && is_external_method_enabled_for_task(ext_cfg$scshc, task_name)) {
+      metrics <- c(metrics, "scSHC")
+    }
+    unique(metrics)
+  }
+
+  baseline_external_rows_for_task <- function(baseline_df, task_name, ext_cfg, obj_prepared) {
+    if (is.null(baseline_df) || is.null(ext_cfg) || !(task_name %in% TASKS_WITH_BASELINE)) {
+      return(NULL)
+    }
+
+    needed_metrics <- expected_external_metrics(ext_cfg, task_name)
+    if (length(needed_metrics) == 0 || !"consistency_metric" %in% names(baseline_df)) {
+      return(NULL)
+    }
+
+    external_bl <- baseline_df %>%
+      dplyr::filter(consistency_metric %in% needed_metrics)
+
+    if (nrow(external_bl) == 0) {
+      return(NULL)
+    }
+
+    switch(task_name,
+      "missclassify" = baseline_for_task(external_bl, "missclassify"),
+      "SplitCelltype" = baseline_for_task(external_bl, "SplitCelltype"),
+      "Nsamples" = baseline_for_task(external_bl, "Nsamples"),
+      "NCell" = baseline_for_task(external_bl, "NCell"),
+      "Nct" = {
+        all_cts <- unique(obj_prepared$metadata[[obj_prepared$ident]])
+        all_cts <- all_cts[!is.na(all_cts)]
+        baseline_for_Nct(external_bl, all_cts)
+      },
+      "cellular_complexity" = {
+        n_cts <- length(unique(obj_prepared$metadata[[obj_prepared$ident]]))
+        baseline_for_mergeCT(external_bl, n_cts)
+      },
+      NULL
+    )
+  }
+
+  if (!is.null(baseline_df) && !is.null(ext_cfg) && task_name %in% TASKS_WITH_BASELINE) {
+    needed_metrics <- expected_external_metrics(ext_cfg, task_name)
+    existing_metrics <- if ("consistency_metric" %in% names(baseline_df)) {
+      unique(as.character(stats::na.omit(baseline_df$consistency_metric)))
+    } else {
+      character(0)
+    }
+    missing_metrics <- setdiff(needed_metrics, existing_metrics)
+
+    if (length(missing_metrics) > 0) {
+      baseline_state <- build_baseline_external_state(task_name, obj_prepared)
+      baseline_external <- tryCatch(
+        {
+          sc_baseline_raw <- scTypeEval::create_scTypeEval(
+            matrix = obj_prepared$count_matrix,
+            metadata = obj_prepared$metadata,
+            active_ident = ident_col
+          )
+
+          sc_baseline <- scTypeEval::wrapper_scTypeEval(
+            sc_baseline_raw,
+            ident = ident_col,
+            sample = config$common$sample,
+            gene_list = NULL,
+            reduction = config$common$reduction,
+            ndim = config$common$ndim,
+            normalization_method = config$common$normalization_method,
+            dissimilarity_method = config$common$dissimilarity_method,
+            min_samples = config$common$min_samples,
+            min_cells = config$common$min_cells,
+            verbose = isTRUE(config$common$verbose)
+          )
+
+          run_external_methods_for_state(
+            sc_obj = sc_baseline,
+            task_name = task_name,
+            dataset_id = dataset_id,
+            ident_col = ident_col,
+            output_dir = file.path(output_dir, sprintf("%s_%s", task_name, ident_col)),
+            config = config,
+            state = baseline_state
+          )
+        },
+        error = function(e) {
+          message_step("EXTERNAL", sprintf("Baseline external cache enrichment failed for %s: %s", task_name, e$message))
+          NULL
+        }
+      )
+
+      if (!is.null(baseline_external) && nrow(baseline_external) > 0) {
+        baseline_external$task <- "Baseline"
+        baseline_df <- dplyr::bind_rows(baseline_df, baseline_external) %>% dplyr::distinct()
+        baseline_cache_path <- file.path(output_dir, paste0("baseline_isc_", ident_col, ".rds"))
+        saveRDS(baseline_df, baseline_cache_path)
+        message_step("BASELINE", sprintf("Cached baseline external rows to %s", basename(baseline_cache_path)))
+      }
+    }
+  }
+
   # ========== STEP 3: Execute task ==========
   task_output_dir <- file.path(output_dir, sprintf("%s_%s", task_name, ident_col))
   metrics_file <- file.path(
@@ -145,7 +288,6 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   wr_result <- NULL
   task_metrics <- NULL
   skip_persist <- FALSE
-  ext_cfg <- get_external_methods_config(config)
   external_state_callback <- NULL
 
   if (!is.null(ext_cfg)) {
@@ -275,6 +417,13 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   # ========== STEP 4: Save results ==========
   if (!is.null(task_metrics)) {
     external_metrics <- attr(wr_result, "external_state_scores")
+
+    if (!is.null(ext_cfg) && !is.null(baseline_df) && task_name %in% TASKS_WITH_BASELINE) {
+      baseline_external_metrics <- baseline_external_rows_for_task(baseline_df, task_name, ext_cfg, obj_prepared)
+      if (!is.null(baseline_external_metrics) && nrow(baseline_external_metrics) > 0) {
+        external_metrics <- dplyr::bind_rows(baseline_external_metrics, external_metrics)
+      }
+    }
 
     if (is.null(external_metrics) && !is.null(ext_cfg)) {
       external_metrics <- tryCatch(
