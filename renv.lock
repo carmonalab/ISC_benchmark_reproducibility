@@ -5,6 +5,26 @@
       {
         "Name": "CRAN",
         "URL": "https://cloud.r-project.org"
+      },
+      {
+        "Name": "BioCsoft",
+        "URL": "https://bioconductor.org/packages/3.22/bioc"
+      },
+      {
+        "Name": "BioCann",
+        "URL": "https://bioconductor.org/packages/3.22/data/annotation"
+      },
+      {
+        "Name": "BioCexp",
+        "URL": "https://bioconductor.org/packages/3.22/data/experiment"
+      },
+      {
+        "Name": "BioCworkflows",
+        "URL": "https://bioconductor.org/packages/3.22/workflows"
+      },
+      {
+        "Name": "BioCbooks",
+        "URL": "https://bioconductor.org/packages/3.22/books"
       }
     ]
   },
@@ -2376,43 +2396,64 @@
       "Author": "Tony Plate [aut, cre], Richard Heiberger [aut]",
       "Repository": "CRAN"
     },
-    "anndata": {
-      "Package": "anndata",
-      "Version": "0.8.0",
-      "Source": "Repository",
-      "Type": "Package",
-      "Title": "'anndata' for R",
-      "Authors@R": "c(person(given = \"Philipp\", family = \"Angerer\", role = \"ccp\", email = \"phil.angerer@gmail.com\", comment = c(ORCID = \"0000-0002-0369-2888\")), person(given = \"Alex\", family = \"Wolf\", role = \"ccp\", email = \"f.alex.wolf@gmx.de\", comment = c(ORCID = \"0000-0002-8760-7838\")), person(given = \"Isaac\", family = \"Virshup\", role = \"ccp\", comment = c(ORCID = \"0000-0002-1710-8945\")), person(given = \"Sergei\", family = \"Rybakov\", role = \"ccp\", comment = c(ORCID = \"0000-0002-4944-6586\")), person(given = \"Robrecht\", family = \"Cannoodt\", role = c(\"aut\", \"cre\", \"cph\"), email = \"rcannood@gmail.com\", comment = c(ORCID = \"0000-0003-3641-729X\")))",
-      "Description": "A 'reticulate' wrapper for the Python package 'anndata'. Provides a scalable way of keeping track of data and learned annotations.  Used to read from and write to the h5ad file format.",
+    "anndataR": {
+      "Package": "anndataR",
+      "Version": "1.0.2",
+      "Source": "Bioconductor",
+      "Title": "AnnData interoperability in R",
+      "Authors@R": "c( person(\"Robrecht\", \"Cannoodt\", , \"rcannood@gmail.com\", role = c(\"aut\", \"cre\"), comment = c(ORCID = \"0000-0003-3641-729X\", github = \"rcannood\")), person(\"Luke\", \"Zappia\", , \"luke@lazappi.id.au\", role = \"aut\", comment = c(ORCID = \"0000-0001-7744-8565\", github = \"lazappi\")), person(\"Martin\", \"Morgan\", , \"mtmorgan.bioc@gmail.com\", role = \"aut\", comment = c(ORCID = \"0000-0002-5874-8148\", github = \"mtmorgan\")), person(\"Louise\", \"Deconinck\", , \"louise.deconinck@gmail.com\", role = \"aut\", comment = c(ORCID = \"0000-0001-8100-6823\", github = \"LouiseDck\")), person(\"Danila\", \"Bredikhin\", , \"danila.bredikhin@embl.de\", role = \"ctb\", comment = c(ORCID = \"0000-0001-8089-6983\", github = \"gtca\")), person(\"Isaac\", \"Virshup\", role = \"ctb\", comment = c(ORCID = \"0000-0002-1710-8945\", github = \"ivirshup\")), person(\"Brian\", \"Schilder\", , \"brian_schilder@alumni.brown.edu\", role = \"ctb\", comment = c(ORCID = \"0000-0001-5949-2191\", github = \"bschilder\")), person(\"Chananchida\", \"Sang-aram\", role = \"ctb\", comment = c(ORCID = \"0000-0002-0922-0822\", github = \"csangara\")), person(\"Data Intuitive\", , , \"info@data-intuitive.com\", role = c(\"fnd\", \"cph\")), person(\"Chan Zuckerberg Initiative\", role = \"fnd\"), person(\"scverse consortium\", role = \"spn\") )",
+      "Description": "Bring the power and flexibility of AnnData to the R ecosystem, allowing you to effortlessly manipulate and analyse your single-cell data. This package lets you work with backed h5ad and zarr files, directly access various slots (e.g. X, obs, var), or convert the data into SingleCellExperiment and Seurat objects.",
       "License": "MIT + file LICENSE",
-      "URL": "https://anndata.dynverse.org, https://github.com/dynverse/anndata",
-      "BugReports": "https://github.com/dynverse/anndata/issues",
+      "URL": "https://anndataR.scverse.org, https://github.com/scverse/anndataR",
+      "BugReports": "https://github.com/scverse/anndataR/issues",
       "Depends": [
-        "R (>= 3.5.0)"
+        "R (>= 4.5.0)"
       ],
       "Imports": [
-        "assertthat",
         "cli",
         "lifecycle",
         "Matrix",
         "methods",
-        "R6",
-        "reticulate (>= 1.41)"
+        "purrr",
+        "R6 (>= 2.4.0)",
+        "reticulate (>= 1.41.1)",
+        "rlang",
+        "stats"
       ],
       "Suggests": [
-        "stats",
-        "testthat",
+        "BiocFileCache",
+        "BiocStyle",
         "knitr",
-        "rmarkdown"
+        "processx",
+        "rhdf5 (>= 2.52.1)",
+        "rmarkdown",
+        "S4Vectors",
+        "Seurat",
+        "SeuratObject",
+        "SingleCellExperiment",
+        "spelling",
+        "SummarizedExperiment",
+        "testthat (>= 3.0.0)",
+        "vctrs",
+        "withr",
+        "yaml"
       ],
-      "Encoding": "UTF-8",
-      "RoxygenNote": "7.3.2",
-      "Config/reticulate": "list( packages = list( list(package = \"anndata\") ) )",
       "VignetteBuilder": "knitr",
+      "biocViews": "SingleCell, DataImport, DataRepresentation",
+      "Config/Needs/website": "pkgdown, tibble, knitr, rprojroot, stringr, readr, purrr, dplyr, tidyr, rmarkdown",
+      "Config/testthat/edition": "3",
+      "Encoding": "UTF-8",
+      "Roxygen": "list(markdown = TRUE, r6 = TRUE)",
+      "RoxygenNote": "7.3.3",
+      "Language": "en-GB",
+      "git_url": "https://git.bioconductor.org/packages/anndataR",
+      "git_branch": "RELEASE_3_22",
+      "git_last_commit": "4c329df",
+      "git_last_commit_date": "2026-03-02",
+      "Repository": "Bioconductor 3.22",
       "NeedsCompilation": "no",
-      "Author": "Philipp Angerer [ccp] (ORCID: <https://orcid.org/0000-0002-0369-2888>), Alex Wolf [ccp] (ORCID: <https://orcid.org/0000-0002-8760-7838>), Isaac Virshup [ccp] (ORCID: <https://orcid.org/0000-0002-1710-8945>), Sergei Rybakov [ccp] (ORCID: <https://orcid.org/0000-0002-4944-6586>), Robrecht Cannoodt [aut, cre, cph] (ORCID: <https://orcid.org/0000-0003-3641-729X>)",
-      "Maintainer": "Robrecht Cannoodt <rcannood@gmail.com>",
-      "Repository": "CRAN"
+      "Author": "Robrecht Cannoodt [aut, cre] (ORCID: <https://orcid.org/0000-0003-3641-729X>, github: rcannood), Luke Zappia [aut] (ORCID: <https://orcid.org/0000-0001-7744-8565>, github: lazappi), Martin Morgan [aut] (ORCID: <https://orcid.org/0000-0002-5874-8148>, github: mtmorgan), Louise Deconinck [aut] (ORCID: <https://orcid.org/0000-0001-8100-6823>, github: LouiseDck), Danila Bredikhin [ctb] (ORCID: <https://orcid.org/0000-0001-8089-6983>, github: gtca), Isaac Virshup [ctb] (ORCID: <https://orcid.org/0000-0002-1710-8945>, github: ivirshup), Brian Schilder [ctb] (ORCID: <https://orcid.org/0000-0001-5949-2191>, github: bschilder), Chananchida Sang-aram [ctb] (ORCID: <https://orcid.org/0000-0002-0922-0822>, github: csangara), Data Intuitive [fnd, cph], Chan Zuckerberg Initiative [fnd], scverse consortium [spn]",
+      "Maintainer": "Robrecht Cannoodt <rcannood@gmail.com>"
     },
     "askpass": {
       "Package": "askpass",
@@ -9837,7 +9878,7 @@
     },
     "scSHC": {
       "Package": "scSHC",
-      "Version": "0.1.0",
+      "Version": "0.1.0.9001",
       "Source": "GitHub",
       "Type": "Package",
       "Title": "Significance Analysis for Clustering Single-Cell RNA-seq Data",
@@ -9877,8 +9918,8 @@
       "RemoteHost": "api.github.com",
       "RemoteRepo": "sc-SHC",
       "RemoteUsername": "igrabski",
-      "RemoteRef": "HEAD",
-      "RemoteSha": "2671f6ee5a55572ddd7216de822044f9497d6161",
+      "RemoteRef": "prerelease",
+      "RemoteSha": "b48296a5d6a267618468ce5c68071c84be259a35",
       "NeedsCompilation": "no",
       "Author": "Isabella N. Grabski [aut, cre] (ORCID: <https://orcid.org/0000-0002-0616-5469>)",
       "Maintainer": "Isabella N. Grabski <igrabski@nygenome.org>"
