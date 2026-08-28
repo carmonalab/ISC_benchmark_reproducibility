@@ -6,8 +6,8 @@
 run_scSHC <- function(scTypeEval,
                       ident = NULL,
                       var.genes = NULL,
-                      parallel = TRUE,
-                      cores = 2){
+                      parallel = FALSE,
+                      cores = 1){
    
    if(class(scTypeEval) != "scTypeEval"){
       stop("input should be an scTypeEval object created with `create_scTypeEval()`")
