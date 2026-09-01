@@ -190,6 +190,7 @@ run_dataset_locally() {
   log_message "INFO" "Running dataset locally: $dataset_id"
 
   ensure_r_environment
+  export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.11.5-GCCcore-13.2.0/lib:/opt/ebsofts/libffi/3.3-GCCcore-10.3.0/lib64:${LD_LIBRARY_PATH:-}"
   cd "$PROJECT_DIR"
   ISC_DATASET_ID="$dataset_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
@@ -228,6 +229,7 @@ run_family_locally() {
   log_message "INFO" "Running family locally: $family_id"
 
   ensure_r_environment
+  export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.11.5-GCCcore-13.2.0/lib:/opt/ebsofts/libffi/3.3-GCCcore-10.3.0/lib64:${LD_LIBRARY_PATH:-}"
   cd "$PROJECT_DIR"
   ISC_DATASET_FAMILIES="$family_id" ISC_TASKS="$tasks_csv" Rscript --vanilla - <<'RS'
 project_root <- normalizePath("..")
@@ -307,6 +309,9 @@ if command -v module >/dev/null 2>&1; then
   module load freetype/2.13.0 2>/dev/null || true
   module load libwebp/1.3.1 2>/dev/null || true
 fi
+
+# Keep Python runtimes for both external venvs compatible after newer GCC/R modules are loaded.
+export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.11.5-GCCcore-13.2.0/lib:/opt/ebsofts/libffi/3.3-GCCcore-10.3.0/lib64:${LD_LIBRARY_PATH:-}"
 
 cd "$PROJECT_DIR"
 
