@@ -18,7 +18,7 @@ n_cores: 16                        # Number of cores for parallel processing
 # ============================================================================
 paths:
   data_processed: "data/processed"            # Processed datasets directory
-  results_root: "ISC_benchmark/results_MN"       # Root results directory
+  results_root: "ISC_benchmark/results_dev"       # Root results directory
 
 # ============================================================================
 # TASK SELECTION
@@ -96,6 +96,9 @@ common:
     - "Orbital_medoid"                 # Orbital medoid
     - "Average_similarity"              # Average pairwise similarity
     - "MetaNeighbor_Supervised"          # MetaNeighbor supervised classification
+    - "nsa_silhouette"                
+    - "nsa_cLISI"
+    - "nsa_ROGUE"
   
   # kNN and clustering parameters
   knn_graph_k: 5                        # Number of neighbors for kNN graph
@@ -127,7 +130,7 @@ external_methods:
       score_k: 1.0
 
   scshc:
-    enabled: true
+    enabled: false
     tasks: "all"
     params:
       parallel: false
