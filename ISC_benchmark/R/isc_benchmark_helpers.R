@@ -637,13 +637,27 @@ baseline_for_mergeCT <- function(baseline_df, n_cts, filter_external = TRUE) {
 }
 
 prepend_baseline_rows <- function(task_rows, baseline_rows) {
+  task_external_rows <- attr(task_rows, "external_state_scores")
+  baseline_external_rows <- attr(baseline_rows, "external_state_scores")
+
   if ("rep" %in% names(task_rows)) {
     task_rows$rep <- as.character(task_rows$rep)
   }
   if ("rep" %in% names(baseline_rows)) {
     baseline_rows$rep <- as.character(baseline_rows$rep)
   }
-  dplyr::bind_rows(baseline_rows, task_rows)
+
+  out <- dplyr::bind_rows(baseline_rows, task_rows)
+
+  combined_external_rows <- dplyr::bind_rows(
+    coerce_rep_to_character(baseline_external_rows),
+    coerce_rep_to_character(task_external_rows)
+  )
+  if (!is.null(combined_external_rows) && nrow(combined_external_rows) > 0) {
+    attr(out, "external_state_scores") <- combined_external_rows
+  }
+
+  out
 }
 
 coerce_rep_to_character <- function(df) {
