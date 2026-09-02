@@ -186,18 +186,18 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     }
 
     switch(task_name,
-      "missclassify" = baseline_for_task(external_bl, "missclassify"),
-      "SplitCelltype" = baseline_for_task(external_bl, "SplitCelltype"),
-      "Nsamples" = baseline_for_task(external_bl, "Nsamples"),
-      "NCell" = baseline_for_task(external_bl, "NCell"),
+      "missclassify" = baseline_for_task(external_bl, "missclassify", filter_external = FALSE),
+      "SplitCelltype" = baseline_for_task(external_bl, "SplitCelltype", filter_external = FALSE),
+      "Nsamples" = baseline_for_task(external_bl, "Nsamples", filter_external = FALSE),
+      "NCell" = baseline_for_task(external_bl, "NCell", filter_external = FALSE),
       "Nct" = {
         all_cts <- unique(obj_prepared$metadata[[obj_prepared$ident]])
         all_cts <- all_cts[!is.na(all_cts)]
-        baseline_for_Nct(external_bl, all_cts)
+        baseline_for_Nct(external_bl, all_cts, filter_external = FALSE)
       },
       "cellular_complexity" = {
         n_cts <- length(unique(obj_prepared$metadata[[obj_prepared$ident]]))
-        baseline_for_mergeCT(external_bl, n_cts)
+        baseline_for_mergeCT(external_bl, n_cts, filter_external = FALSE)
       },
       NULL
     )

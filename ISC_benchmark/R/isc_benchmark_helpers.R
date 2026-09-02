@@ -294,11 +294,25 @@ run_external_methods_for_task <- function(obj_prepared,
     return(NULL)
   }
 
-  # Build a minimal scTypeEval object to reuse the sample_agnostic wrapper.
-  sc_obj <- scTypeEval::create_scTypeEval(
+  # Build a processed scTypeEval object so external exporters can access
+  # normalized/filtering slots the same way as the main benchmark wrappers.
+  sc_obj_raw <- scTypeEval::create_scTypeEval(
     matrix = obj_prepared$count_matrix,
     metadata = obj_prepared$metadata,
     active_ident = ident_col
+  )
+  sc_obj <- scTypeEval::wrapper_scTypeEval(
+    sc_obj_raw,
+    ident                = ident_col,
+    sample               = config$common$sample,
+    gene_list            = NULL,
+    reduction            = config$common$reduction,
+    ndim                 = config$common$ndim,
+    normalization_method = config$common$normalization_method,
+    dissimilarity_method = config$common$dissimilarity_method,
+    min_samples          = config$common$min_samples,
+    min_cells            = config$common$min_cells,
+    verbose              = isTRUE(config$common$verbose)
   )
 
   all_rows <- list()
@@ -569,9 +583,21 @@ get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
   NCell        = "NCell"
 )
 
-baseline_for_task <- function(baseline_df, task_name) {
+baseline_scTypeEval_rows <- function(baseline_df) {
+  if (!"dissimilarity_method" %in% names(baseline_df)) {
+    return(baseline_df)
+  }
+
+  baseline_df %>%
+    dplyr::filter(is.na(dissimilarity_method) | as.character(dissimilarity_method) != "external")
+}
+
+baseline_for_task <- function(baseline_df, task_name, filter_external = TRUE) {
   task_label <- .baseline_task_labels[[task_name]]
   if (is.null(task_label)) stop("Unknown baseline task: ", task_name)
+  if (isTRUE(filter_external)) {
+    baseline_df <- baseline_scTypeEval_rows(baseline_df)
+  }
   baseline_df$task <- task_label
   baseline_df$perturbed_ctype <- NA_character_
   baseline_df
@@ -579,8 +605,12 @@ baseline_for_task <- function(baseline_df, task_name) {
 
 #' Extract Nct baseline row from baseline dataframe (task 3)
 #' Labels baseline dataframe row as task="Nct" with rate = all cell types joined by "-".
-baseline_for_Nct <- function(baseline_df, all_cts) {
+baseline_for_Nct <- function(baseline_df, all_cts, filter_external = TRUE) {
   all_cts_str <- paste(sort(as.character(all_cts)), collapse = "-")
+  if (isTRUE(filter_external)) {
+    baseline_df <- baseline_scTypeEval_rows(baseline_df)
+  }
+
   baseline_df |>
     dplyr::mutate(
       rate           = all_cts_str,
@@ -592,7 +622,11 @@ baseline_for_Nct <- function(baseline_df, all_cts) {
 
 #' Extract mergeCT baseline row from baseline dataframe (task 4)
 #' Labels baseline dataframe row as task="mergeCT" with rate = original number of CTs.
-baseline_for_mergeCT <- function(baseline_df, n_cts) {
+baseline_for_mergeCT <- function(baseline_df, n_cts, filter_external = TRUE) {
+  if (isTRUE(filter_external)) {
+    baseline_df <- baseline_scTypeEval_rows(baseline_df)
+  }
+
   baseline_df |>
     dplyr::mutate(
       rate           = as.numeric(n_cts),
@@ -600,6 +634,10 @@ baseline_for_mergeCT <- function(baseline_df, n_cts) {
       perturbed_ctype = NA_character_,
       task           = "mergeCT"
     )
+}
+
+prepend_baseline_rows <- function(task_rows, baseline_rows) {
+  dplyr::bind_rows(baseline_rows, task_rows)
 }
 
 #' Map batch/condition values to the dataset stem they originate from
@@ -1029,7 +1067,7 @@ run_task_missclassify <- function(obj_prepared, config, task_config, output_dir,
   wr <- do.call(wr_missclasify, params)
 
   if (!is.null(baseline_df)) {
-    wr <- rbind(baseline_for_task(baseline_df, "missclassify"), wr)
+    wr <- prepend_baseline_rows(wr, baseline_for_task(baseline_df, "missclassify"))
   }
 
   wr
@@ -1056,7 +1094,7 @@ run_task_SplitCelltype <- function(obj_prepared, config, task_config, output_dir
   wr <- do.call(wr_split_cell_type, params)
 
   if (!is.null(baseline_df)) {
-    wr <- rbind(baseline_for_task(baseline_df, "SplitCelltype"), wr)
+    wr <- prepend_baseline_rows(wr, baseline_for_task(baseline_df, "SplitCelltype"))
   }
 
   wr
@@ -1086,7 +1124,7 @@ run_task_Nct <- function(obj_prepared, config, task_config, output_dir, baseline
     all_cts <- unique(obj_prepared$metadata[[obj_prepared$ident]])
     all_cts <- all_cts[!is.na(all_cts)]
     bl <- baseline_for_Nct(baseline_df, all_cts)
-    wr <- rbind(bl, wr)
+    wr <- prepend_baseline_rows(wr, bl)
   }
 
   wr
@@ -1114,7 +1152,7 @@ run_task_cellular_complexity <- function(obj_prepared, config, task_config, outp
   if (!is.null(baseline_df)) {
     n_cts <- length(unique(obj_prepared$metadata[[obj_prepared$ident]]))
     bl <- baseline_for_mergeCT(baseline_df, n_cts)
-    wr <- rbind(bl, wr)
+    wr <- prepend_baseline_rows(wr, bl)
   }
 
   wr
@@ -1141,7 +1179,7 @@ run_task_Nsamples <- function(obj_prepared, config, task_config, output_dir,
   wr <- do.call(wr_nsamples, params)
 
   if (!is.null(baseline_df)) {
-    wr <- rbind(baseline_for_task(baseline_df, "Nsamples"), wr)
+    wr <- prepend_baseline_rows(wr, baseline_for_task(baseline_df, "Nsamples"))
   }
 
   wr
@@ -1168,7 +1206,7 @@ run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
   wr <- do.call(wr_ncell, params)
 
   if (!is.null(baseline_df)) {
-    wr <- rbind(baseline_for_task(baseline_df, "NCell"), wr)
+    wr <- prepend_baseline_rows(wr, baseline_for_task(baseline_df, "NCell"))
   }
 
   wr
@@ -1307,10 +1345,16 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
           )
 
         if (!is.null(external_state_callback)) {
-          sc_ext_batch1 <- scTypeEval::create_scTypeEval(
-            matrix = count_matrix[, batch1_cells, drop = FALSE],
-            metadata = metadata[batch1_cells, , drop = FALSE],
-            active_ident = ident
+          sc_ext_batch1 <- run_cached_subset_scTypeEval(
+            count_matrix    = count_matrix,
+            metadata        = metadata,
+            cell_idx        = batch1_cells,
+            ident           = ident,
+            config          = config,
+            cache_env       = single_isc_cache,
+            cache_key       = paste0("batch:", batch1_stem),
+            cache_label     = sprintf("batch '%s'", batch1_stem),
+            disk_cache_path = resolve_disk_path(batch1_stem)
           )
           ext_batch1 <- external_state_callback(
             sc_ext_batch1,
@@ -1337,10 +1381,16 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
           )
 
         if (!is.null(external_state_callback)) {
-          sc_ext_batch2 <- scTypeEval::create_scTypeEval(
-            matrix = count_matrix[, batch2_cells, drop = FALSE],
-            metadata = metadata[batch2_cells, , drop = FALSE],
-            active_ident = ident
+          sc_ext_batch2 <- run_cached_subset_scTypeEval(
+            count_matrix    = count_matrix,
+            metadata        = metadata,
+            cell_idx        = batch2_cells,
+            ident           = ident,
+            config          = config,
+            cache_env       = single_isc_cache,
+            cache_key       = paste0("batch:", batch2_stem),
+            cache_label     = sprintf("batch '%s'", batch2_stem),
+            disk_cache_path = resolve_disk_path(batch2_stem)
           )
           ext_batch2 <- external_state_callback(
             sc_ext_batch2,
@@ -1389,13 +1439,8 @@ run_task_batch_effects <- function(obj_prepared, config, task_config, output_dir
           )
 
         if (!is.null(external_state_callback)) {
-          sc_ext_merged <- scTypeEval::create_scTypeEval(
-            matrix = count_matrix[, combined_cells, drop = FALSE],
-            metadata = metadata[combined_cells, , drop = FALSE],
-            active_ident = ident
-          )
           ext_merged <- external_state_callback(
-            sc_ext_merged,
+            isc_combined,
             list(
               batch = pair_name,
               condition = pair$condition,
@@ -1563,10 +1608,16 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
           )
 
         if (!is.null(external_state_callback)) {
-          sc_ext_cond1 <- scTypeEval::create_scTypeEval(
-            matrix = count_matrix[, cond1_cells, drop = FALSE],
-            metadata = metadata[cond1_cells, , drop = FALSE],
-            active_ident = ident
+          sc_ext_cond1 <- run_cached_subset_scTypeEval(
+            count_matrix    = count_matrix,
+            metadata        = metadata,
+            cell_idx        = cond1_cells,
+            ident           = ident,
+            config          = config,
+            cache_env       = single_isc_cache,
+            cache_key       = paste0("cond:", cond1_stem),
+            cache_label     = sprintf("condition '%s'", cond1_stem),
+            disk_cache_path = resolve_disk_path(cond1_stem)
           )
           ext_cond1 <- external_state_callback(
             sc_ext_cond1,
@@ -1593,10 +1644,16 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
           )
 
         if (!is.null(external_state_callback)) {
-          sc_ext_cond2 <- scTypeEval::create_scTypeEval(
-            matrix = count_matrix[, cond2_cells, drop = FALSE],
-            metadata = metadata[cond2_cells, , drop = FALSE],
-            active_ident = ident
+          sc_ext_cond2 <- run_cached_subset_scTypeEval(
+            count_matrix    = count_matrix,
+            metadata        = metadata,
+            cell_idx        = cond2_cells,
+            ident           = ident,
+            config          = config,
+            cache_env       = single_isc_cache,
+            cache_key       = paste0("cond:", cond2_stem),
+            cache_label     = sprintf("condition '%s'", cond2_stem),
+            disk_cache_path = resolve_disk_path(cond2_stem)
           )
           ext_cond2 <- external_state_callback(
             sc_ext_cond2,
@@ -1645,13 +1702,8 @@ run_task_biological_perturbations <- function(obj_prepared, config, task_config,
           )
 
         if (!is.null(external_state_callback)) {
-          sc_ext_merged <- scTypeEval::create_scTypeEval(
-            matrix = count_matrix[, combined_cells, drop = FALSE],
-            metadata = metadata[combined_cells, , drop = FALSE],
-            active_ident = ident
-          )
           ext_merged <- external_state_callback(
-            sc_ext_merged,
+            isc_combined,
             list(
               condition = pair_name,
               batch = pair$batch,
