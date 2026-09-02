@@ -417,9 +417,12 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   # ========== STEP 4: Save results ==========
   if (!is.null(task_metrics)) {
     external_metrics <- attr(wr_result, "external_state_scores")
+    task_metrics <- coerce_rep_to_character(task_metrics)
+    external_metrics <- coerce_rep_to_character(external_metrics)
 
     if (!is.null(ext_cfg) && !is.null(baseline_df) && task_name %in% TASKS_WITH_BASELINE) {
       baseline_external_metrics <- baseline_external_rows_for_task(baseline_df, task_name, ext_cfg, obj_prepared)
+      baseline_external_metrics <- coerce_rep_to_character(baseline_external_metrics)
       if (!is.null(baseline_external_metrics) && nrow(baseline_external_metrics) > 0) {
         external_metrics <- dplyr::bind_rows(baseline_external_metrics, external_metrics)
       }

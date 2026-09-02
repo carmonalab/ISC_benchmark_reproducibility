@@ -637,7 +637,23 @@ baseline_for_mergeCT <- function(baseline_df, n_cts, filter_external = TRUE) {
 }
 
 prepend_baseline_rows <- function(task_rows, baseline_rows) {
+  if ("rep" %in% names(task_rows)) {
+    task_rows$rep <- as.character(task_rows$rep)
+  }
+  if ("rep" %in% names(baseline_rows)) {
+    baseline_rows$rep <- as.character(baseline_rows$rep)
+  }
   dplyr::bind_rows(baseline_rows, task_rows)
+}
+
+coerce_rep_to_character <- function(df) {
+  if (is.null(df)) {
+    return(df)
+  }
+  if ("rep" %in% names(df)) {
+    df$rep <- as.character(df$rep)
+  }
+  df
 }
 
 #' Map batch/condition values to the dataset stem they originate from
