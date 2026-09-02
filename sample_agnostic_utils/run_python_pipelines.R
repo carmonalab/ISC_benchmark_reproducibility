@@ -255,7 +255,23 @@ pipeline_spec_popv <- function(
     X = Matrix::t(filt_data$counts),
     obs = as.data.frame(filt_data$metadata)
   )
-  anndataR::write_h5ad(adata, h5ad_path)
+
+  sink_path <- tempfile("write_h5ad_", fileext = ".log")
+  sink_con <- file(sink_path, open = "wt")
+  on.exit({
+    sink(type = "message")
+    sink()
+    close(sink_con)
+    unlink(sink_path)
+  }, add = TRUE)
+
+  sink(sink_con)
+  sink(sink_con, type = "message")
+  suppressWarnings(
+    suppressMessages(
+      anndataR::write_h5ad(adata, h5ad_path)
+    )
+  )
   h5ad_path
 }
 
