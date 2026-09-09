@@ -10066,7 +10066,7 @@
       "RemoteRepo": "scTypeEval",
       "RemoteUsername": "carmonalab",
       "RemoteRef": "MetaNeighbor",
-      "RemoteSha": "07bca04cb81fbae1907363c06a84da1b75cd8b02",
+      "RemoteSha": "1db6ba5c2a5c26d120046f51f4429fb1ea7c085c",
       "NeedsCompilation": "no",
       "Author": "Josep Garnica [aut, cre] (ORCID: <https://orcid.org/0000-0001-9493-1321>), Massimo Andreatta [aut] (ORCID: <https://orcid.org/0000-0002-8036-2647>), Santiago Carmona [aut] (ORCID: <https://orcid.org/0000-0002-2495-0671>)",
       "Maintainer": "Josep Garnica <josep.garnicacaparros@unige.ch>"
