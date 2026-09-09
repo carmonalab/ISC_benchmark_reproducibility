@@ -1,4 +1,11 @@
 #!/bin/bash -l
+#SBATCH --job-name=isc_resources_aggregate
+#SBATCH --partition=public-cpu
+#SBATCH --time=02:00:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=16G
 # Aggregate resource benchmarking results after all jobs complete
 # This can be submitted as a dependent job using:
 #   sbatch --dependency=afterok:JOB_ID scripts/submit_aggregate.sh

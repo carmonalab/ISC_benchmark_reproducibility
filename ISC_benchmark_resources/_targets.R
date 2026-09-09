@@ -12,7 +12,7 @@ source("R/resources_utils.R")
 tar_option_set(
   packages = c(
     "yaml", "dplyr", "tidyr", "Matrix",
-    "scTypeEval", "Seurat", "SeuratObject"
+    "scTypeEval", "Seurat", "SeuratObject", "anndataR"
   ),
   storage = "main",
   retrieval = "main",
@@ -49,7 +49,7 @@ list(
 
   tar_target(
     resource_metric_grid,
-    build_resource_metric_grid(resource_params)
+    build_resource_tool_grid(resource_params)
   ),
 
   tar_target(
@@ -67,10 +67,13 @@ list(
 
   tar_target(
     resource_metric_result,
-    benchmark_resource_pair(
+    benchmark_resource_tool(
       prepared_path = resource_prepared_input,
       dissimilarity_method = resource_metric_grid$dissimilarity_method,
-      consistency_metric = resource_metric_grid$consistency_metric,
+      int_val_metric = resource_metric_grid$int_val_metric,
+      tool_type = resource_metric_grid$tool_type,
+      tool_name = resource_metric_grid$tool_name,
+      language = resource_metric_grid$language,
       params = resource_params
     ),
     format = "file",

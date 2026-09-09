@@ -7,11 +7,11 @@ RESOURCES_DIR="${PROJECT_ROOT}/ISC_benchmark_resources"
 LOG_DIR="${RESOURCES_DIR}/logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-SLURM_PARTITION="${RESOURCE_SLURM_PARTITION:-public-cpu}"
+SLURM_PARTITION="${RESOURCE_SLURM_PARTITION:-shared-cpu}"
 SLURM_NODES="${RESOURCE_SLURM_NODES:-1}"
 SLURM_CPUS="${RESOURCE_SLURM_CPUS:-4}"
 SLURM_MEM="${RESOURCE_SLURM_MEM:-499G}"
-SLURM_TIME="${RESOURCE_SLURM_TIME:-24:00:00}"
+SLURM_TIME="${RESOURCE_SLURM_TIME:-12:00:00}"
 
 mkdir -p "${LOG_DIR}"
 
@@ -100,12 +100,14 @@ read_dataset_ids() {
 
 mapfile -t DATASET_IDS < <(read_dataset_ids)
 
+JOB_IDS=()
+
 for dataset_id in "${DATASET_IDS[@]}"; do
   [[ -z "${dataset_id}" ]] && continue
 
   log_message "INFO" "Submitting resource benchmark for ${dataset_id}"
 
-  sbatch <<EOF
+  submit_output=$(sbatch <<EOF
 #!/bin/bash -l
 #SBATCH --job-name=isc_resources_${dataset_id}
 #SBATCH --partition=${SLURM_PARTITION}
@@ -122,4 +124,25 @@ export RESOURCE_SLURM_CPUS="${SLURM_CPUS}"
 
 bash "${RESOURCES_DIR}/scripts/master_job.sh"
 EOF
+  )
+
+  log_message "INFO" "${submit_output}"
+  job_id="$(awk '{print $NF}' <<< "${submit_output}")"
+  if [[ "${job_id}" =~ ^[0-9]+$ ]]; then
+    JOB_IDS+=("${job_id}")
+  else
+    log_message "ERROR" "Could not parse job ID from sbatch output for ${dataset_id}: ${submit_output}"
+    exit 1
+  fi
 done
+
+# Submit the aggregation job once every per-dataset job completes, so all
+# datasets' resource outputs are appended into a single combined table.
+if [[ ${#JOB_IDS[@]} -gt 0 ]]; then
+  dependency_list="$(IFS=:; echo "${JOB_IDS[*]}")"
+  log_message "INFO" "Submitting aggregation job with dependency=afterok:${dependency_list}"
+  sbatch --dependency="afterok:${dependency_list}" \
+    --output="${LOG_DIR}/aggregate_${TIMESTAMP}_%j.out" \
+    --error="${LOG_DIR}/aggregate_${TIMESTAMP}_%j.err" \
+    "${RESOURCES_DIR}/scripts/submit_aggregate.sh"
+fi

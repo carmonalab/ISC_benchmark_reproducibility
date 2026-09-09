@@ -53,6 +53,9 @@ if (length(results_files) == 0) {
     duration = numeric(),
     memory_usage_MB = numeric(),
     cpu_usage = numeric(),
+    tool_type = character(),
+    tool_name = character(),
+    language = character(),
     method = character(),
     consistency_metric = character(),
     dissimilarity_method = character(),
@@ -108,9 +111,7 @@ summary_by_dataset <- aggregated %>%
   dplyr::summarise(
     n_results = dplyr::n(),
     n_idents = dplyr::n_distinct(ident),
-    n_metric_combos = dplyr::n_distinct(
-      paste0(dissimilarity_method, "::", consistency_metric)
-    ),
+    n_tools = dplyr::n_distinct(tool_name),
     mean_duration_ms = mean(.data[[duration_col]], na.rm = TRUE),
     mean_peak_memory_MB = mean(.data[[memory_col]], na.rm = TRUE),
     .groups = "drop"
