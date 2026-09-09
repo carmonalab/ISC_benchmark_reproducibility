@@ -27,15 +27,15 @@ fi
 
 if command -v module >/dev/null 2>&1; then
   log_msg "Loading environment modules"
-  module purge || true
-  module load GCCcore/10.3.0 || true
-  module load Python/3.9.5-bare || true
-  module load GCC/14.3.0 || true
-  module load R/4.5.2 || true
-  module load GLPK/5.0 || true
-  module load cairo/1.17.8 || true
-  module load freetype/2.13.0 || true
-  module load libwebp/1.3.1 || true
+  module purge 2>/dev/null || true
+  module load GCCcore/10.3.0 2>/dev/null || true
+  module load Python/3.9.5-bare 2>/dev/null || true
+  module load GCC/14.3.0 2>/dev/null || true
+  module load R/4.5.2 2>/dev/null || true
+  module load GLPK/5.0 2>/dev/null || true
+  module load cairo/1.17.8 2>/dev/null || true
+  module load freetype/2.13.0 2>/dev/null || true
+  module load libwebp/1.3.1 2>/dev/null || true
 fi
 
 # Keep Python runtimes for the external tool venvs compatible after newer GCC/R modules are loaded.
