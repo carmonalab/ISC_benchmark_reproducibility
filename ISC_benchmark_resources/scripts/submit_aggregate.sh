@@ -33,13 +33,18 @@ log_msg "Project root: ${PROJECT_ROOT}"
 if command -v module >/dev/null 2>&1; then
   log_msg "Loading environment modules"
   module purge || true
-  module load GCC/12.3.0 || true
-  module load R/4.3.2 || true
+  module load GCCcore/10.3.0 || true
+  module load Python/3.9.5-bare || true
+  module load GCC/14.3.0 || true
+  module load R/4.5.2 || true
   module load GLPK/5.0 || true
   module load cairo/1.17.8 || true
   module load freetype/2.13.0 || true
   module load libwebp/1.3.1 || true
 fi
+
+# Keep Python runtimes for the external tool venvs compatible after newer GCC/R modules are loaded.
+export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.11.5-GCCcore-13.2.0/lib:/opt/ebsofts/libffi/3.3-GCCcore-10.3.0/lib64:${LD_LIBRARY_PATH:-}"
 
 cd "${RESOURCES_DIR}"
 
@@ -49,8 +54,7 @@ options(repos = c(CRAN = "https://packagemanager.posit.co/cran/2024-01-15"))
 project_root <- Sys.getenv("PROJECT_ROOT")
 stopifnot(nzchar(project_root))
 
-r_mm <- paste0(R.version$major, ".", sub("\\..*$", "", R.version$minor))
-renv_lib <- file.path(project_root, "renv", "library", paste0("R-", r_mm), R.version$platform)
+renv_lib <- file.path(project_root, "renv", "library", "linux-rocky-9.8", "R-4.5", "x86_64-pc-linux-gnu")
 if (dir.exists(renv_lib)) {
   .libPaths(unique(c(renv_lib, .libPaths())))
 }
