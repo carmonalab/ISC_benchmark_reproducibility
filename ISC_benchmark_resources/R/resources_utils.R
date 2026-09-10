@@ -435,7 +435,7 @@ resource_write_scshc_benchmark_script <- function(script_path) {
 
 # Build the (executable, args) for benchmarking an external Python tool
 # directly (no R wrapper process), so timings reflect only the tool itself.
-resource_build_external_python_command <- function(tool_name, h5ad_path, output_csv, params) {
+resource_build_external_python_command <- function(tool_name, ident, h5ad_path, output_csv, params) {
   resource_load_python_pipeline_helpers()
   repo_root <- .find_repo_root()
   ext_cfg <- params$external_methods
@@ -443,9 +443,11 @@ resource_build_external_python_command <- function(tool_name, h5ad_path, output_
   spec <- switch(
     tool_name,
     sccaf = pipeline_spec_sccaf(
+      cluster_key = ident,
       n = as.integer(ext_cfg$sccaf$params$n %||% 100)
     ),
     anticor_features = pipeline_spec_anticor_features(
+      cluster_key = ident,
       min_cells = as.integer(ext_cfg$anticor_features$params$min_cells %||% 10),
       species = ext_cfg$anticor_features$params$species %||% "hsapiens",
       score_k = as.numeric(ext_cfg$anticor_features$params$score_k %||% 1.0)
@@ -586,6 +588,7 @@ resource_run_tool_benchmark <- function(prepared, tool_row, params) {
 
     command <- resource_build_external_python_command(
       tool_name = tool_row$tool_name,
+      ident = prepared$ident,
       h5ad_path = prepared$h5ad_path,
       output_csv = output_csv,
       params = params
