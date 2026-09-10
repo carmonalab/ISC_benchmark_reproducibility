@@ -46,7 +46,10 @@ bash scripts/submit_hpc.sh
 
 This submits one job per dataset. Each job uses its own targets store under
 `ISC_benchmark_resources/_targets/store_<dataset>` and writes per-tool `.rds` files to
-`ISC_benchmark_resources/output/<dataset>/<ident>/`. Once every per-dataset job completes,
-`submit_hpc.sh` automatically submits `scripts/submit_aggregate.sh` (via
-`--dependency=afterok:...`) to append all datasets' outputs into a single combined table at
-`results/aggregated_benchmarks.rds` / `.csv`.
+`ISC_benchmark_resources/output/<dataset>/<ident>/`. Once every per-dataset job has completed,
+submit the aggregation job manually to append all datasets' outputs into a single combined
+table at `results/aggregated_benchmarks.rds` / `.csv`:
+
+```bash
+sbatch scripts/submit_aggregate.sh
+```
