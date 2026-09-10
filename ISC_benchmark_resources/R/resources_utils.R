@@ -218,17 +218,41 @@ build_resource_ident_grid <- function(dataset_info) {
   dplyr::bind_rows(rows)
 }
 
+# nsa_* ("no sample aggregation") int_val_metrics operate on the cell-level
+# embedding/counts directly and never read the dissimilarity_slot, so pairing
+# them with every dissimilarity_method would just redundantly benchmark an
+# unused run_dissimilarity() step.
+resource_is_nsa_metric <- function(int_val_metric) {
+  grepl("^nsa_", int_val_metric)
+}
+
 # Unified grid of every internal (scTypeEval) dissimilarity/int_val_metric pair
 # plus every enabled external tool (SCCAF, anticor_features, sc-SHC), so both
 # R and Python tools flow through the same benchmarking/aggregation path.
 build_resource_tool_grid <- function(config) {
+  all_int_val_metrics <- config$common$int_val_metric
+  nsa_metrics <- all_int_val_metrics[resource_is_nsa_metric(all_int_val_metrics)]
+  diss_dependent_metrics <- all_int_val_metrics[!resource_is_nsa_metric(all_int_val_metrics)]
+
   internal_grid <- tidyr::expand_grid(
     dissimilarity_method = config$common$dissimilarity_method,
-    int_val_metric = config$common$int_val_metric
+    int_val_metric = diss_dependent_metrics
   )
   internal_grid$tool_type <- "internal"
   internal_grid$tool_name <- paste(internal_grid$dissimilarity_method, internal_grid$int_val_metric, sep = "::")
   internal_grid$language <- "R"
+
+  if (length(nsa_metrics) > 0) {
+    nsa_grid <- data.frame(
+      dissimilarity_method = NA_character_,
+      int_val_metric = nsa_metrics,
+      tool_type = "internal",
+      tool_name = nsa_metrics,
+      language = "R",
+      stringsAsFactors = FALSE
+    )
+    internal_grid <- dplyr::bind_rows(internal_grid, nsa_grid)
+  }
 
   ext_cfg <- config$external_methods
   external_rows <- list()
@@ -376,18 +400,21 @@ resource_write_internal_benchmark_script <- function(script_path) {
     "",
     "prepared <- readRDS(prepared_path)",
     "sc_tmp <- prepared$sc",
-    "sc_tmp <- scTypeEval::run_dissimilarity(",
-    "  scTypeEval = sc_tmp,",
-    "  method = dissimilarity_method,",
-    "  reduction = reduction,",
-    "  reciprocal_classifier = reciprocal_classifier,",
-    "  ncores = benchmark_ncores,",
-    "  verbose = verbose_opt",
-    ")",
+    "is_nsa_metric <- grepl('^nsa_', int_val_metric)",
+    "if (!is_nsa_metric) {",
+    "  sc_tmp <- scTypeEval::run_dissimilarity(",
+    "    scTypeEval = sc_tmp,",
+    "    method = dissimilarity_method,",
+    "    reduction = reduction,",
+    "    reciprocal_classifier = reciprocal_classifier,",
+    "    ncores = benchmark_ncores,",
+    "    verbose = verbose_opt",
+    "  )",
+    "}",
     "",
     "invisible(scTypeEval::get_consistency(",
     "  scTypeEval = sc_tmp,",
-    "  dissimilarity_slot = dissimilarity_method,",
+    "  dissimilarity_slot = if (is_nsa_metric) NA_character_ else dissimilarity_method,",
     "  consistency_metric = int_val_metric,",
     "  knn_graph_k = knn_graph_k,",
     "  hclust_method = hclust_method,",
