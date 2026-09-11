@@ -538,17 +538,13 @@ message("✓ Residual effects computed: ", nrow(residual_effects_all), " rows (a
 # Task scores (wide) - keep absolute values for sizing
 plot_data <- task_summary %>%
   filter_metrics(for_plot = TRUE) %>%
-  select(level, method_type, assay, median_score)
+  select(method_type, assay, median_score)
 
 task_wide <- plot_data %>%
-  tidyr::pivot_wider(
-    id_cols = c(level, method_type),
-    names_from = assay,
-    values_from = median_score
-  )
+  tidyr::pivot_wider(names_from = assay, values_from = median_score)
 
 # Extract task columns and reorder to match specification
-task_cols <- setdiff(colnames(task_wide), c("level", "method_type"))
+task_cols <- setdiff(colnames(task_wide), "method_type")
 
 # Define correct task order
 task_order <- c(
@@ -565,28 +561,26 @@ task_order <- c(
 # Reorder task_wide columns to match specification
 task_cols_ordered <- task_order[task_order %in% task_cols]
 task_wide <- task_wide %>%
-  dplyr::select(level, method_type, all_of(task_cols_ordered))
+  dplyr::select(method_type, all_of(task_cols_ordered))
 
 task_cols <- task_cols_ordered
 
 # Overall scores with absolute values and rank-normalized coloring
 overall_plot_data <- overall_scores %>%
   filter_metrics(for_plot = TRUE) %>%
-  group_by(level) %>%
-  arrange(desc(overall_score), .by_group = TRUE) %>%
+  arrange(desc(overall_score)) %>%
   mutate(
     rank = rank(-overall_score, ties.method = "average"),
-    overall_score_color = ifelse(n() <= 1, 0, (rank - 1) / (n() - 1)),
+    overall_score_color = (rank - 1) / (n() - 1),
     overall_score_display = round(overall_score, 2)
   ) %>%
-  ungroup() %>%
-  select(level, method_type, overall_score,
+  select(method_type, overall_score,
          overall_score_color, overall_score_display)
 
 # Resources with rank-normalized colors (no log scale)
 resources_summary <- resources_data %>%
   filter_metrics(for_plot = TRUE) %>%
-  group_by(level, method_type) %>%
+  group_by(method_type) %>%
   summarise(
     median_duration_ms = median(`Duration (ms)`, na.rm = TRUE),
     median_memory_mb = median(`Peak memory (MB)`, na.rm = TRUE),
@@ -597,13 +591,13 @@ resources_summary <- resources_data %>%
     median_duration_scaled = minmax_scale(median_duration_ms),
     median_memory_scaled = minmax_scale(median_memory_mb)
   ) %>%
-  select(level, method_type, median_duration_ms, median_memory_mb,
+  select(method_type, median_duration_ms, median_memory_mb,
          median_duration_scaled, median_memory_scaled)
 
 # Split method into consistency/dissimilarity
 method_info <- overall_scores %>%
   filter_metrics(for_plot = TRUE) %>%
-  select(level, method_type) %>%
+  select(method_type) %>%
   tidyr::separate(method_type,
                   into = c("consistency_metric", "dissimilarity_method"),
                   sep = " \\| ",
@@ -613,34 +607,25 @@ method_info <- overall_scores %>%
 # Combine to single data frame for funkyheatmap
 # Order by descending overall_score
 fh_data <- method_info %>%
-  left_join(task_wide, by = c("level", "method_type")) %>%
-  left_join(overall_plot_data, by = c("level", "method_type")) %>%
-  left_join(resources_summary, by = c("level", "method_type")) %>%
-  mutate(id = paste(level, method_type, sep = " :: ")) %>%
-  arrange(level, desc(overall_score))
+  left_join(task_wide, by = "method_type") %>%
+  left_join(overall_plot_data, by = "method_type") %>%
+  left_join(resources_summary, by = "method_type") %>%
+  mutate(id = method_type) %>%
+  arrange(desc(overall_score))
 
 # For tasks: create ranking columns for color
 n_methods <- nrow(fh_data)
 for (col in task_cols) {
   scores <- fh_data[[col]]
-  # Higher score is better; ranks are computed within level strata.
-  ranks <- ave(
-    -scores,
-    fh_data$level,
-    FUN = function(x) rank(x, ties.method = "average", na.last = "keep")
-  )
-  n_by_level <- ave(scores, fh_data$level, FUN = function(x) sum(!is.na(x)))
-  fh_data[[paste0(col, "_color")]] <- ifelse(
-    is.na(scores) | n_by_level <= 1,
-    NA,
-    (ranks - 1) / (n_by_level - 1)
-  )
+  # Higher score is better, so best should be rank 0 (green)
+  ranks <- rank(-scores, ties.method = "average", na.last = "keep")
+  fh_data[[paste0(col, "_color")]] <- ifelse(is.na(scores), NA, (ranks - 1) / (n_methods - 1))
 }
 
 # Select columns: metadata, overall (color, value, display), tasks (value), task colors, resources
 task_cols_color <- paste0(task_cols, "_color")
 fh_data <- fh_data %>%
-  dplyr::select(id, level, consistency_metric, dissimilarity_method, overall_score_color,
+  dplyr::select(id, consistency_metric, dissimilarity_method, overall_score_color,
                 overall_score, overall_score_display, 
                 all_of(task_cols), all_of(task_cols_color),
                 median_duration_ms, median_memory_mb)
@@ -654,21 +639,21 @@ fh_data <- fh_data %>%
 
 # Column info for funkyheatmap (use official id_color/id_size/overlay fields)
 cinfo_metadata <- tibble::tibble(
-  id = c("level", "consistency_metric", "dissimilarity_method", "overall_score", "overall_score_display"),
-  id_color = c(NA_character_, NA_character_, NA_character_, "overall_score_color", NA_character_),
-  id_size = c(NA_character_, NA_character_, NA_character_, "overall_score", NA_character_),
-  group = c("Method", "Method", "Method", "Overall", "Overall"),
-  name = c("Level", "Metric", "Dissimilarity", "", ""),
-  geom = c("text", "text", "text", "bar", "text"),
-  palette = c(NA_character_, NA_character_, NA_character_, "overall_palette", NA_character_),
-  width = c(3, 7, 7, 4, 4),
-  overlay = c(FALSE, FALSE, FALSE, FALSE, TRUE),
-  legend = c(FALSE, FALSE, FALSE, TRUE, FALSE),
-  label = c("level", "consistency_metric", "dissimilarity_method", NA_character_, "overall_score_display"),
-  size = c(4, 4, 4, NA_real_, 5.5),
-  fontface = c("plain", "plain", "plain", NA_character_, "bold"),
-  hjust = c(0, 0, 0, NA_real_, 0.5),
-  vjust = c(0.5, 0.5, 0.5, NA_real_, 0.5)
+  id = c("consistency_metric", "dissimilarity_method", "overall_score", "overall_score_display"),
+  id_color = c(NA_character_, NA_character_, "overall_score_color", NA_character_),
+  id_size = c(NA_character_, NA_character_, "overall_score", NA_character_),
+  group = c("Method", "Method", "Overall", "Overall"),
+  name = c("Metric", "Dissimilarity", "", ""),
+  geom = c("text", "text", "bar", "text"),
+  palette = c(NA_character_, NA_character_, "overall_palette", NA_character_),
+  width = c(7, 7, 4, 4),
+  overlay = c(FALSE, FALSE, FALSE, TRUE),
+  legend = c(FALSE, FALSE, TRUE, FALSE),
+  label = c("consistency_metric", "dissimilarity_method", NA_character_, "overall_score_display"),
+  size = c(4, 4, NA_real_, 5.5),
+  fontface = c("plain", "plain", NA_character_, "bold"),
+  hjust = c(0, 0, NA_real_, 0.5),
+  vjust = c(0.5, 0.5, NA_real_, 0.5)
 )
 
 cinfo_tasks <- tibble::tibble(
@@ -727,7 +712,7 @@ memory_labels <- c(
   as.character(round(memory_range[[2]], 0))
 )
 
-rank_labels <- c("best", "", "", "", "worst")
+rank_labels <- as.character(c(1, "", "", "", n_methods))
 
 legends <- list(
   list(
