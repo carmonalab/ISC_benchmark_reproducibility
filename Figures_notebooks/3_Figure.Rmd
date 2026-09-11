@@ -104,8 +104,12 @@ standardize_methods <- function(df) {
       level = ifelse(is.na(level) | level == "", "celltype", as.character(level)),
       consistency_metric = gsub("Orbital_medoid", "Nearest_medoid", consistency_metric),
       consistency_metric = gsub("ward_PropMatch", "Clustering_agreement", consistency_metric),
+      dissimilarity_method = ifelse(
+        is.na(dissimilarity_method) | dissimilarity_method == "external",
+        "none",
+        dissimilarity_method),
       method_type = paste(consistency_metric, dissimilarity_method, sep = " | ")
-    )
+  )
 }
 
 #' Filter metrics for visualization
@@ -199,13 +203,9 @@ compute_residual_effects <- function(task_summary_df, for_plot = FALSE) {
 ```{r load-resources}
 message("Loading resources data...")
 
-li.fi <- list.files(file.path("ISC_benchmark_resources/output"),
-                    recursive = TRUE,
-                    pattern = "[.]rds",
-                    full.names = TRUE)
+resources_data <- readRDS("../ISC_benchmark_resources/aggregated_benchmarks.rds")
 
-resources_data <- lapply(li.fi, readRDS) %>%
-  data.table::rbindlist() %>%
+resources_data <- resources_data %>%
   standardize_methods() %>%
   mutate(
     `Duration (ms)` = duration * 1e3,
@@ -317,10 +317,6 @@ tmp <- bplapply(
 ) 
 
 tasks_data <- tmp %>% rbindlist(use.names = TRUE, fill = TRUE) %>%
-  mutate(dissimilarity_method = ifelse(
-      is.na(dissimilarity_method),
-      "none",
-      dissimilarity_method)) %>% 
   standardize_methods() 
 
 message("✓ Tasks data loaded: ", nrow(tasks_data), " rows")
@@ -363,13 +359,6 @@ message("✓ Batch effect data loaded: ", nrow(mult_dataset), " rows")
 ```{r process-batch-effect}
 # Identify multi-batches
 multi_batches <- mult_dataset %>% 
-  mutate(
-    dissimilarity_method = ifelse(
-      is.na(dissimilarity_method),
-      "none",
-      dissimilarity_method
-    )
-  ) %>% 
   group_by(
     task, dissimilarity_method, consistency_metric,
     celltype, dataset, pair_id, ident
