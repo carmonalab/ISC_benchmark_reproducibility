@@ -223,7 +223,7 @@ build_resource_ident_grid <- function(dataset_info) {
 # them with every dissimilarity_method would just redundantly benchmark an
 # unused run_dissimilarity() step.
 resource_is_nsa_metric <- function(int_val_metric) {
-  grepl("^nsa_", int_val_metric)
+  grepl("^nsa_|MetaNeighbor", int_val_metric)
 }
 
 # Unified grid of every internal (scTypeEval) dissimilarity/int_val_metric pair
@@ -400,7 +400,7 @@ resource_write_internal_benchmark_script <- function(script_path) {
     "",
     "prepared <- readRDS(prepared_path)",
     "sc_tmp <- prepared$sc",
-    "is_nsa_metric <- grepl('^nsa_', int_val_metric)",
+    "is_nsa_metric <- grepl('^nsa_|MetaNeighbor', int_val_metric)",
     "if (!is_nsa_metric) {",
     "  sc_tmp <- scTypeEval::run_dissimilarity(",
     "    scTypeEval = sc_tmp,",
@@ -827,10 +827,13 @@ is_dataset_ident_completed <- function(params, dataset_id, ident) {
     return(FALSE)
   }
 
-  expected_n <- nrow(build_resource_tool_grid(params))
-  result_files <- list.files(ident_dir, pattern = ".*\\.rds$", full.names = TRUE)
+  expected_tools <- build_resource_tool_grid(params)$tool_name
+  expected_files <- file.path(
+    ident_dir,
+    paste0(sanitize_for_path(expected_tools), ".rds")
+  )
 
-  if (length(result_files) < expected_n) {
+  if (!all(file.exists(expected_files))) {
     return(FALSE)
   }
 
@@ -859,7 +862,7 @@ is_dataset_ident_completed <- function(params, dataset_id, ident) {
       identical(result_iterations, expected_iterations)
   }
 
-  all(vapply(result_files, is_valid_result, logical(1)))
+  all(vapply(expected_files, is_valid_result, logical(1)))
 }
 
 # Filter to only incomplete dataset/ident combinations
