@@ -6,13 +6,18 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
 #SBATCH --mem=16G
+#SBATCH --output=ISC_benchmark_resources/logs/aggregate-%j.out
+#SBATCH --error=ISC_benchmark_resources/logs/aggregate-%j.err
 # Aggregate resource benchmarking results after all jobs complete
 # This can be submitted as a dependent job using:
 #   sbatch --dependency=afterok:JOB_ID scripts/submit_aggregate.sh
 
 set -euo pipefail
 
-PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-${SLURM_SUBMIT_DIR:-}}"
+if [[ ! -d "${PROJECT_ROOT}/ISC_benchmark_resources" ]]; then
+  PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+fi
 RESOURCES_DIR="${PROJECT_ROOT}/ISC_benchmark_resources"
 export PROJECT_ROOT
 export RENV_PROJECT="${PROJECT_ROOT}"
