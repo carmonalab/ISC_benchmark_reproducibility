@@ -38,6 +38,6 @@ activate.R
 
 
 # hpc logs
-*/logs/
+*/*logs/
 
 troubleshooting/

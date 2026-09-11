@@ -1,4 +1,9 @@
 # Resource benchmarking configuration for ISC methods
+#
+# Measures duration, CPU usage and peak memory of every internal
+# (scTypeEval) dissimilarity/int_val_metric pair and every external tool
+# (SCCAF, anticor_features, sc-SHC) used by ISC_benchmark, so results are
+# directly comparable to ISC_benchmark/config/isc_benchmark_parameters.yaml.
 
 seed: 22
 n_cores: 4
@@ -17,6 +22,8 @@ common:
   gene_list: null
   normalization_method: "Log1p"
   reciprocal_classifier: "SingleR"
+  # Must mirror ISC_benchmark/config/isc_benchmark_parameters.yaml so that
+  # every method actually exercised by ISC_benchmark is profiled here.
   dissimilarity_method:
     - "Pseudobulk:Euclidean"
     - "Pseudobulk:Cosine"
@@ -24,19 +31,47 @@ common:
     - "recip_classif:Match"
     - "recip_classif:Score"
     - "WasserStein"
-  consistency_metric:
+  int_val_metric:
     - "silhouette"
     - "2label_silhouette"
     - "NeighborhoodPurity"
     - "ward_PropMatch"
     - "Orbital_medoid"
     - "Average_similarity"
+    - "MetaNeighbor_Supervised"
+    - "nsa_silhouette"
+    - "nsa_cLISI"
+    - "nsa_ROGUE"
   min_samples: 5
   min_cells: 10
   knn_graph_k: 5
   hclust_method: "ward.D2"
   verbose: false
 
+# External tools benchmarked alongside the internal scTypeEval methods.
+# Structure mirrors ISC_benchmark/config/isc_benchmark_parameters.yaml
+# external_methods block so both pipelines stay in sync.
+external_methods:
+  enabled: true
+
+  sccaf:
+    enabled: true
+    params:
+      n: 100
+
+  anticor_features:
+    enabled: true
+    params:
+      min_cells: 10
+      species: "hsapiens"
+      score_k: 1.0
+
+  scshc:
+    enabled: false
+    params: {}
+
+# All benchmarks (internal + external, R + Python) are run ncores = 1 so that
+# duration, CPU usage and peak memory are comparable across languages/tools.
 benchmark:
   iterations: 3
   ncores: 1

@@ -7,11 +7,11 @@ RESOURCES_DIR="${PROJECT_ROOT}/ISC_benchmark_resources"
 LOG_DIR="${RESOURCES_DIR}/logs"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
-SLURM_PARTITION="${RESOURCE_SLURM_PARTITION:-public-cpu}"
+SLURM_PARTITION="${RESOURCE_SLURM_PARTITION:-shared-cpu}"
 SLURM_NODES="${RESOURCE_SLURM_NODES:-1}"
 SLURM_CPUS="${RESOURCE_SLURM_CPUS:-4}"
 SLURM_MEM="${RESOURCE_SLURM_MEM:-499G}"
-SLURM_TIME="${RESOURCE_SLURM_TIME:-24:00:00}"
+SLURM_TIME="${RESOURCE_SLURM_TIME:-12:00:00}"
 
 mkdir -p "${LOG_DIR}"
 
@@ -123,3 +123,6 @@ export RESOURCE_SLURM_CPUS="${SLURM_CPUS}"
 bash "${RESOURCES_DIR}/scripts/master_job.sh"
 EOF
 done
+
+# Note: aggregation (scripts/submit_aggregate.sh) is submitted manually once
+# all per-dataset jobs above have completed; it is not auto-chained here.

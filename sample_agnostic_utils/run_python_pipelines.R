@@ -248,12 +248,28 @@ pipeline_spec_popv <- function(
 }
 
 
+.sanitize_obs_encoding <- function(metadata) {
+  metadata <- as.data.frame(metadata)
+  for (col in names(metadata)) {
+    if (is.character(metadata[[col]])) {
+      metadata[[col]] <- iconv(metadata[[col]], from = "", to = "UTF-8", sub = "byte")
+    } else if (is.factor(metadata[[col]])) {
+      levels(metadata[[col]]) <- iconv(levels(metadata[[col]]), from = "", to = "UTF-8", sub = "byte")
+    }
+  }
+  metadata
+}
+
 .export_sctypeeval_to_h5ad <- function(scTypeEval, h5ad_path) {
   filt_data <- scTypeEval:::get_filtered_raw_matrix(scTypeEval)
 
+  # Some clinical/metadata columns (e.g. "Stage.TNM") carry non-UTF-8 bytes
+  # (like 0xa0) that h5py/anndata fail to decode on the Python side, even for
+  # columns the external tool never reads. Force every obs column to valid
+  # UTF-8 so the h5ad is always readable regardless of which columns exist.
   adata <- anndataR::AnnData(
     X = Matrix::t(filt_data$counts),
-    obs = as.data.frame(filt_data$metadata)
+    obs = .sanitize_obs_encoding(filt_data$metadata)
   )
 
   sink_path <- tempfile("write_h5ad_", fileext = ".log")
