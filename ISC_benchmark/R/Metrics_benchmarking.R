@@ -1355,11 +1355,19 @@ wr_assay_plot <- function(df,
       stop("Not supported grouping, it has to be either celltype or ident")
    }
    
+   
+   
    # remove NA
    rsq <- rsq %>% 
       filter(!is.na(measure))
    
    type <- type[1] |> tolower()
+   
+   if(type == "drop"){
+      rsq <- rsq |>
+         dplyr::filter(all(c(0.5, 1) %in% rate)) |>
+         dplyr::arrange(rate, .by_group = TRUE)
+   }
    
    switch(type,
           "monotonic" = {

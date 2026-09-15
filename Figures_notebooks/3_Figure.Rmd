@@ -153,41 +153,41 @@ compute_residual_effects <- function(task_summary_df, for_plot = FALSE) {
     )
 
   assay_grand_mean <- df %>%
-    group_by(level, assay) %>%
+    group_by(assay) %>%
     summarise(grand_mean = mean(mean_score, na.rm = TRUE), .groups = "drop")
 
   metric_effects <- df %>%
-    group_by(level, assay, consistency_metric) %>%
+    group_by(assay, consistency_metric) %>%
     summarise(
       mean_score = mean(mean_score, na.rm = TRUE),
       n_combos = dplyr::n(),
       .groups = "drop"
     ) %>%
-    left_join(assay_grand_mean, by = c("level", "assay")) %>%
+    left_join(assay_grand_mean, by = c("assay")) %>%
     mutate(
       component = "Consistency metric",
       component_level = consistency_metric,
       residual_effect = mean_score - grand_mean
     ) %>%
-    select(level, assay, component, component_level, mean_score, residual_effect, n_combos)
+    select(assay, component, component_level, mean_score, residual_effect, n_combos)
 
   dissim_effects <- df %>%
-    group_by(level, assay, dissimilarity_method) %>%
+    group_by(assay, dissimilarity_method) %>%
     summarise(
       mean_score = mean(mean_score, na.rm = TRUE),
       n_combos = dplyr::n(),
       .groups = "drop"
     ) %>%
-    left_join(assay_grand_mean, by = c("level", "assay")) %>%
+    left_join(assay_grand_mean, by = c("assay")) %>%
     mutate(
       component = "Dissimilarity method",
       component_level = dissimilarity_method,
       residual_effect = mean_score - grand_mean
     ) %>%
-    select(level, assay, component, component_level, mean_score, residual_effect, n_combos)
+    select(assay, component, component_level, mean_score, residual_effect, n_combos)
 
   bind_rows(metric_effects, dissim_effects) %>%
-    group_by(level, assay, component) %>%
+    group_by(assay, component) %>%
     mutate(
       rank_residual = rank(-residual_effect, ties.method = "average"),
       rank_mean = rank(-mean_score, ties.method = "average")
@@ -301,17 +301,28 @@ tmp <- bplapply(
       
       g <- if (assay_type == "Granularity") "ident" else CONFIG$group
       
-      df0 <- wr_assay_plot(df0,
+      df1 <- wr_assay_plot(df0,
                           type = summ_type,
                           return_df = T,
                           group = g)
     }
     
-    df0$assay <- assay_type
-    df0$dataset <- dataset
-    df0$ident <- ident
+    df1$assay <- assay_type
     
-    return(df0)
+    if(assay_type == "Signal-degradation"){
+      df2 <- wr_assay_plot(df0,
+                          type = "drop",
+                          return_df = T,
+                          group = g)
+      df2$assay <- paste0(assay_type, "_drop")
+    }
+    
+    df3 <- dplyr::bind_rows(df1, df2)
+    
+    df3$dataset <- dataset
+    df3$ident <- ident
+    
+    return(df3)
   }
   
 ) 
@@ -398,7 +409,7 @@ all_tasks <- list(tasks_data, multi_batches) %>%
 
 # Aggregate by group
 all_tasks_agg <- all_tasks %>%
-  group_by(level, dissimilarity_method, consistency_metric, method_type,
+  group_by(dissimilarity_method, consistency_metric, method_type,
            assay, dataset, ident) %>%
   summarise(score = mean(score_celltype, na.rm = TRUE), .groups = "drop")
 
@@ -412,8 +423,9 @@ Up to here, compared with previous script and results are identical.
 ```{r calculate-overall-scores}
 # Define weight vector for tasks
 weight_vector <- c(
-  "Signal-degradation" = 0.20,
-  "Overpartitioning" = 0.20,
+  "Signal-degradation" = 0.15,
+  "Signal-degradation_drop" = 0.10,
+  "Overpartitioning" = 0.15,
   "Granularity" = 0.10,
   "Complexity" = 0.10,
   "Number-samples" = 0.10,
@@ -427,9 +439,9 @@ stopifnot(abs(sum(weight_vector) - 1.0) < 0.001)
 
 # Calculate weighted overall scores
 overall_scores <- all_tasks_agg %>%
-  group_by(level, method_type, assay) %>%
+  group_by(method_type, assay) %>%
   summarise(score = mean(score, na.rm = TRUE), .groups = "drop") %>%
-  group_by(level, method_type) %>%
+  group_by(method_type) %>%
   summarise(
     overall_score = weighted.mean(score, w = weight_vector[assay], na.rm = TRUE),
     .groups = "drop"
@@ -444,7 +456,7 @@ message("✓ Overall scores calculated for ", nrow(overall_scores), " methods")
 ```{r prepare-viz-data}
 # Create summary statistics for each method-task combination
 task_summary <- all_tasks_agg %>%
-  group_by(level, method_type, assay) %>%
+  group_by(method_type, assay) %>%
   summarise(
     mean_score = mean(score, na.rm = TRUE),
     median_score = median(score, na.rm = TRUE),
@@ -452,20 +464,19 @@ task_summary <- all_tasks_agg %>%
     n = n(),
     .groups = "drop"
   ) %>%
-  group_by(level, assay) %>% 
+  group_by(assay) %>% 
   mutate(scaled_mean = minmax_scale(mean_score)) %>% 
   left_join(
     overall_scores %>%
-      select(level, method_type, overall_score) %>% 
-      group_by(level) %>%
+      select(method_type, overall_score) %>%
       mutate(overall_rank = rank(-overall_score, ties.method = "average")
   ),
-    by = c("level", "method_type")
+    by = c("method_type")
   )
 
 # Add ranking information
 task_summary <- task_summary %>%
-  group_by(level, assay) %>%
+  group_by(assay) %>%
   mutate(
     rank_in_task = rank(-mean_score, ties.method = "average"),
     percentile = rank_in_task / n() * 100
@@ -480,6 +491,7 @@ task_summary <- task_summary %>%
       assay,
       levels = c(
         "Signal-degradation",
+        "Signal-degradation_drop",
         "Overpartitioning",
         "Granularity",
         "Complexity",
@@ -490,6 +502,7 @@ task_summary <- task_summary %>%
       ),
       labels = c(
         "Signal degradation",
+        "Signal degradation-drop",
         "Over-partitioning",
         "Granularity",
         "Complexity",
@@ -503,15 +516,15 @@ task_summary <- task_summary %>%
 
 # Order methods by overall score (best to worst)
 method_order <- overall_scores %>%
-  arrange(level, desc(overall_score)) %>%
-  dplyr::distinct(level, method_type)
+  arrange(desc(overall_score)) %>%
+  dplyr::distinct(method_type)
 
 task_summary <- task_summary %>%
   left_join(
     method_order %>% mutate(method_order_idx = dplyr::row_number()),
-    by = c("level", "method_type")
+    by = c("method_type")
   ) %>%
-  arrange(level, method_order_idx, assay)
+  arrange(method_order_idx, assay)
 
 message("✓ Visualization data prepared")
 ```
@@ -534,7 +547,7 @@ message("✓ Residual effects computed: ", nrow(residual_effects_all), " rows (a
 
 ## Funkyheatmap: Benchmarking Results
 
-```{r funkyheatmap-plot, fig.width=18, fig.height=10}
+```{r funkyheatmap-plot, fig.width=26, fig.height=14}
 # Task scores (wide) - keep absolute values for sizing
 plot_data <- task_summary %>%
   filter_metrics(for_plot = TRUE) %>%
@@ -549,6 +562,7 @@ task_cols <- setdiff(colnames(task_wide), "method_type")
 # Define correct task order
 task_order <- c(
   "Signal degradation",
+  "Signal degradation-drop",
   "Over-partitioning",
   "Granularity",
   "Complexity",
@@ -992,11 +1006,14 @@ cat("\n=== END SUMMARY ===\n")
 ```{r load-benchmarking-raw, warning=F}
 message("Loading benchmarking tasks data...")
 
-li.fi <- list.files(file.path(wd, "tasks/output"),
-                    pattern = "rds$",
+li.fi <- list.files(file.path("../ISC_benchmark/results_dev"),
+                    pattern = "metrics[.]rds$",
                     recursive = TRUE,
-                    full.names = TRUE) %>%
-  grep("summary", ., value = TRUE, invert = TRUE)
+                    full.names = TRUE)
+li.fi <- grep("batch_effect|biological_perturbation",
+              li.fi,
+              value = T,
+              invert = T)
 
 tasks_data_raw <- bplapply(
   li.fi,
@@ -1010,24 +1027,27 @@ tasks_data_raw <- bplapply(
     
     if (length(unique(df0$rate)) < 2) return(NULL)
     
-    dataset <- str_remove(strsplit(fi, "/")[[1]][9], "_\\d+_\\d+$")
+    dataset <- str_remove(strsplit(fi, "/")[[1]][4], "_\\d+_\\d+$")
+    
+    # sanitize cell names
+    df0 <- df0 %>% 
+      mutate(celltype = scTypeEval:::purge_label(celltype),
+             perturbed_ctype = scTypeEval:::purge_label(perturbed_ctype))
     
     # Infer assay type from filename
     assay_type <- case_when(
-      grepl("Missclassific", fi, ignore.case = TRUE) ~ "Signal-degradation",
+      grepl("Missclassif", fi, ignore.case = TRUE) ~ "Signal-degradation",
       grepl("NSamples", fi, ignore.case = TRUE) ~ "Number-samples",
       grepl("NCell", fi, ignore.case = TRUE) ~ "Number-cells",
       grepl("Nct", fi, ignore.case = TRUE) ~ "Complexity",
-      grepl("mergeCT", fi, ignore.case = TRUE) ~ "Granularity",
+      grepl("complexi", fi, ignore.case = TRUE) ~ "Granularity",
       grepl("SplitCelltype", fi, ignore.case = TRUE) ~ "Overpartitioning",
       TRUE ~ "Unknown"
     )
     
     # Filter for specific cell types if needed
     if (assay_type %in% c("Number-cells", "Overpartitioning") && CONFIG$onlyCell) {
-      fname <- basename(fi)
-      cell_type_raw <- strsplit(fname, split = "_")[[1]][2]
-      cell_type <- scTypeEval:::purge_label(cell_type_raw)
+      cell_type <- unique(df0$perturbed_ctype[!is.na(df0$perturbed_ctype)])
       
       if ("celltype" %in% colnames(df0)) {
         df0 <- df0 %>% filter(celltype == cell_type)
@@ -1036,7 +1056,7 @@ tasks_data_raw <- bplapply(
     
     if (nrow(df0) < 1) return(NULL)
     
-    ident <- unique(df0$original.ident)
+    ident <- unique(df0$original_ident)
     
     # Standardize rates
     if (assay_type == "Number-samples") {
@@ -1080,14 +1100,17 @@ lineplot <- function(df,
                      span = 0.7,
                      title = "",
                      subtitle = ""){
+  df <- df %>% 
+    filter(!is.na(measure))
+  
   summary_df <- df %>%
     group_by(rate) %>%
     summarise(
       median = median(measure),
-      q1 = quantile(measure, qs[1]),
-      q2 = quantile(measure, qs[2]),
-      q3 = quantile(measure, qs[3]),
-      q4 = quantile(measure, qs[4]),
+      q1 = quantile(measure, qs[1], na.rm = T),
+      q2 = quantile(measure, qs[2], na.rm = T),
+      q3 = quantile(measure, qs[3], na.rm = T),
+      q4 = quantile(measure, qs[4], na.rm = T),
       .groups = "drop"
     )
   
@@ -1175,24 +1198,12 @@ panel_tasks <- tasks_data_raw
 
 # Raw batch-effect (single vs multi) using mult_dataset
 panel_batch <- mult_dataset %>%
-  mutate(
-    assay = "Batch-effect",
-    rate_raw = rate,
-    rate = dplyr::if_else(rate_raw <= 1, 0, 1),
-    rate_label = dplyr::if_else(rate_raw <= 1, "Single", "Multi")
-  ) %>%
-  select(-rate_raw) %>%
+  filter(task == "batch_effects") %>% 
   standardize_methods()
 
 # Raw perturbation-effect (single conditions vs combined) using mult_dataset
 panel_perturb <- mult_dataset %>%
-  mutate(
-    assay = "Perturbation-effect",
-    rate_raw = rate,
-    rate = dplyr::if_else(rate_raw <= 1, 0, 1),
-    rate_label = dplyr::if_else(rate_raw <= 1, "Single", "Paired")
-  ) %>%
-  select(-rate_raw) %>%
+  filter(task == "biological_perturbations") %>% 
   standardize_methods()
 
 panel_df <- dplyr::bind_rows(
@@ -1204,6 +1215,7 @@ panel_df <- dplyr::bind_rows(
 # Remap plot_data assay names to internal format for lookup
 assay_remap <- c(
   "Signal degradation" = "Signal-degradation",
+  "Signal degradation-drop" = "Signal-degradation_drop",
   "Over-partitioning" = "Overpartitioning",
   "Granularity" = "Granularity",
   "Complexity" = "Complexity",
