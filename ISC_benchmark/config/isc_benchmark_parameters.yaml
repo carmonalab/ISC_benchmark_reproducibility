@@ -53,6 +53,11 @@ run:
   # Quantified by varying the number of cells per cell type
   NCell: true
   
+  # (6b) Sensitivity to label noise restricted to a subset of samples
+  # Combines sample subsetting (as in Nsamples) with label shuffling (as in missclassify),
+  # applied only to the selected samples
+  MissclassifySamples: true
+  
   # (7) Robustness to batch effects
   # Quantifying ISC stability in the presence of systematic technical differences
   batch_effects: true
@@ -230,6 +235,24 @@ task_NCell:
     # Rates: proportion of cells KEPT per sample (1=all cells, 0.25=25% of cells)
     rates: [1, 0.75, 0.5, 0.25]          # From original wr.NCell
     ctype: null                          # null = use most abundant; or specify cell type
+    replicates: 3
+
+# Task 6b: Sensitivity to label noise restricted to a subset of samples
+# Combines random sample selection (as in Nsamples) with label shuffling within
+# those selected samples (as in missclassify), at a fixed shuffling intensity
+task_MissclassifySamples:
+  name: "MissclassifySamples"
+  description: "To simulate localized loss of cell type annotation quality,
+   we randomly selected a subset of samples at varying proportions and
+    introduced label noise by shuffling cell type labels only within the
+     selected samples, at a fixed shuffling rate."
+  category: "sensitivity"
+  type: "constant"
+
+  isc_params:
+    # Rates: proportion of samples SELECTED for shuffling (1=all samples, 0.5=50% of samples)
+    rates: [1, 0.9, 0.7, 0.5]
+    shuffle_rate: 0                       # Proportion of labels shuffled within selected samples
     replicates: 3
 
 # Task 7: Robustness to batch effects

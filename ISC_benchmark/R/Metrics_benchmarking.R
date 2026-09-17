@@ -564,6 +564,202 @@ wr_nsamples <- function(count_matrix,
    
 }
 
+# wrapper to evaluate missclassification restricted to a random subset of samples
+wr_missclassify_samples <- function(count_matrix,
+                                    metadata,
+                                    ident,
+                                    sample,
+                                    rates = c(1, 0.9, 0.7, 0.5), # proportion of samples selected for shuffling
+                                    shuffle_rate = 0, # proportion of cell labels shuffled within selected samples
+                                    replicates = 3,
+                                    gene_list = NULL,
+                                    reduction = TRUE,
+                                    ndim = 30,
+                                    black_list = NULL,
+                                    dir = NULL,
+                                    normalization_method = "Log1p",
+                                    dissimilarity_method = c("WasserStein", "Pseudobulk:Euclidean",
+                                                             "Pseudobulk:Cosine", "Pseudobulk:Pearson",
+                                                             "recip_classif:Match", "recip_classif:Score"),
+                                    int_val_metric = c("silhouette", "NeighborhoodPurity",
+                                                      "ward_PropMatch", "Orbital_medoid",
+                                                      "Average_similarity", "2label_silhouette"),
+                                    min_samples = 5,
+                                    min_cells = 10,
+                                    ncores = 1,
+                                    bparam = NULL,
+                                    progressbar = FALSE,
+                                    seed = 22,
+                                    knn_graph_k = 5,
+                                    hclust_method = "ward.D2",
+                                    save_plots = TRUE,
+                                    verbose = TRUE,
+                                    external_state_callback = NULL){
+   
+   if(!is.null(dir)){
+      if(verbose){message("\nResults will be stored at ", dir)}
+      dir.create(dir, showWarnings = FALSE)
+      
+      if(save_plots){
+         pca_dir <- file.path(dir, "Plots_DegradeSamples")
+         dir.create(pca_dir, showWarnings = FALSE)
+      }
+   }
+   
+   # produce different combinations of samples to shuffle
+   # get seed for each replicate
+   sds <- seed + seq_len(replicates)
+   names(sds) <- seq_len(replicates)
+   
+   # number of samples
+   ss <- unique(metadata[[sample]])
+   rates <- suppressWarnings(as.numeric(unlist(rates)))
+   rates <- rates[is.finite(rates) & !is.na(rates)]
+   if(length(rates) == 0){
+      stop("No valid numeric rates supplied to wr_missclassify_samples")
+   }
+   nsamples_names <- floor(length(ss) * rates)
+   nsamples <- length(ss) - nsamples_names
+   names(nsamples) <- nsamples_names
+   if(length(nsamples) == 0){
+      stop("No valid sample sizes generated from rates in wr_missclassify_samples")
+   }
+   
+   original_vector <- metadata[[ident]]
+   # vector for annotations
+   annotations <- c()
+   
+   for(s in names(sds)){
+      for(r in names(nsamples)){
+         new_vector <- original_vector
+         if(nsamples[[r]] != 0){
+            set.seed(sds[[s]])
+            dos <- sample(ss, size = nsamples[[r]])
+            # shuffle labels only within the selected samples, at a fixed rate
+            idx_sel <- which(metadata[[sample]] %in% dos)
+            ra <- 1-shuffle_rate # proportion of cells to shuffle
+            if(ra > 0 && length(idx_sel) > 0){
+               new_vector[idx_sel] <- rand_shuffling_group(vector = original_vector[idx_sel],
+                                                           group = metadata[[sample]][idx_sel],
+                                                           rate = ra,
+                                                           seed = sds[[s]])
+            }
+         } 
+         
+         new_name <- paste("N", s, r, ident, sep = "_")
+         metadata[[new_name]] <- new_vector
+         annotations <- c(annotations, new_name)
+      }
+   }
+   
+   ## Create sc object
+   sc <- create_scTypeEval(matrix = count_matrix,
+                           metadata = metadata,
+                           active_ident = ident,
+                           black_list = black_list)
+   # get the gene list, the same for every run
+   if(is.null(gene_list)){
+      sc_gl <- run_processing_data(sc,
+                                  sample = sample,
+                                  normalization_method = normalization_method,
+                                  min_samples = min_samples,
+                                  min_cells = min_cells,
+                                  verbose = verbose)
+      sc_gl <- run_hvg(sc_gl,
+                       ncores = ncores,
+                       verbose = verbose)
+      gl <- sc_gl@gene_lists
+   } else {
+      gl <- gene_list
+   }
+   
+   if(verbose){message("Running loop of annotations ")}
+   external_rows <- list()
+   df_res <- lapply(annotations,
+                    function(ann){
+                       tryCatch(
+                          {
+                             sc_tmp <- scTypeEval::wrapper_scTypeEval(sc,
+                                                             ident = ann,
+                                                             sample = sample,
+                                                             gene_list = gl,
+                                                             reduction = reduction,
+                                                             ndim = ndim,
+                                                             normalization_method = normalization_method,
+                                                             dissimilarity_method = dissimilarity_method,
+                                                             min_samples = min_samples,
+                                                             min_cells = min_cells,
+                                                             ncores = ncores,
+                                                             verbose = verbose
+                             )
+                                           # data.frame with consistency outcome
+                                           res <- get_consistency(
+                                              sc_tmp,
+                                              dissimilarity_slot = dissimilarity_method,
+                                              consistency_metric = int_val_metric,
+                                              knn_graph_k = knn_graph_k,
+                                              hclust_method = hclust_method,
+                                              verbose = verbose
+                                           )
+                             
+                             # accommodate extra data
+                             res <- res |>
+                                dplyr::mutate(rate = as.numeric(as.character(strsplit(ann, "_")[[1]][3])),
+                                              rep = strsplit(ann, "_")[[1]][2],
+                                              original_ident = !!ident,
+                                              perturbed_ctype = NA_character_,
+                                              task = "Degraded_Samples"
+                                )
+
+                             state <- list(
+                                rate = as.numeric(as.character(strsplit(ann, "_")[[1]][3])),
+                                rep = strsplit(ann, "_")[[1]][2],
+                                original_ident = ident,
+                                perturbed_ctype = NA_character_,
+                                active_ident = ann
+                             )
+                             ext_rows <- .invoke_external_state_callback(external_state_callback, sc_tmp, state)
+                             if (!is.null(ext_rows) && nrow(ext_rows) > 0) {
+                                external_rows[[length(external_rows) + 1]] <<- ext_rows
+                             }
+                             
+                             # render PCAs
+                             # only produce for one replicate of the seeds
+                             if(stringr::str_split(ann, "_")[[1]][2] == 1){
+                                # save pdf if indicated
+                                if(save_plots){
+                                   if(verbose){message("\nProducing Plots for ", ann, "\n")}
+                                   fp <- file.path(pca_dir, ann)
+                                   wrapper_plots(sc_tmp,
+                                                 dir_path = fp,
+                                                 reduction = reduction)
+                                }
+                             }
+                             
+                             return(res)
+                          },
+                          error = function(e){
+                             message("\n-X- scTypeEval failed for ", ann, "\n", e)
+                          }
+                       )
+                       
+                    })
+   
+   # concatenate all results
+   df_res <- do.call(rbind, df_res)
+   if (length(external_rows) > 0) {
+      attr(df_res, "external_state_scores") <- dplyr::bind_rows(external_rows)
+   }
+   
+   if(!is.null(dir)){
+      saveRDS(df_res,
+              file.path(dir,
+                        paste0("DegradedSamples_", ident, ".rds")))
+   }
+   return(df_res)
+   
+}
+
 # wrapper to evaluate the consistency metrics when excluding some cell types
 wr_nct <- function(count_matrix,
                    metadata,

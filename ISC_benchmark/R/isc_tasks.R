@@ -314,7 +314,8 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
     # Tasks 7/8 use the full sub-config directly and have no isc_params block;
     # only require isc_params for the tasks that actually use task_config.
     tasks_requiring_isc_params <- c("missclassify", "SplitCelltype", "Nct",
-                                    "cellular_complexity", "Nsamples", "NCell")
+                                    "cellular_complexity", "Nsamples", "NCell",
+                                    "MissclassifySamples")
     if (is.null(task_config) && task_name %in% tasks_requiring_isc_params) {
       stop("Task configuration not found: ", task_config_key)
     }
@@ -355,6 +356,11 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
         wr_result <- run_task_NCell(obj_prepared, config, task_config, task_output_dir,
                                       baseline_df = baseline_df,
                                       external_state_callback = external_state_callback)
+        task_metrics <- wr_result
+      },
+      "MissclassifySamples" = {
+        wr_result <- run_task_MissclassifySamples(obj_prepared, config, task_config, task_output_dir,
+                                                    external_state_callback = external_state_callback)
         task_metrics <- wr_result
       },
       "batch_effects" = {

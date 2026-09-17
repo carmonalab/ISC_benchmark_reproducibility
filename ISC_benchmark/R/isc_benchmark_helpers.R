@@ -1242,6 +1242,22 @@ run_task_NCell <- function(obj_prepared, config, task_config, output_dir,
   wr
 }
 
+#' Run Task 6b: Sensitivity to label noise restricted to a subset of samples
+run_task_MissclassifySamples <- function(obj_prepared, config, task_config, output_dir,
+                                          baseline_df = NULL,
+                                          external_state_callback = NULL) {
+  message("Running Task 6b: Sensitivity to label noise in a subset of samples")
+
+  params <- c(
+    obj_prepared,
+    config$common,
+    task_config,
+    list(dir = NULL, external_state_callback = external_state_callback)
+  )
+
+  do.call(wr_missclassify_samples, params)
+}
+
 #' Run Task 7: Robustness to batch effects (systematic technical differences)
 #'
 #' For individual batches, this function first tries to reuse per-stem baseline
