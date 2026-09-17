@@ -315,9 +315,12 @@ tmp <- bplapply(
                           return_df = T,
                           group = g)
       df2$assay <- paste0(assay_type, "_drop")
+      df3 <- dplyr::bind_rows(df1, df2)
+    } else {
+      df3 <- df1
     }
     
-    df3 <- dplyr::bind_rows(df1, df2)
+    
     
     df3$dataset <- dataset
     df3$ident <- ident
