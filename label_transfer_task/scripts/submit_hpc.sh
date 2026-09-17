@@ -32,12 +32,14 @@
 
 set -euo pipefail
 
-# Load required modules (customize for your HPC)
+# Load required modules (kept in sync with ISC_benchmark/scripts/submit_hpc.sh and
+# label_transfer_task/scripts/master_job.sh: R 4.5.2 is the only renv library tree
+# with packages the shared python-pipeline helpers need, e.g. anndataR).
 module purge
 module load GCCcore/10.3.0
 module load Python/3.9.5-bare
-module load GCC/12.3.0
-module load R/4.3.2
+module load GCC/14.3.0
+module load R/4.5.2
 module load GLPK/5.0 || true
 module load cairo/1.17.8 || true
 module load freetype/2.13.0 || true

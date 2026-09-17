@@ -12,9 +12,11 @@
 
 set -euo pipefail
 
+# Kept in sync with label_transfer_task/scripts/submit_hpc.sh: R 4.5.2 is the only renv
+# library tree matching the root renv.lock (e.g. contains anndataR).
 module purge
-module load GCC/12.3.0
-module load R/4.3.2
+module load GCC/14.3.0
+module load R/4.5.2
 module load GLPK/5.0 || true
 module load cairo/1.17.8 || true
 module load freetype/2.13.0 || true
