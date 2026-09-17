@@ -24,9 +24,9 @@ SLURM_PARTITION="${SLURM_PARTITION:-public-cpu}"
 SLURM_NODES="${SLURM_NODES:-1}"
 SLURM_CPUS="${SLURM_CPUS:-8}"
 SLURM_MEM="${SLURM_MEM:-475G}"
-SLURM_TIME="${SLURM_TIME:-72:00:00}"
+SLURM_TIME="${SLURM_TIME:-48:00:00}"
 
-DATASET_TASKS=(missclassify SplitCelltype Nct cellular_complexity Nsamples NCell)
+DATASET_TASKS=(missclassify SplitCelltype Nct cellular_complexity Nsamples MissclassifySamples NCell)
 CROSS_DATASET_TASKS=(batch_effects biological_perturbations)
 
 mkdir -p "$LOG_DIR"
