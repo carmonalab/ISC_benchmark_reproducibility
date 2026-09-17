@@ -34,12 +34,17 @@ set -euo pipefail
 
 # Load required modules (customize for your HPC)
 module purge
+module load GCCcore/10.3.0
+module load Python/3.9.5-bare
 module load GCC/12.3.0
 module load R/4.3.2
 module load GLPK/5.0 || true
 module load cairo/1.17.8 || true
 module load freetype/2.13.0 || true
 module load libwebp/1.3.1 || true
+
+# Keep the SCCAF venv's Python runtime compatible after newer GCC/R modules are loaded.
+export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.11.5-GCCcore-13.2.0/lib:/opt/ebsofts/libffi/3.3-GCCcore-10.3.0/lib64:${LD_LIBRARY_PATH:-}"
 
 # Activate renv (best-effort; master_job.sh will also activate)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

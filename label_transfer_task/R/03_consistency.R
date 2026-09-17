@@ -2,6 +2,11 @@
 
 source("R/00_utils.R")
 
+# SCCAF is run the same way as in ISC_benchmark (external Python tool wrapper)
+if (!exists("run_sample_agnostic_python_pipelines", mode = "function")) {
+  source("../sample_agnostic_utils/run_python_pipelines.R")
+}
+
 suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
@@ -32,6 +37,37 @@ get_default_blacklist <- function() {
   ))
 }
 
+compute_sccaf_scores <- function(sc,
+                                 ident,
+                                 sample_col,
+                                 min_samples,
+                                 sccaf_n = 100,
+                                 file_prefix = NULL) {
+  sc_sccaf <- scTypeEval::run_processing_data(
+    sc,
+    ident = ident,
+    aggregation = "single-cell",
+    sample = sample_col,
+    min_samples = min_samples,
+    verbose = FALSE
+  )
+
+  if (is.null(file_prefix)) {
+    file_prefix <- paste0("lt_sccaf_", format(Sys.time(), "%Y%m%d_%H%M%OS3"))
+  }
+
+  py_results <- run_sample_agnostic_python_pipelines(
+    scTypeEval = sc_sccaf,
+    pipelines = list(sccaf = pipeline_spec_sccaf(cluster_key = ident, n = sccaf_n)),
+    tmp_dir = file.path(lt_consistency_dir(), "external_tmp"),
+    file_prefix = file_prefix,
+    continue_on_error = TRUE,
+    cleanup = TRUE
+  )
+
+  py_results$sccaf
+}
+
 compute_consistency_core <- function(counts_matrix,
                                      metadata,
                                      ident,
@@ -43,7 +79,10 @@ compute_consistency_core <- function(counts_matrix,
                                        "MetaNeighbor_Supervised",
                                        "nsa_cLISI"
                                      ),
-                                     ncores = 1) {
+                                     ncores = 1,
+                                     run_sccaf = TRUE,
+                                     sccaf_n = 100,
+                                     file_prefix = NULL) {
   if (!requireNamespace("scTypeEval", quietly = TRUE)) {
     stop("Package 'scTypeEval' is required for consistency computation")
   }
@@ -104,13 +143,41 @@ compute_consistency_core <- function(counts_matrix,
     )
   }
 
-  scTypeEval::get_consistency(sc_proc) %>%
+  cons <- scTypeEval::get_consistency(sc_proc) %>%
     dplyr::rename(cell_type = celltype) %>%
     dplyr::mutate(method_type = paste(consistency_metric, dissimilarity_method, sep = " | ")) %>%
     dplyr::filter(method_type %in% cons_methods) %>%
     dplyr::select(-consistency_metric, -dissimilarity_method) %>%
     tidyr::pivot_wider(names_from = method_type, values_from = measure) %>%
     dplyr::mutate(product = .data[[cons_methods[1]]] * .data[[cons_methods[2]]])
+
+  if (isTRUE(run_sccaf)) {
+    sccaf_scores <- tryCatch(
+      compute_sccaf_scores(
+        sc = sc,
+        ident = ident,
+        sample_col = sample_col,
+        min_samples = min_samples,
+        sccaf_n = sccaf_n,
+        file_prefix = file_prefix
+      ),
+      error = function(e) {
+        message("[SCCAF] Skipped: ", conditionMessage(e))
+        NULL
+      }
+    )
+
+    cons$SCCAF <- NA_real_
+    if (!is.null(sccaf_scores) && nrow(sccaf_scores) > 0) {
+      sccaf_scores <- sccaf_scores %>%
+        dplyr::transmute(cell_type = as.character(celltype), SCCAF = as.numeric(score))
+      cons <- cons %>%
+        dplyr::select(-SCCAF) %>%
+        dplyr::left_join(sccaf_scores, by = "cell_type")
+    }
+  }
+
+  cons
 }
 
 add_f1_one_vs_rest <- function(cons_table, pred_labels, true_labels) {
@@ -216,7 +283,8 @@ compute_lt_query_consistency <- function(dataset_id,
       metadata = md,
       ident = "pred_labels",
       sample_col = sample_col,
-      ncores = ncores
+      ncores = ncores,
+      file_prefix = sprintf("%s_%s_rep%d_query", dataset_id, classifier_name, rep)
     ),
     error = function(e) {
       message(sprintf("[SKIP] Query consistency failed for '%s' / '%s' (rep %d): %s",
@@ -295,7 +363,8 @@ compute_lt_reference_consistency <- function(dataset_id,
       metadata = md,
       ident = "true_labels",
       sample_col = sample_col,
-      ncores = ncores
+      ncores = ncores,
+      file_prefix = sprintf("%s_rep%d_reference", dataset_id, rep)
     ),
     error = function(e) {
       message(sprintf("[SKIP] Reference consistency failed for '%s' (rep %d): %s",
