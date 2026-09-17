@@ -73,11 +73,16 @@ compute_consistency_core <- function(counts_matrix,
                                      ident,
                                      sample_col = "sample",
                                      method_diss = c("Pseudobulk:Cosine", "recip_classif:Match"),
+                                     consistency_metric = c("silhouette",
+                                                            "2label_silhouette",
+                                                            "MetaNeighbor_Supervised",
+                                                              "nsa_cLISI"
+                                    ),
                                      cons_methods = c(
                                        "silhouette | recip_classif:Match",
                                        "2label_silhouette | Pseudobulk:Cosine",
-                                       "MetaNeighbor_Supervised",
-                                       "nsa_cLISI"
+                                       "MetaNeighbor_Supervised | NA",
+                                       "nsa_cLISI | NA"
                                      ),
                                      ncores = 1,
                                      run_sccaf = TRUE,
@@ -143,13 +148,14 @@ compute_consistency_core <- function(counts_matrix,
     )
   }
 
-  cons <- scTypeEval::get_consistency(sc_proc) %>%
+  cons <- scTypeEval::get_consistency(sc_proc,
+                                      consistency_metric = consistency_metric,
+                                      verbose = FALSE) %>%
     dplyr::rename(cell_type = celltype) %>%
     dplyr::mutate(method_type = paste(consistency_metric, dissimilarity_method, sep = " | ")) %>%
     dplyr::filter(method_type %in% cons_methods) %>%
     dplyr::select(-consistency_metric, -dissimilarity_method) %>%
-    tidyr::pivot_wider(names_from = method_type, values_from = measure) %>%
-    dplyr::mutate(product = .data[[cons_methods[1]]] * .data[[cons_methods[2]]])
+    tidyr::pivot_wider(names_from = method_type, values_from = measure)
 
   if (isTRUE(run_sccaf)) {
     sccaf_scores <- tryCatch(
