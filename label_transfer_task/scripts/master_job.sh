@@ -23,6 +23,12 @@ LT_DIR="${PROJECT_ROOT}/label_transfer_task"
 
 export PROJECT_ROOT
 export LT_DIR
+# Pin renv's project detection to PROJECT_ROOT; otherwise `cd "${LT_DIR}"` below makes
+# renv/activate.R treat label_transfer_task itself as an uninitialized project and
+# bootstrap a brand-new renv/ scaffold there.
+export RENV_PROJECT="${PROJECT_ROOT}"
+export RENV_PROJECT_EXPLICIT="${PROJECT_ROOT}"
+export RENV_CONFIG_AUTOLOADER_ENABLED="FALSE"
 
 log_msg() {
   local timestamp

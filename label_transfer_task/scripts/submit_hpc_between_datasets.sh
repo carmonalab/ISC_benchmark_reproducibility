@@ -23,6 +23,9 @@ module load freetype/2.13.0 || true
 module load libwebp/1.3.1 || true
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export RENV_PROJECT="${PROJECT_ROOT}"
+export RENV_PROJECT_EXPLICIT="${PROJECT_ROOT}"
+export RENV_CONFIG_AUTOLOADER_ENABLED="FALSE"
 if [[ -f "${PROJECT_ROOT}/renv/activate.R" ]]; then
   Rscript -e "source('${PROJECT_ROOT}/renv/activate.R'); renv::load(project='${PROJECT_ROOT}')" >/dev/null 2>&1 || true
 fi

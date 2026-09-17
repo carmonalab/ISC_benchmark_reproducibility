@@ -50,6 +50,9 @@ export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.11.5-GCCcore-13.2.0/lib:/opt/ebsof
 
 # Activate renv (best-effort; master_job.sh will also activate)
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+export RENV_PROJECT="${PROJECT_ROOT}"
+export RENV_PROJECT_EXPLICIT="${PROJECT_ROOT}"
+export RENV_CONFIG_AUTOLOADER_ENABLED="FALSE"
 if [[ -f "${PROJECT_ROOT}/renv/activate.R" ]]; then
   Rscript -e "source('${PROJECT_ROOT}/renv/activate.R'); renv::load(project='${PROJECT_ROOT}')" >/dev/null 2>&1 || true
 fi
