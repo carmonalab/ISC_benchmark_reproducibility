@@ -261,6 +261,12 @@ pipeline_spec_popv <- function(
 }
 
 .export_sctypeeval_to_h5ad <- function(scTypeEval, h5ad_path) {
+  # A stale file from a previous interrupted/overlapping run would otherwise
+  # make anndataR::write_h5ad() fail (default mode "w-" refuses to overwrite).
+  if (file.exists(h5ad_path)) {
+    unlink(h5ad_path)
+  }
+
   filt_data <- scTypeEval:::get_filtered_raw_matrix(scTypeEval)
 
   # Some clinical/metadata columns (e.g. "Stage.TNM") carry non-UTF-8 bytes
