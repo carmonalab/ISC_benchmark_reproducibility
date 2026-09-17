@@ -101,54 +101,40 @@ compute_consistency_core <- function(counts_matrix,
     black_list = get_default_blacklist()
   )
 
-  hvg_ident <- if ("true_labels" %in% colnames(metadata)) "true_labels" else ident
-
   n_samples <- length(unique(metadata[[sample_col]]))
   if (n_samples < 2) {
     stop("Need >= 2 samples to compute consistency; found ", n_samples)
   }
   min_samples <- min(3, n_samples)
 
-  sc_tmp <- scTypeEval::run_processing_data(
+  sc <- scTypeEval::run_processing_data(
     sc,
-    ident = hvg_ident,
-    aggregation = "single-cell",
+    ident = ident,
     sample = sample_col,
     min_samples = min_samples,
     verbose = FALSE
   )
 
-  sc_tmp <- scTypeEval::run_hvg(
-    sc_tmp,
+  sc <- scTypeEval::run_hvg(
+    sc,
     ngenes = 2000,
+    aggregation = "single-cell",
     ncores = ncores,
     verbose = FALSE
   )
 
-  hvg <- sc_tmp@gene_lists
-
-  sc_proc <- scTypeEval::run_processing_data(
-    sc,
-    ident = ident,
-    aggregation = "pseudobulk",
-    sample = sample_col,
-    min_samples = min_samples,
-    verbose = FALSE
-  )
-
-  sc_proc <- scTypeEval::add_gene_list(sc_proc, gene_list = hvg)
-  sc_proc <- scTypeEval::run_pca(sc_proc, verbose = FALSE)
+  sc <- scTypeEval::run_pca(sc, verbose = FALSE)
 
   for (mdiss in method_diss) {
-    sc_proc <- scTypeEval::run_dissimilarity(
-      sc_proc,
+    sc <- scTypeEval::run_dissimilarity(
+      sc,
       method = mdiss,
       ncores = ncores,
       verbose = FALSE
     )
   }
 
-  cons <- scTypeEval::get_consistency(sc_proc,
+  cons <- scTypeEval::get_consistency(sc,
                                       consistency_metric = consistency_metric,
                                       verbose = FALSE) %>%
     dplyr::rename(cell_type = celltype) %>%
