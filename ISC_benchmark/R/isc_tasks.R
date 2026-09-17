@@ -105,7 +105,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
   # One full-dataset ISC computation (no perturbation) is shared across ALL tasks 1-6.
   # Cache and reuse only consistency dataframe (no full scTypeEval object persistence).
   TASKS_WITH_BASELINE <- c("missclassify", "SplitCelltype", "Nsamples", "NCell",
-                            "Nct", "cellular_complexity")
+                            "MissclassifySamples", "Nct", "cellular_complexity")
   baseline_df  <- NULL
 
   if (task_name %in% TASKS_WITH_BASELINE) {
@@ -139,6 +139,9 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
         c(base_state, list(rate = 1))
       },
       "NCell" = {
+        c(base_state, list(rate = 1))
+      },
+      "MissclassifySamples" = {
         c(base_state, list(rate = 1))
       },
       "Nct" = {
@@ -190,6 +193,7 @@ run_isc_benchmark_on_dataset <- function(dataset_id,
       "SplitCelltype" = baseline_for_task(external_bl, "SplitCelltype", filter_external = FALSE),
       "Nsamples" = baseline_for_task(external_bl, "Nsamples", filter_external = FALSE),
       "NCell" = baseline_for_task(external_bl, "NCell", filter_external = FALSE),
+      "MissclassifySamples" = baseline_for_task(external_bl, "MissclassifySamples", filter_external = FALSE),
       "Nct" = {
         all_cts <- unique(obj_prepared$metadata[[obj_prepared$ident]])
         all_cts <- all_cts[!is.na(all_cts)]

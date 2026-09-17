@@ -580,7 +580,8 @@ get_or_compute_baseline <- function(obj_prepared, config, cache_path) {
   missclassify = "Missclassification",
   SplitCelltype = "SplitCelltype",
   Nsamples     = "NSamples",
-  NCell        = "NCell"
+  NCell        = "NCell",
+  MissclassifySamples = "MissclassifySamples"
 )
 
 baseline_scTypeEval_rows <- function(baseline_df) {
@@ -1248,6 +1249,11 @@ run_task_MissclassifySamples <- function(obj_prepared, config, task_config, outp
                                           external_state_callback = NULL) {
   message("Running Task 6b: Sensitivity to label noise in a subset of samples")
 
+  if (!is.null(baseline_df)) {
+    task_config$rates <- task_config$rates[task_config$rates != 1]
+    message("  [baseline reuse] Skipping rate=1; will prepend cached baseline")
+  }
+
   params <- c(
     obj_prepared,
     config$common,
@@ -1255,7 +1261,13 @@ run_task_MissclassifySamples <- function(obj_prepared, config, task_config, outp
     list(dir = NULL, external_state_callback = external_state_callback)
   )
 
-  do.call(wr_missclassify_samples, params)
+  wr <- do.call(wr_missclassify_samples, params)
+
+  if (!is.null(baseline_df)) {
+    wr <- prepend_baseline_rows(wr, baseline_for_task(baseline_df, "MissclassifySamples"))
+  }
+
+  wr
 }
 
 #' Run Task 7: Robustness to batch effects (systematic technical differences)
