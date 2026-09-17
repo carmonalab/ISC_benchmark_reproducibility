@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=ISC_label_transfer
-#SBATCH --partition=shared-cpu # Adjust to your HPC partition
-#SBATCH --time=12:00:00
+#SBATCH --partition=public-cpu # Adjust to your HPC partition
+#SBATCH --time=48:00:00
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --mem=128G
