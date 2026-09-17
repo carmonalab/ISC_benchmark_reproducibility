@@ -708,7 +708,7 @@ wr_missclassify_samples <- function(count_matrix,
                                               rep = strsplit(ann, "_")[[1]][2],
                                               original_ident = !!ident,
                                               perturbed_ctype = NA_character_,
-                                              task = "Degraded_Samples"
+                                              task = "MissclassifySamples"
                                 )
 
                              state <- list(
