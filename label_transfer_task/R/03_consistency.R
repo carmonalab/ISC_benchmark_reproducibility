@@ -39,7 +39,9 @@ compute_consistency_core <- function(counts_matrix,
                                      method_diss = c("Pseudobulk:Cosine", "recip_classif:Match"),
                                      cons_methods = c(
                                        "silhouette | recip_classif:Match",
-                                       "2label_silhouette | Pseudobulk:Cosine"
+                                       "2label_silhouette | Pseudobulk:Cosine",
+                                       "MetaNeighbor_Supervised",
+                                       "nsa_cLISI"
                                      ),
                                      ncores = 1) {
   if (!requireNamespace("scTypeEval", quietly = TRUE)) {
