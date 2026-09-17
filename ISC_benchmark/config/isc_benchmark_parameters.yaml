@@ -247,7 +247,7 @@ task_MissclassifySamples:
     introduced label noise by shuffling cell type labels only within the
      selected samples, at a fixed shuffling rate."
   category: "sensitivity"
-  type: "constant"
+  type: "monotonic"
 
   isc_params:
     # Rates: proportion of samples SELECTED for shuffling (1=all samples, 0.5=50% of samples)
