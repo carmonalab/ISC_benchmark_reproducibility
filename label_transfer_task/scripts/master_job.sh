@@ -59,7 +59,7 @@ if command -v module >/dev/null 2>&1; then
 fi
 
 # Keep the SCCAF venv's Python runtime compatible after newer GCC/R modules are loaded.
-export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.11.5-GCCcore-13.2.0/lib:/opt/ebsofts/libffi/3.3-GCCcore-10.3.0/lib64:${LD_LIBRARY_PATH:-}"
+export LD_LIBRARY_PATH="/opt/ebsofts/Python/3.9.5-GCCcore-10.3.0/lib:/opt/ebsofts/libffi/3.3-GCCcore-10.3.0/lib64:${LD_LIBRARY_PATH:-}"
 
 # Check prerequisites
 if [[ ! -f "${LT_DIR}/config/label_transfer_parameters.yaml" ]]; then
