@@ -251,7 +251,8 @@ tmp <- bplapply(
     
     # Infer assay type from filename
     assay_type <- case_when(
-      grepl("Missclassif", fi, ignore.case = TRUE) ~ "Signal-degradation",
+      grepl("missclassif", fi, ignore.case = FALSE) ~ "Signal-degradation",
+      grepl("MissclassifySamples", fi, ignore.case = FALSE) ~ "Sample-degradation",
       grepl("NSamples", fi, ignore.case = TRUE) ~ "Number-samples",
       grepl("NCell", fi, ignore.case = TRUE) ~ "Number-cells",
       grepl("Nct", fi, ignore.case = TRUE) ~ "Complexity",
@@ -274,7 +275,7 @@ tmp <- bplapply(
     ident <- unique(df0$original_ident)
     
     # Standardize rates
-    if (assay_type == "Number-samples") {
+    if (grepl("sample", assay_type, ignore.case = T)) {
       unique_rates <- sort(unique(as.numeric(df0$rate)), decreasing = TRUE)
       target_values <- c(1, 0.9, 0.7, 0.5)[seq_along(unique_rates)]
       df0$rate <- target_values[match(df0$rate, unique_rates)]
@@ -290,7 +291,8 @@ tmp <- bplapply(
     # Calculate benchmarking scores
     if (CONFIG$benchmarking_scores) {
       summ_type <- case_when(
-        grepl("Missclassif", fi, ignore.case = TRUE) ~ "Monotonic",
+        grepl("missclassif", fi, ignore.case = FALSE) ~ "Monotonic",
+        grepl("MissclassifySamples", fi, ignore.case = FALSE) ~ "Monotonic",
         grepl("NSamples", fi, ignore.case = TRUE) ~ "Constant",
         grepl("NCell", fi, ignore.case = TRUE) ~ "Constant",
         grepl("Nct", fi, ignore.case = TRUE) ~ "Constant",
@@ -308,24 +310,10 @@ tmp <- bplapply(
     }
     
     df1$assay <- assay_type
+    df1$dataset <- dataset
+    df1$ident <- ident
     
-    if(assay_type == "Signal-degradation"){
-      df2 <- wr_assay_plot(df0,
-                          type = "drop",
-                          return_df = T,
-                          group = g)
-      df2$assay <- paste0(assay_type, "_drop")
-      df3 <- dplyr::bind_rows(df1, df2)
-    } else {
-      df3 <- df1
-    }
-    
-    
-    
-    df3$dataset <- dataset
-    df3$ident <- ident
-    
-    return(df3)
+    return(df1)
   }
   
 ) 
@@ -424,17 +412,18 @@ Up to here, compared with previous script and results are identical.
 ## Calculate Overall Scores
 
 ```{r calculate-overall-scores}
+rem <- 0.64/6
 # Define weight vector for tasks
 weight_vector <- c(
-  "Signal-degradation" = 0.15,
-  "Signal-degradation_drop" = 0.10,
-  "Overpartitioning" = 0.15,
-  "Granularity" = 0.10,
-  "Complexity" = 0.10,
-  "Number-samples" = 0.10,
-  "Number-cells" = 0.10,
-  "batch_effects" = 0.10,
-  "biological_perturbations" = 0.10
+  "Signal-degradation" = 0.12,
+  "Sample-degradation" = 0.12,
+  "Overpartitioning" = 0.12,
+  "Granularity" = rem,
+  "Complexity" = rem,
+  "Number-samples" = rem,
+  "Number-cells" = rem,
+  "batch_effects" = rem,
+  "biological_perturbations" = rem
 )
 
 # Verify weights sum to 1
@@ -494,7 +483,7 @@ task_summary <- task_summary %>%
       assay,
       levels = c(
         "Signal-degradation",
-        "Signal-degradation_drop",
+        "Sample-degradation",
         "Overpartitioning",
         "Granularity",
         "Complexity",
@@ -505,7 +494,7 @@ task_summary <- task_summary %>%
       ),
       labels = c(
         "Signal degradation",
-        "Signal degradation-drop",
+        "Sample degradation",
         "Over-partitioning",
         "Granularity",
         "Complexity",
@@ -565,7 +554,7 @@ task_cols <- setdiff(colnames(task_wide), "method_type")
 # Define correct task order
 task_order <- c(
   "Signal degradation",
-  "Signal degradation-drop",
+  "Sample degradation",
   "Over-partitioning",
   "Granularity",
   "Complexity",
@@ -609,7 +598,9 @@ resources_summary <- resources_data %>%
     median_memory_scaled = minmax_scale(median_memory_mb)
   ) %>%
   select(method_type, median_duration_ms, median_memory_mb,
-         median_duration_scaled, median_memory_scaled)
+         median_duration_scaled, median_memory_scaled) %>% 
+  mutate(,
+      method_type = gsub("sccaf", "SCCAF", method_type))
 
 # Split method into consistency/dissimilarity
 method_info <- overall_scores %>%
@@ -830,7 +821,6 @@ metric_plot <- ggplot(metric_df, aes(x = assay, y = component_level, fill = resi
   geom_tile(color = "white", linewidth = 0.3) +
   geom_text(aes(label = as.integer(rank_residual)), size = 3.2, color = "black") +
   fill_scale +
-  facet_wrap(~ level, scales = "free_y") +
   labs(
     x = NULL,
     y = NULL,
@@ -856,7 +846,6 @@ dissim_plot <- ggplot(dissim_df, aes(x = assay, y = component_level, fill = resi
   geom_tile(color = "white", linewidth = 0.3) +
   geom_text(aes(label = as.integer(rank_residual)), size = 3.2, color = "black") +
   fill_scale +
-  facet_wrap(~ level, scales = "free_y") +
   labs(
     x = NULL,
     y = NULL,
@@ -864,8 +853,7 @@ dissim_plot <- ggplot(dissim_df, aes(x = assay, y = component_level, fill = resi
   ) +
   base_theme
 
-residuals_plot <- metric_plot / dissim_plot +
-  plot_layout(heights = c(1, 1), guides = "collect")
+residuals_plot <- metric_plot / dissim_plot
 
 print(residuals_plot)
 ```
@@ -1039,7 +1027,8 @@ tasks_data_raw <- bplapply(
     
     # Infer assay type from filename
     assay_type <- case_when(
-      grepl("Missclassif", fi, ignore.case = TRUE) ~ "Signal-degradation",
+      grepl("missclassif", fi, ignore.case = FALSE) ~ "Signal-degradation",
+      grepl("MissclassifySamples", fi, ignore.case = FALSE) ~ "Sample-degradation",
       grepl("NSamples", fi, ignore.case = TRUE) ~ "Number-samples",
       grepl("NCell", fi, ignore.case = TRUE) ~ "Number-cells",
       grepl("Nct", fi, ignore.case = TRUE) ~ "Complexity",
