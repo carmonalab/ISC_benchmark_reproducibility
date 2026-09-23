@@ -725,6 +725,8 @@ classify_scPred <- function(ref_counts, ref_labels, query_counts) {
     seurat_ref <- scPred::trainModel(seurat_ref)
     
     # Predict on query using scPred
+    # fix for Seurat >v5
+    seurat_query[["data"]] <- seurat_query[["RNA"]]
     seurat_query <- scPred::scPredict(seurat_query, seurat_ref)
     
     # Extract predictions from query metadata
