@@ -41,13 +41,42 @@ dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 
 Load data from results (within dataset splitting) and results_between (prediction between different datasets but same annotation) obtained previously in label_transfer_task pipeline.
 
+Add function to collapse replicates
+```{r}
+iscs <- c("X2label_silhouette...Pseudobulk.Cosine",
+          "silhouette...recip_classif.Match",
+          "product",
+          "SCCAF",
+          "MetaNeighbor_Supervised...NA",
+          "nsa_cLISI...NA")
+collapse_replicates <- function(x) {
+  x %>%
+    group_by(dataset_id, classifier, cell_type) %>%
+    summarise(
+      across(
+        c(f1, accuracy, all_of(iscs)),
+        ~ mean(.x, na.rm = TRUE)
+      ),
+      n_replicates = n_distinct(replicate),
+      .groups = "drop"
+    )
+}
+```
+
+
 ```{r load_data}
 paths <- 
   c(
     "intra_dataset" = file.path("..", "label_transfer_task", "results", "aggregated", "label_transfer_consistency_detailed.csv"),
     "inter_dataset" = file.path("..", "label_transfer_task", "results_between", "aggregated", "label_transfer_between_consistency_detailed.csv")
-  )
+  )[1]
 res <- lapply(paths, read.csv)
+
+res <- lapply(res, function(x){
+  x$product <- x[["X2label_silhouette...Pseudobulk.Cosine"]] * x[["silhouette...recip_classif.Match"]]
+  x <- collapse_replicates(x)
+  return(x)
+})
 # Preview
 lapply(res, head)
 ```
@@ -57,7 +86,10 @@ which ISC metric to use
 ```{r}
 isc <- c("X2label_silhouette...Pseudobulk.Cosine",
          "silhouette...recip_classif.Match",
-         "product" )[3]
+         "product",
+         "SCCAF",
+         "MetaNeighbor_Supervised...NA",
+         "nsa_cLISI...NA")[3]
 ```
 
 
@@ -150,7 +182,7 @@ scatter_mean_cor <- lapply(names(res), function(r){
     filter(classifier != "ground_truth") %>%
     mutate(classifier = factor(classifier,
                                levels = c(names(rankings_palette[[r]])))) %>% 
-    group_by(dataset_id, classifier) %>%
+    group_by(dataset_id, classifier, cell_type) %>%
     summarise(
       mean_f1 = mean(f1, na.rm = TRUE),
       mean_product = mean(.data[[isc]], na.rm = TRUE),
@@ -310,13 +342,25 @@ Plot only correlation lines for 1) product (as earlier), 2) global ISC, 3) lobal
 
 ```{r isc_names}
 iscs <- c("X2label_silhouette...Pseudobulk.Cosine",
-         "silhouette...recip_classif.Match",
-         "product" )
+          "silhouette...recip_classif.Match",
+          "product",
+          "SCCAF",
+          "MetaNeighbor_Supervised...NA",
+          "nsa_cLISI...NA")
+labs <- c("ISC Global",
+          "ISC Local",
+          "ISC Product",
+          "SCCAF",
+          "MetaNeighbor Supervised",
+          "cLISI") 
 isc_colors <- c(
   "ISC Global" = "#0173B2",   # blue
   "ISC Local" = "#DE8F05",    # orange
-  "ISC Product" = "#029E73"   # green
-)
+  "ISC Product" = "#029E73",   # green
+  "SCCAF"                                  = "#CC78BC",
+  "MetaNeighbor Supervised"           = "brown4",
+  "cLISI"                         = "#949494"
+) 
 ```
 
 ```{r corr_different_isc}
@@ -324,7 +368,7 @@ isc_colors <- c(
 smooth_cor <- lapply(names(res), function(r){
   mean_metrics <- res[[r]] %>%
     filter(!is.na(f1) & !is.na(.data[[isc]])) %>%
-    filter(classifier != "ground_truth") %>%
+    filter(!classifier %in% c("ground_truth", "Random")) %>%
     mutate(classifier = factor(classifier,
                                levels = c(names(rankings_palette[[r]])))) %>% 
     group_by(dataset_id, classifier) %>%
@@ -338,9 +382,7 @@ smooth_cor <- lapply(names(res), function(r){
                  values_to = "score") %>% 
     mutate(metric = factor(metric,
                            levels = iscs,
-                           labels = c("ISC Global",
-                                      "ISC Local",
-                                      "ISC Product"))
+                           labels = labs)
     )
   
   corrs <- mean_metrics %>% 
@@ -487,12 +529,12 @@ use_geom_mean <- TRUE
 per_dataset_ranking <- lapply(names(res), function(r){
   # Step 1: Calculate mean metrics per dataset and classifier (across cell types)
   dataset_metrics_mean <- res[[r]] %>%
-    filter(!is.na(f1) & !is.na(product),
+    filter(!is.na(f1) & !is.na(.data[[isc]]),
            classifier != "ground_truth") %>%
     group_by(dataset_id, classifier) %>%
     summarise(
       mean_f1 = mean(f1, na.rm = TRUE),
-      mean_product = mean(product, na.rm = TRUE),
+      mean_product = mean(.data[[isc]], na.rm = TRUE),
       .groups = "drop"
     )
   
@@ -607,9 +649,81 @@ ggsave(
 
 Make a geom_point plot showing the mean of F1 in predictions for each consistency in reference, adding error bar plots to show the variability of the different predictions.
 
-## correlation
+## overall correlation
+```{r reference_consistency_overall}
+excl <- c("ground_truth", "Ensemble", "Random")
+# filter for only references
+cons_ref_all <- lapply(names(res), function(r){
+  # Summarise prediction F1 per dataset, classifier, and cell type
+  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
+  pred_summary <- res[[r]] %>%
+    mutate(classifier = factor(classifier,
+                               levels = c(class_levs))) %>% 
+    filter(classifier != "ground_truth",
+           !is.na(f1),
+           ) %>% 
+    select(cell_type, dataset_id, f1, classifier)
+  
+  cons_ref <- res[[r]] %>%
+    filter(classifier == "ground_truth",
+           !is.na(.data[[isc]])) %>% 
+    select(cell_type, dataset_id, .data[[isc]])
+  
+  # Join reference consistency with prediction F1
+  joined <- pred_summary %>%
+    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
+    filter(!is.na(.data[[isc]])) %>% 
+    group_by(dataset_id, cell_type)
+  
+  # Correlation per classifier (mean F1 vs reference product)
+  cor_table <- joined %>%
+    summarise(
+      r = cor(f1, .data[[isc]], use = "complete.obs"),
+      r2 = r^2,
+      p_value = cor.test(f1, .data[[isc]])$p.value,
+      n_pairs = sum(!is.na(f1) & !is.na(.data[[isc]])),
+      .groups = "drop"
+    ) %>%
+    ungroup() %>% 
+    # Apply FDR correction for multiple testing
+    mutate(
+      p_value_adjusted = p.adjust(p_value, method = "BH"),
+      label = sprintf("R² = %.3f\np = %.2e", r2, p_value)
+    )
+  
+  cat("\nCorrelation (F1 vs reference consistency product) per classifier:\n")
+  print(cor_table)
+  
+  # Plot: F1 vs reference consistency product with facets and correlation stats
+  p_ref <- joined %>% 
+    ggplot(aes(x = .data[[isc]], y = f1)) +
+    geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
+    geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+    scale_color_manual(values = rankings_palette[[1]]) +
+    geom_label(data = cor_table, 
+               aes(x = Inf, y = -Inf, label = label),
+               fill = "white",
+               alpha = 0.4,
+               hjust = 1.1, vjust = -0.5, size = 3.5, 
+               inherit.aes = FALSE) +
+    labs(
+      title = r,
+      subtitle = "Train ISC vs Prediction F1, per cell type",
+      x = paste0("Value Train: ", isc),
+      y = "F1 (predictions)"
+    ) +
+    ggpubr::theme_classic2() +
+    theme(legend.position = "right")
+  
+  return(p_ref)
+})
 
-```{r reference_consistency}
+ggarrange(plotlist = cons_ref_all)
+```
+
+## correlation per classifier
+
+```{r reference_consistency_perclassifier}
 excl <- c("ground_truth", "Ensemble", "Random")
 # filter for only references
 cons_ref <- lapply(names(res), function(r){
@@ -625,23 +739,23 @@ cons_ref <- lapply(names(res), function(r){
   
   cons_ref <- res[[r]] %>%
     filter(classifier == "ground_truth",
-           !is.na(product)) %>% 
-    select(cell_type, dataset_id, product)
+           !is.na(.data[[isc]])) %>% 
+    select(cell_type, dataset_id, .data[[isc]])
   
   # Join reference consistency with prediction F1
   joined <- pred_summary %>%
     left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
-    filter(!is.na(product)) %>% 
+    filter(!is.na(.data[[isc]])) %>% 
     group_by(dataset_id, cell_type)
   
   # Correlation per classifier (mean F1 vs reference product)
   cor_table <- joined %>%
     group_by(classifier) %>%
     summarise(
-      r = cor(f1, product, use = "complete.obs"),
+      r = cor(f1, .data[[isc]], use = "complete.obs"),
       r2 = r^2,
-      p_value = cor.test(f1, product)$p.value,
-      n_pairs = sum(!is.na(f1) & !is.na(product)),
+      p_value = cor.test(f1, .data[[isc]])$p.value,
+      n_pairs = sum(!is.na(f1) & !is.na(.data[[isc]])),
       .groups = "drop"
     ) %>%
     ungroup() %>% 
@@ -656,7 +770,7 @@ cons_ref <- lapply(names(res), function(r){
   
   # Plot: F1 vs reference consistency product with facets and correlation stats
   p_ref <- joined %>% 
-    ggplot(aes(x = product, y = f1)) +
+    ggplot(aes(x = .data[[isc]], y = f1)) +
     geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
     geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
     scale_color_manual(values = rankings_palette[[1]]) +
@@ -669,7 +783,7 @@ cons_ref <- lapply(names(res), function(r){
     labs(
       title = r,
       subtitle = "Train ISC vs Prediction F1, per cell type",
-      x = "ISC Train",
+      x = paste0("Value Train: ", isc),
       y = "F1 (predictions)"
     ) +
     ggpubr::theme_classic2() +
@@ -710,16 +824,16 @@ cons_ref_cat <- lapply(names(res), function(r){
   
   cons_ref <- res[[r]] %>%
     filter(classifier == "ground_truth",
-           !is.na(product)) %>% 
-    select(cell_type, dataset_id, product) %>% 
-    mutate(consistency = ifelse(product > ths,
+           !is.na(.data[[isc]])) %>% 
+    select(cell_type, dataset_id, .data[[isc]]) %>% 
+    mutate(consistency = ifelse(.data[[isc]] > ths,
                               "consistent",
                               "inconsistent"))
   
   # Join reference consistency with prediction F1
   joined <- pred_summary %>%
     left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
-    filter(!is.na(product)) %>% 
+    filter(!is.na(.data[[isc]])) %>% 
     group_by(dataset_id, cell_type)
   
   
@@ -784,13 +898,13 @@ cons_ref_contingency <- lapply(names(res), function(r){
   
   cons_ref <- res[[r]] %>%
     filter(classifier == "ground_truth",
-           !is.na(product)) %>% 
-    select(cell_type, dataset_id, product)
+           !is.na(.data[[isc]])) %>% 
+    select(cell_type, dataset_id, .data[[isc]])
   
   # Join reference consistency with prediction F1
   joined <- pred_summary %>%
     left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
-    filter(!is.na(product)) %>% 
+    filter(!is.na(.data[[isc]])) %>% 
     group_by(dataset_id, cell_type)
 
 
@@ -799,9 +913,9 @@ cons_ref_contingency <- lapply(names(res), function(r){
   quadrant_counts <- joined %>%
     ungroup() %>%
     mutate(quadrant = case_when(
-      product >= ths_isc & f1 >= ths_f1 ~ "top-right",
-      product <  ths_isc & f1 >= ths_f1 ~ "top-left",
-      product >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
+      .data[[isc]] >= ths_isc & f1 >= ths_f1 ~ "top-right",
+      .data[[isc]] <  ths_isc & f1 >= ths_f1 ~ "top-left",
+      .data[[isc]] >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
       TRUE                        ~ "bottom-left"
     )) %>%
     count(quadrant) %>%
@@ -820,7 +934,7 @@ cons_ref_contingency <- lapply(names(res), function(r){
 
   # Plot: bin2d density + quadrant percentages
   p_ref <- joined %>%
-    ggplot(aes(x = product, y = f1)) +
+    ggplot(aes(x = .data[[isc]], y = f1)) +
     geom_bin2d(bins = 50, show.legend = T) +
     scale_fill_viridis_c(option = "magma", trans = "sqrt") +
     geom_vline(xintercept = ths_isc, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
@@ -869,18 +983,18 @@ quadrant_stats_plots <- lapply(names(res), function(r){
     select(cell_type, dataset_id, f1, classifier)
 
   cons_ref <- res[[r]] %>%
-    filter(classifier == "ground_truth", !is.na(product)) %>%
-    select(cell_type, dataset_id, product)
+    filter(classifier == "ground_truth", !is.na(.data[[isc]])) %>%
+    select(cell_type, dataset_id, .data[[isc]])
 
   joined <- pred_summary %>%
     left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
-    filter(!is.na(product))
+    filter(!is.na(.data[[isc]]))
 
   quad_tbl <- joined %>%
     mutate(quadrant = case_when(
-      product >= ths_isc & f1 >= ths_f1 ~ "top-right",
-      product <  ths_isc & f1 >= ths_f1 ~ "top-left",
-      product >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
+      .data[[isc]] >= ths_isc & f1 >= ths_f1 ~ "top-right",
+      .data[[isc]] <  ths_isc & f1 >= ths_f1 ~ "top-left",
+      .data[[isc]] >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
       TRUE                              ~ "bottom-left"
     )) %>%
     count(quadrant, .drop = FALSE)
