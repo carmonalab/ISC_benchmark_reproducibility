@@ -214,7 +214,8 @@ classify_XGBoost <- function(ref_counts, ref_labels, query_counts) {
                        nrounds = 100,
                        verbose = 0)
     pred_prob <- predict(model, xgb.DMatrix(X_test))
-    pred_labels <- label_map[apply(matrix(pred_prob, ncol = length(label_map), byrow = TRUE), 1, which.max)]
+    pred_class <- max.col(pred_prob, ties.method = "first")
+    pred_labels <- label_map[pred_class]
     
     pred_labels
   }, error = function(e) {
