@@ -62,9 +62,9 @@ list(
   ),
 
   tar_target(
-    lt_between_ref_grid,
+    lt_between_unique_ref_grid,
     tidyr::crossing(
-      lt_between_pairs,
+      reference_dataset_id = unique(lt_between_pairs$reference_dataset_id),
       replicate = seq_len(lt_between_n_replicates)
     )
   ),
@@ -166,21 +166,32 @@ list(
   ),
 
   tar_target(
-    lt_between_reference_consistency,
+    lt_between_unique_ref_cons,
     {
-      compute_lt_reference_consistency(
-        dataset_id = lt_between_ref_grid$pair_id,
-        rep = lt_between_ref_grid$replicate,
+      invisible(lt_between_prepared_pairs)
+      compute_lt_between_unique_reference_consistency(
+        reference_dataset_id = lt_between_unique_ref_grid$reference_dataset_id,
+        rep = lt_between_unique_ref_grid$replicate,
+        pairs = lt_between_pairs,
         data_dir = lt_between_data_processed_dir(),
-        output_dir = lt_between_consistency_dir(),
-        ncores = lt_between_n_cores,
-        reference_dataset_id = lt_between_ref_grid$reference_dataset_id,
-        query_dataset_id = lt_between_ref_grid$query_dataset_id
+        ncores = lt_between_n_cores
       )
     },
-    format = "file",
-    pattern = map(lt_between_ref_grid),
+    pattern = map(lt_between_unique_ref_grid),
     iteration = "list"
+  ),
+
+  tar_target(
+    lt_between_reference_consistency,
+    {
+      write_lt_between_reference_consistency_outputs(
+        unique_cons = lt_between_unique_ref_cons,
+        unique_grid = lt_between_unique_ref_grid,
+        pairs = lt_between_pairs,
+        output_dir = lt_between_consistency_dir()
+      )
+    },
+    format = "file"
   ),
 
   tar_target(

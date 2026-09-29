@@ -491,9 +491,107 @@ compute_lt_reference_consistency <- function(dataset_id,
   invisible(out_file)
 }
 
+# Between-dataset pairs sharing the same reference_dataset_id have identical
+# reference.rds contents, so compute reference consistency once per unique
+# (reference_dataset_id, rep) and fan the result out to every pair below,
+# instead of recomputing per pair_id.
+compute_lt_between_unique_reference_consistency <- function(reference_dataset_id,
+                                                             rep,
+                                                             pairs,
+                                                             data_dir,
+                                                             sample_col = "sample",
+                                                             ncores = 1) {
+  representative_pair_id <- pairs$pair_id[pairs$reference_dataset_id == reference_dataset_id][1]
+  if (is.na(representative_pair_id)) return(invisible(NULL))
+
+  ref_path <- file.path(data_dir, representative_pair_id, "reference.rds")
+  if (!file.exists(ref_path)) return(invisible(NULL))
+
+  ref <- readRDS(ref_path)
+  counts <- ref$counts
+  cell_ids <- colnames(counts)
+  md_raw <- as.data.frame(ref$metadata)
+
+  if (is.null(rownames(md_raw)) || all(rownames(md_raw) == as.character(seq_len(nrow(md_raw))))) {
+    if (nrow(md_raw) != length(cell_ids)) {
+      stop("Reference metadata/counts mismatch for ", reference_dataset_id, ": ",
+           nrow(md_raw), " rows vs ", length(cell_ids), " cells")
+    }
+    rownames(md_raw) <- cell_ids
+    md <- md_raw
+  } else {
+    md <- md_raw[cell_ids, , drop = FALSE]
+  }
+  md$true_labels <- md$cell_type
+
+  cons <- tryCatch(
+    compute_consistency_core(
+      counts_matrix = counts,
+      metadata = md,
+      ident = "true_labels",
+      sample_col = sample_col,
+      ncores = ncores,
+      file_prefix = sprintf("%s_rep%d_reference_shared", reference_dataset_id, rep)
+    ),
+    error = function(e) {
+      message(sprintf("[SKIP] Shared reference consistency failed for '%s' (rep %d): %s",
+                      reference_dataset_id, rep, conditionMessage(e)))
+      return(invisible(NULL))
+    }
+  )
+  if (is.null(cons)) return(invisible(NULL))
+
+  cons$reference_dataset_id <- reference_dataset_id
+  cons$replicate <- rep
+  cons
+}
+
+# Relabels the shared reference-consistency table (dataset_id/query_dataset_id)
+# per pair_id and writes one file per pair, so downstream joins on dataset_id
+# (== pair_id) keep working while the expensive computation ran only once.
+write_lt_between_reference_consistency_outputs <- function(unique_cons,
+                                                            unique_grid,
+                                                            pairs,
+                                                            output_dir = NULL) {
+  if (is.null(output_dir)) output_dir <- lt_between_consistency_dir()
+  ensure_dir(output_dir)
+
+  out_files <- character(0)
+  for (i in seq_len(nrow(unique_grid))) {
+    cons_base <- unique_cons[[i]]
+    if (is.null(cons_base)) next
+
+    ref_id <- unique_grid$reference_dataset_id[i]
+    rep <- unique_grid$replicate[i]
+
+    matched_pairs <- pairs[pairs$reference_dataset_id == ref_id, , drop = FALSE]
+    for (j in seq_len(nrow(matched_pairs))) {
+      pair_id <- matched_pairs$pair_id[j]
+      query_dataset_id <- matched_pairs$query_dataset_id[j]
+
+      cons <- cons_base %>%
+        dplyr::mutate(
+          dataset_id = pair_id,
+          classifier = "ground_truth",
+          replicate = rep,
+          split = "reference",
+          query_dataset_id = query_dataset_id
+        )
+
+      out_file <- file.path(
+        output_dir,
+        sprintf("%s_rep%d_reference_ground_truth_consistency.rds", pair_id, rep)
+      )
+      saveRDS(cons, out_file)
+      out_files <- c(out_files, out_file)
+    }
+  }
+
+  out_files
+}
+
 aggregate_lt_consistency_results <- function(consistency_dir, output_file) {
   ensure_dir(dirname(output_file))
-
   files <- list.files(consistency_dir, pattern = "\\.rds$", full.names = TRUE)
   if (length(files) == 0) {
     warning("No consistency result files found in ", consistency_dir)
