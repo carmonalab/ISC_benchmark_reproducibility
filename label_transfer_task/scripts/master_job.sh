@@ -30,6 +30,16 @@ export RENV_PROJECT="${PROJECT_ROOT}"
 export RENV_PROJECT_EXPLICIT="${PROJECT_ROOT}"
 export RENV_CONFIG_AUTOLOADER_ENABLED="FALSE"
 
+# Branches run in parallel via future::multicore (fork-based); forking a process
+# with an already-threaded BLAS causes "stack imbalance" warnings and CPU
+# oversubscription, so keep BLAS/OMP single-threaded per worker.
+export OMP_NUM_THREADS=1
+export OPENBLAS_NUM_THREADS=1
+export FLEXIBLAS_NUM_THREADS=1
+export MKL_NUM_THREADS=1
+export VECLIB_MAXIMUM_THREADS=1
+export NUMEXPR_NUM_THREADS=1
+
 log_msg() {
   local timestamp
   timestamp=$(date '+%Y-%m-%d %H:%M:%S')
