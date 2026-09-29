@@ -3,7 +3,7 @@
 #SBATCH --partition=public-cpu
 #SBATCH --time=48:00:00
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=28
 #SBATCH --mem=300G
 #SBATCH --output=label_transfer_task/logs/label_transfer_between_%j.log
 #SBATCH --error=label_transfer_task/logs/label_transfer_between_%j.err
