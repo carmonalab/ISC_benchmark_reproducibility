@@ -7,6 +7,11 @@ if (!exists("run_sample_agnostic_python_pipelines", mode = "function")) {
   source("../sample_agnostic_utils/run_python_pipelines.R")
 }
 
+# Cramer/Hotelling dataset-shift diagnostics (query vs reference)
+if (!exists("run_scdiagnostics", mode = "function")) {
+  source("../sample_agnostic_utils/scdiagnostics.R")
+}
+
 suppressPackageStartupMessages({
   library(dplyr)
   library(tidyr)
@@ -35,6 +40,58 @@ get_default_blacklist <- function() {
     black_list$Immunoglobulins,
     black_list$Ygenes
   ))
+}
+
+build_sc_for_scdiagnostics <- function(counts_matrix,
+                                       metadata,
+                                       ident,
+                                       sample_col,
+                                       min_samples) {
+  metadata[[sample_col]] <- purge_label_local(metadata[[sample_col]])
+  metadata[[ident]] <- purge_label_local(metadata[[ident]])
+
+  sc <- scTypeEval::create_scTypeEval(
+    matrix = counts_matrix,
+    metadata = metadata,
+    black_list = get_default_blacklist()
+  )
+
+  scTypeEval::run_processing_data(
+    sc,
+    ident = ident,
+    sample = sample_col,
+    min_samples = min_samples,
+    verbose = FALSE
+  )
+}
+
+compute_query_ref_scdiagnostics <- function(query_counts,
+                                            query_metadata,
+                                            ref_counts,
+                                            ref_metadata,
+                                            sample_col) {
+  n_samples_query <- length(unique(query_metadata[[sample_col]]))
+  n_samples_ref <- length(unique(ref_metadata[[sample_col]]))
+  min_samples_query <- min(3, n_samples_query)
+  min_samples_ref <- min(3, n_samples_ref)
+
+  query_sc <- build_sc_for_scdiagnostics(
+    counts_matrix = query_counts,
+    metadata = query_metadata,
+    ident = "pred_labels",
+    sample_col = sample_col,
+    min_samples = min_samples_query
+  )
+
+  ref_sc <- build_sc_for_scdiagnostics(
+    counts_matrix = ref_counts,
+    metadata = ref_metadata,
+    ident = "true_labels",
+    sample_col = sample_col,
+    min_samples = min_samples_ref
+  )
+
+  run_scdiagnostics(query = query_sc, ref = ref_sc)
 }
 
 compute_sccaf_scores <- function(sc,
@@ -287,6 +344,50 @@ compute_lt_query_consistency <- function(dataset_id,
   if (is.null(cons)) return(invisible(NULL))
 
   cons <- add_f1_one_vs_rest(cons, pred_labels = md$pred_labels, true_labels = md$true_labels)
+
+  # Cramer/Hotelling: do query cells assigned each predicted label distributionally
+  # match reference cells truly labeled with that same cell type?
+  ref_path <- file.path(dataset_dir, "reference.rds")
+  if (file.exists(ref_path)) {
+    scdiag <- tryCatch({
+      ref <- readRDS(ref_path)
+      ref_counts <- ref$counts
+      ref_cell_ids <- colnames(ref_counts)
+      ref_md_raw <- as.data.frame(ref$metadata)
+
+      if (is.null(rownames(ref_md_raw)) ||
+          all(rownames(ref_md_raw) == as.character(seq_len(nrow(ref_md_raw))))) {
+        if (nrow(ref_md_raw) != length(ref_cell_ids)) {
+          stop("Reference metadata/counts mismatch for ", dataset_id, ": ",
+               nrow(ref_md_raw), " rows vs ", length(ref_cell_ids), " cells")
+        }
+        rownames(ref_md_raw) <- ref_cell_ids
+        ref_md <- ref_md_raw
+      } else {
+        ref_md <- ref_md_raw[ref_cell_ids, , drop = FALSE]
+      }
+      ref_md$true_labels <- ref_md$cell_type
+
+      compute_query_ref_scdiagnostics(
+        query_counts = counts,
+        query_metadata = md,
+        ref_counts = ref_counts,
+        ref_metadata = ref_md,
+        sample_col = sample_col
+      )
+    }, error = function(e) {
+      message(sprintf("[SKIP] Cramer/Hotelling failed for '%s' / '%s' (rep %d): %s",
+                      dataset_id, classifier_name, rep, conditionMessage(e)))
+      return(invisible(NULL))
+    })
+
+    if (!is.null(scdiag) && nrow(scdiag) > 0) {
+      scdiag <- scdiag %>%
+        dplyr::transmute(cell_type = as.character(celltype), cramer, hotelling)
+      cons <- cons %>%
+        dplyr::left_join(scdiag, by = "cell_type")
+    }
+  }
 
   cons <- cons %>%
     dplyr::mutate(
