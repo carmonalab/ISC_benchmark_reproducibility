@@ -76,9 +76,15 @@ stopifnot(requireNamespace("renv", quietly = TRUE))
 renv::load(project = project_root)
 
 library(targets)
-targets::tar_make(
+library(future)
+
+n_workers <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = "4"))
+cat("[INFO] Running branches in parallel with", n_workers, "future workers\n")
+future::plan(future::multicore, workers = n_workers)
+targets::tar_make_future(
   script = "_targets_between_datasets.R",
   store = "_targets_between",
+  workers = n_workers,
   callr_function = NULL
 )
 RS

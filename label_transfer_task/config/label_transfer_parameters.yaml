@@ -6,7 +6,7 @@
 # ============================================================================
 
 seed: 22                    # Reproducible seed for sample splitting
-n_cores: 16                  # Number of cores for parallel processing
+n_cores: 1                  # Cores per branch (branches now run in parallel via future/tar_make_future, so keep this at 1 to avoid oversubscription)
 n_replicates: 3            # Number of split replicates (different query/reference splits)
 
 # datasets_filter: (commented out = run all datasets)

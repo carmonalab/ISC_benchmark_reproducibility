@@ -2,7 +2,7 @@
 # Between-dataset label-transfer benchmark configuration
 
 seed: 22
-n_cores: 16
+n_cores: 1                  # Cores per branch (branches now run in parallel via future/tar_make_future, so keep this at 1 to avoid oversubscription)
 n_replicates: 1
 
 # Optional filter of pair IDs generated from specs (reference__TO__query).

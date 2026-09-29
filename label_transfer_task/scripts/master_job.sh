@@ -129,7 +129,12 @@ cat("[INFO] .libPaths():\n")
 writeLines(.libPaths())
 
 library(targets)
-targets::tar_make(callr_function = NULL)
+library(future)
+
+n_workers <- as.integer(Sys.getenv("SLURM_CPUS_PER_TASK", unset = "4"))
+cat("[INFO] Running branches in parallel with", n_workers, "future workers\n")
+future::plan(future::multicore, workers = n_workers)
+targets::tar_make_future(workers = n_workers, callr_function = NULL)
 RS
   log_msg ""
   log_msg "✓ Label-transfer benchmark completed successfully"
