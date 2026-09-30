@@ -19,15 +19,9 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
-# Core ISC method columns combined into the "product" score at aggregation time.
-LT_CORE_CONSISTENCY_METHODS <- c(
-  "silhouette | recip_classif:Match",
-  "2label_silhouette | Pseudobulk:Cosine",
-  "MetaNeighbor_Supervised | NA",
-  "nsa_cLISI | NA"
-)
-
-# Subset of the above combined (as a product) into the single ISC summary score.
+# Methods combined (as a product) into the single ISC summary score at
+# aggregation time; kept out of compute_consistency_core() so referencing it
+# there doesn't invalidate every already-cached per-branch consistency target.
 LT_PRODUCT_CONSISTENCY_METHODS <- c(
   "silhouette | recip_classif:Match",
   "2label_silhouette | Pseudobulk:Cosine"
@@ -149,7 +143,12 @@ compute_consistency_core <- function(counts_matrix,
                                                             "MetaNeighbor_Supervised",
                                                               "nsa_cLISI"
                                     ),
-                                     cons_methods = LT_CORE_CONSISTENCY_METHODS,
+                                     cons_methods = c(
+                                       "silhouette | recip_classif:Match",
+                                       "2label_silhouette | Pseudobulk:Cosine",
+                                       "MetaNeighbor_Supervised | NA",
+                                       "nsa_cLISI | NA"
+                                     ),
                                      ncores = 1,
                                      run_sccaf = TRUE,
                                      sccaf_n = 100,
