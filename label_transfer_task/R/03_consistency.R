@@ -19,6 +19,20 @@ suppressPackageStartupMessages({
   library(readr)
 })
 
+# Core ISC method columns combined into the "product" score at aggregation time.
+LT_CORE_CONSISTENCY_METHODS <- c(
+  "silhouette | recip_classif:Match",
+  "2label_silhouette | Pseudobulk:Cosine",
+  "MetaNeighbor_Supervised | NA",
+  "nsa_cLISI | NA"
+)
+
+# Subset of the above combined (as a product) into the single ISC summary score.
+LT_PRODUCT_CONSISTENCY_METHODS <- c(
+  "silhouette | recip_classif:Match",
+  "2label_silhouette | Pseudobulk:Cosine"
+)
+
 purge_label_local <- function(label) {
   # Mirror scTypeEval::purge_label() behavior without relying on :::
   label <- as.character(label)
@@ -135,12 +149,7 @@ compute_consistency_core <- function(counts_matrix,
                                                             "MetaNeighbor_Supervised",
                                                               "nsa_cLISI"
                                     ),
-                                     cons_methods = c(
-                                       "silhouette | recip_classif:Match",
-                                       "2label_silhouette | Pseudobulk:Cosine",
-                                       "MetaNeighbor_Supervised | NA",
-                                       "nsa_cLISI | NA"
-                                     ),
+                                     cons_methods = LT_CORE_CONSISTENCY_METHODS,
                                      ncores = 1,
                                      run_sccaf = TRUE,
                                      sccaf_n = 100,
@@ -599,6 +608,16 @@ aggregate_lt_consistency_results <- function(consistency_dir, output_file) {
   }
 
   combined <- purrr::map_df(files, readRDS)
+
+  # "product" (combined ISC score) was never written per-branch, so derive it
+  # here from the core method columns instead of recomputing every branch.
+  metric_cols <- intersect(LT_PRODUCT_CONSISTENCY_METHODS, colnames(combined))
+  combined$product <- vapply(seq_len(nrow(combined)), function(i) {
+    vals <- as.numeric(combined[i, metric_cols, drop = TRUE])
+    vals <- vals[!is.na(vals)]
+    if (length(vals) == 0) return(NA_real_)
+    prod(vals)
+  }, numeric(1))
 
   summary <- combined %>%
     dplyr::group_by(dataset_id, classifier, replicate, split) %>%
