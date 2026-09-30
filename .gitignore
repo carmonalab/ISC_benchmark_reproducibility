@@ -2,7 +2,7 @@
 *.DS_Store
 *.rds
 *.h5ad
-*troubleshooting*
+*troubleshoot*
 */figs/
 ign_*
 
