@@ -224,8 +224,8 @@ li.fi <- list.files(file.path("../ISC_benchmark/results_dev"),
                     pattern = "metrics[.]rds$",
                     recursive = TRUE,
                     full.names = TRUE)
-# remove batch effects and biological
-li.fi <- grep("batch_effect|biological_perturbation",
+# remove batch effects and biological, and original signal degradation (missclassif)
+li.fi <- grep("batch_effect|biological_perturbation|missclassif",
               li.fi,
               value = T,
               invert = T)
@@ -276,6 +276,8 @@ tmp <- bplapply(
     
     # Standardize rates
     if (grepl("sample", assay_type, ignore.case = T)) {
+      max_nsamples <- max(unique(as.numeric(df0$rate))) + 1
+      df0$rate[df0$rate == 1] <- max_nsamples
       unique_rates <- sort(unique(as.numeric(df0$rate)), decreasing = TRUE)
       target_values <- c(1, 0.9, 0.7, 0.5)[seq_along(unique_rates)]
       df0$rate <- target_values[match(df0$rate, unique_rates)]
@@ -319,7 +321,8 @@ tmp <- bplapply(
 ) 
 
 tasks_data <- tmp %>% rbindlist(use.names = TRUE, fill = TRUE) %>%
-  standardize_methods() 
+  standardize_methods() %>% 
+  mutate(assay = gsub("Sample-degradation", "Signal-degradation", assay))
 
 message("✓ Tasks data loaded: ", nrow(tasks_data), " rows")
 
@@ -351,7 +354,11 @@ mult_dataset <- bplapply(
   }
 ) %>%
   data.table::rbindlist(use.names = T) %>% 
-  mutate(celltype = scTypeEval:::purge_label(celltype))
+  mutate(celltype = scTypeEval:::purge_label(celltype)) %>% 
+  mutate(assay = task,
+         rate = as.numeric(factor(source,
+                       levels = c("single", "merged")))
+         )
 
 message("✓ Batch effect data loaded: ", nrow(mult_dataset), " rows")
 ```
@@ -412,12 +419,11 @@ Up to here, compared with previous script and results are identical.
 ## Calculate Overall Scores
 
 ```{r calculate-overall-scores}
-rem <- 0.64/6
+rem <- 0.6/6
 # Define weight vector for tasks
 weight_vector <- c(
-  "Signal-degradation" = 0.12,
-  "Sample-degradation" = 0.12,
-  "Overpartitioning" = 0.12,
+  "Signal-degradation" = 0.2,
+  "Overpartitioning" = 0.2,
   "Granularity" = rem,
   "Complexity" = rem,
   "Number-samples" = rem,
@@ -483,7 +489,6 @@ task_summary <- task_summary %>%
       assay,
       levels = c(
         "Signal-degradation",
-        "Sample-degradation",
         "Overpartitioning",
         "Granularity",
         "Complexity",
@@ -494,7 +499,6 @@ task_summary <- task_summary %>%
       ),
       labels = c(
         "Signal degradation",
-        "Sample degradation",
         "Over-partitioning",
         "Granularity",
         "Complexity",
@@ -543,10 +547,10 @@ message("✓ Residual effects computed: ", nrow(residual_effects_all), " rows (a
 # Task scores (wide) - keep absolute values for sizing
 plot_data <- task_summary %>%
   filter_metrics(for_plot = TRUE) %>%
-  select(method_type, assay, median_score)
+  select(method_type, assay, mean_score)
 
 task_wide <- plot_data %>%
-  tidyr::pivot_wider(names_from = assay, values_from = median_score)
+  tidyr::pivot_wider(names_from = assay, values_from = mean_score)
 
 # Extract task columns and reorder to match specification
 task_cols <- setdiff(colnames(task_wide), "method_type")
@@ -554,7 +558,6 @@ task_cols <- setdiff(colnames(task_wide), "method_type")
 # Define correct task order
 task_order <- c(
   "Signal degradation",
-  "Sample degradation",
   "Over-partitioning",
   "Granularity",
   "Complexity",
@@ -588,17 +591,17 @@ resources_summary <- resources_data %>%
   filter_metrics(for_plot = TRUE) %>%
   group_by(method_type) %>%
   summarise(
-    median_duration_ms = median(`Duration (ms)`, na.rm = TRUE),
-    median_memory_mb = median(`Peak memory (MB)`, na.rm = TRUE),
+    mean_duration_ms = mean(`Duration (ms)`, na.rm = TRUE),
+    mean_memory_mb = mean(`Peak memory (MB)`, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   mutate(
     # Use absolute values for bar length and color (scaled to [0,1] for plotting)
-    median_duration_scaled = minmax_scale(median_duration_ms),
-    median_memory_scaled = minmax_scale(median_memory_mb)
+    mean_duration_scaled = minmax_scale(mean_duration_ms),
+    mean_memory_scaled = minmax_scale(mean_memory_mb)
   ) %>%
-  select(method_type, median_duration_ms, median_memory_mb,
-         median_duration_scaled, median_memory_scaled) %>% 
+  select(method_type, mean_duration_ms, mean_memory_mb,
+         mean_duration_scaled, mean_memory_scaled) %>% 
   mutate(,
       method_type = gsub("sccaf", "SCCAF", method_type))
 
@@ -636,13 +639,13 @@ fh_data <- fh_data %>%
   dplyr::select(id, consistency_metric, dissimilarity_method, overall_score_color,
                 overall_score, overall_score_display, 
                 all_of(task_cols), all_of(task_cols_color),
-                median_duration_ms, median_memory_mb)
+                mean_duration_ms, mean_memory_mb)
 
 # Recompute scaled resource columns (size/color need to be in [0,1] when scale_column = FALSE)
 fh_data <- fh_data %>%
   mutate(
-    median_duration_scaled = minmax_scale(median_duration_ms),
-    median_memory_scaled = minmax_scale(median_memory_mb)
+    mean_duration_scaled = minmax_scale(mean_duration_ms),
+    mean_memory_scaled = minmax_scale(mean_memory_mb)
   )
 
 # Column info for funkyheatmap (use official id_color/id_size/overlay fields)
@@ -678,9 +681,9 @@ cinfo_tasks <- tibble::tibble(
 )
 
 cinfo_resources <- tibble::tibble(
-  id = c("median_duration_scaled", "median_memory_scaled"),
-  id_color = c("median_duration_scaled", "median_memory_scaled"),
-  id_size = c("median_duration_scaled", "median_memory_scaled"),
+  id = c("mean_duration_scaled", "mean_memory_scaled"),
+  id_color = c("mean_duration_scaled", "mean_memory_scaled"),
+  id_size = c("mean_duration_scaled", "mean_memory_scaled"),
   group = c("Resources", "Resources"),
   name = c("Duration (ms)", "Peak memory (MB)"),
   geom = c("bar", "bar"),
@@ -708,8 +711,8 @@ palettes <- list(
 )
 
 # Legends: 1 shared 0-1 scale for task rank colors; resources show min-max actual values
-duration_range <- range(fh_data$median_duration_ms, na.rm = TRUE)
-memory_range <- range(fh_data$median_memory_mb, na.rm = TRUE)
+duration_range <- range(fh_data$mean_duration_ms, na.rm = TRUE)
+memory_range <- range(fh_data$mean_memory_mb, na.rm = TRUE)
 
 duration_labels <- c(
   as.character(round(duration_range[[1]], 0)), "", "", "",
@@ -875,7 +878,7 @@ ggsave(
   pdf_file,
   plot = combined_plot,
   width = 15,
-  height = 10,
+  height = 11,
   device = "pdf"
 )
 
@@ -1001,7 +1004,7 @@ li.fi <- list.files(file.path("../ISC_benchmark/results_dev"),
                     pattern = "metrics[.]rds$",
                     recursive = TRUE,
                     full.names = TRUE)
-li.fi <- grep("batch_effect|biological_perturbation",
+li.fi <- grep("batch_effect|biological_perturbation|missclassif",
               li.fi,
               value = T,
               invert = T)
@@ -1052,6 +1055,8 @@ tasks_data_raw <- bplapply(
     
     # Standardize rates
     if (assay_type == "Number-samples") {
+      max_nsamples <- max(unique(as.numeric(df0$rate))) + 1
+      df0$rate[df0$rate == 1] <- max_nsamples
       unique_rates <- sort(unique(as.numeric(df0$rate)), decreasing = TRUE)
       target_values <- c(1, 0.9, 0.7, 0.5)[seq_along(unique_rates)]
       df0$rate <- target_values[match(df0$rate, unique_rates)]
@@ -1073,7 +1078,8 @@ tasks_data_raw <- bplapply(
   
 ) %>%
   rbindlist(use.names = TRUE, fill = TRUE) %>%
-  standardize_methods()
+  standardize_methods() %>% 
+  mutate(assay = gsub("Sample-degradation", "Signal-degradation", assay))
 
 message("✓ Raw tasks data loaded: ", nrow(tasks_data_raw), " rows")
 
@@ -1207,24 +1213,25 @@ panel_df <- dplyr::bind_rows(
 # Remap plot_data assay names to internal format for lookup
 assay_remap <- c(
   "Signal degradation" = "Signal-degradation",
-  "Signal degradation-drop" = "Signal-degradation_drop",
   "Over-partitioning" = "Overpartitioning",
   "Granularity" = "Granularity",
   "Complexity" = "Complexity",
   "Num. samples" = "Number-samples",
   "Num. cells" = "Number-cells",
-  "Batch effect" = "Batch-effect",
-  "Perturbation effect" = "Perturbation-effect"
+  "Batch effect" = "batch_effects",
+  "Perturbation effect" = "biological_perturbations"
 )
 ```
 
 ```{r best-worst-methods}
+pd <- task_summary %>%
+  filter_metrics(for_plot = TRUE)
 # Method picks for each task in plot_data
-best_worst <- plot_data %>%
+best_worst <- pd %>%
   group_by(assay) %>%
   summarise(
-    best_method = method_type[which.max(median_score)],
-    worst_method = method_type[which.min(median_score)],
+    best_method = method_type[which.max(mean_score)],
+    worst_method = method_type[which.min(mean_score)],
     .groups = "drop"
   ) %>%
   mutate(assay_internal = assay_remap[assay])
@@ -1233,7 +1240,6 @@ best_worst <- plot_data %>%
 ### render plots
 
 ```{r panel-perturbation-data, fig.width=20, fig.height=10}
-
 make_panel_plot <- function(display_assay_name, which_row = c("best", "worst")) {
   which_row <- match.arg(which_row)
   
