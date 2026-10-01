@@ -1,3 +1,17 @@
+collapse_replicates <- function(x) {
+   x %>%
+      group_by(dataset_id, classifier, cell_type) %>%
+      summarise(
+         across(
+            c(f1, accuracy, all_of(iscs)),
+            ~ mean(.x, na.rm = TRUE)
+         ),
+         n_replicates = n_distinct(replicate),
+         .groups = "drop"
+      )
+}
+
+
 # Generate ranking-based color palette
 rankings_palette <- function(cons_combined,
                              isc = "product",
@@ -68,6 +82,90 @@ rankings_palette <- function(cons_combined,
 
 
 
+# Pearson R2 can be inflated by a few points sitting near the ISC ceiling (close to 1), which act
+# as high-leverage points on the linear fit. Report Spearman (rank-based, robust to this) alongside
+# Pearson, and flag points with Cook's distance > 4/n (rule of thumb) as influential.
+# Also report the observed range/SD of the ISC metric itself: a metric compressed into a narrow
+# range (e.g. cLISI often sits within 0.75-1) has much less room to vary than one spanning the full
+# 0-1 range (e.g. ISC Local), so R2 values are not directly comparable across metrics with very
+# different observed ranges (restriction-of-range problem) - a narrow-range metric needs a much
+# tighter fit to reach the same R2, making any high R2 there less robust/more leverage-sensitive.
+cor_stats <- function(isc, f1, min_n = 3) {
+   keep <- stats::complete.cases(isc, f1)
+   isc <- isc[keep]; f1 <- f1[keep]
+   n <- length(isc)
+   if (n < min_n || stats::sd(isc) == 0 || stats::sd(f1) == 0) {
+      return(data.frame(
+         r2 = NA_real_, pval = NA_real_,
+         r2_spearman = NA_real_, pval_spearman = NA_real_,
+         n_influential = NA_integer_, n = n,
+         isc_min = suppressWarnings(min(isc)), isc_max = suppressWarnings(max(isc)),
+         isc_range = NA_real_, isc_sd = stats::sd(isc)
+      ))
+   }
+   pear <- stats::cor.test(isc, f1, method = "pearson")
+   spear <- suppressWarnings(stats::cor.test(isc, f1, method = "spearman"))
+   cooks <- stats::cooks.distance(stats::lm(f1 ~ isc))
+   data.frame(
+      r2 = unname(pear$estimate^2), pval = pear$p.value,
+      r2_spearman = unname(spear$estimate^2), pval_spearman = spear$p.value,
+      n_influential = sum(cooks > 4 / n), n = n,
+      isc_min = min(isc), isc_max = max(isc), isc_range = max(isc) - min(isc), isc_sd = stats::sd(isc)
+   )
+}
+
+# Mixed-effects model: f1 ~ ISC + classifier + (1 | dataset_id). Unlike cor_stats()/
+# compute_r2_per_dataset_celltype(), this adjusts for classifier identity and avoids
+# pseudo-replication from the repeated classifier/cell-type observations within each dataset
+# (random intercept per dataset_id). Only base lme4 is available in this project (no lmerTest/
+# performance), so the ISC fixed-effect p-value uses a normal (Wald z) approximation instead of a
+# Satterthwaite-corrected t-test, and r2_marginal/r2_conditional are pseudo-R2 (squared correlation
+# between predicted and observed F1, fixed-effects-only vs fixed+random), not the exact
+# Nakagawa & Schielzeth decomposition.
+fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth") {
+   if (is.null(isc_label)) isc_label <- labs[match(isc_col, iscs)]
+
+   dat <- df %>%
+      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!classifier %in% excl) %>%
+      mutate(classifier = droplevels(factor(classifier)))
+
+   n_datasets <- dplyr::n_distinct(dat$dataset_id)
+   n_classifiers <- dplyr::n_distinct(dat$classifier)
+
+   empty <- data.frame(
+      isc = isc_col, isc_label = isc_label, estimate = NA_real_, se = NA_real_,
+      ci_low = NA_real_, ci_high = NA_real_, pval = NA_real_,
+      r2_marginal = NA_real_, r2_conditional = NA_real_,
+      n = nrow(dat), n_datasets = n_datasets, n_classifiers = n_classifiers, singular = NA
+   )
+   if (nrow(dat) < 10 || n_datasets < 2 || n_classifiers < 2) return(empty)
+
+   fml <- stats::as.formula(sprintf("f1 ~ `%s` + classifier + (1 | dataset_id)", isc_col))
+   fit <- tryCatch(
+      lme4::lmer(fml, data = dat, REML = TRUE,
+                control = lme4::lmerControl(check.conv.singular = "ignore")),
+      error = function(e) NULL
+   )
+   if (is.null(fit) || !isc_col %in% rownames(summary(fit)$coefficients)) return(empty)
+
+   co <- summary(fit)$coefficients
+   est <- unname(co[isc_col, "Estimate"])
+   se  <- unname(co[isc_col, "Std. Error"])
+   pval <- 2 * stats::pnorm(-abs(est / se))
+
+   r2_marginal <- suppressWarnings(stats::cor(stats::predict(fit, re.form = NA), dat$f1)^2)
+   r2_conditional <- suppressWarnings(stats::cor(stats::predict(fit), dat$f1)^2)
+
+   data.frame(
+      isc = isc_col, isc_label = isc_label,
+      estimate = est, se = se, ci_low = est - 1.96 * se, ci_high = est + 1.96 * se, pval = pval,
+      r2_marginal = r2_marginal, r2_conditional = r2_conditional,
+      n = nrow(dat), n_datasets = n_datasets, n_classifiers = n_classifiers,
+      singular = lme4::isSingular(fit)
+   )
+}
+
 # Compress [-0.1, 0.7] into 25% of the axis, [0.7, 1] into the remaining 75%
 compressed_axis_trans <- scales::trans_new(
    name = "compressed",
@@ -106,10 +204,9 @@ plot_isc_vs_f1_per_classifier <- function(df,
          .groups = "drop"
       )
    
-   cor_test <- cor.test(mean_metrics$mean_f1, mean_metrics$mean_isc)
-   stats <- data.frame(
-      dataset = dataset_label, isc = isc_col, isc_label = isc_label, group_by = "classifier",
-      r2 = unname(cor_test$estimate^2), pval = cor_test$p.value, n = nrow(mean_metrics)
+   stats <- cbind(
+      data.frame(dataset = dataset_label, isc = isc_col, isc_label = isc_label, group_by = "classifier"),
+      cor_stats(mean_metrics$mean_isc, mean_metrics$mean_f1)
    )
    
    p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc)) +
@@ -120,7 +217,9 @@ plot_isc_vs_f1_per_classifier <- function(df,
       scale_color_manual(values = palette) +
       labs(
          title = gsub("_", "-", dataset_label),
-         subtitle = sprintf("R² = %.3f, p-value = %.2e", stats$r2, stats$pval),
+         subtitle = sprintf("R²(Pearson) = %.3f (p = %.2e) | R²(Spearman) = %.3f (p = %.2e)%s",
+                            stats$r2, stats$pval, stats$r2_spearman, stats$pval_spearman,
+                            ifelse(stats$n_influential > 0, sprintf(" | %d influential pt(s)", stats$n_influential), "")),
          y = "F1 Score Test",
          x = paste0("ISC Test (", isc_label, ")"),
          color = "Classifier"
@@ -145,15 +244,14 @@ plot_multi_isc_corr <- function(df, iscs, labs, isc_colors, excl = "ground_truth
    
    corrs <- mean_metrics %>%
       group_by(metric) %>%
-      summarise(
-         r2 = cor(mean_f1, score, use = "complete.obs")^2,
-         pval = cor.test(mean_f1, score)$p.value,
-         .groups = "drop"
-      ) %>%
+      group_modify(~ cor_stats(.x$score, .x$mean_f1)) %>%
+      ungroup() %>%
       mutate(dataset = dataset_label)
    
+   # Pearson R2 next to Spearman R2 so ceiling-effect inflation (e.g. ISC metrics clustered near 1)
+   # is visible directly in the legend
    legend_labels <- setNames(
-      sprintf("%s\nR²=%.2f\np=%.1e", corrs$metric, corrs$r2, corrs$pval),
+      sprintf("%s\nR²p=%.2f R²s=%.2f\np=%.1e", corrs$metric, corrs$r2, corrs$r2_spearman, corrs$pval),
       corrs$metric
    )
    
@@ -294,14 +392,14 @@ plot_isc_vs_f1_grouped <- function(df,
          .groups = "drop"
       )
    
-   cor_test <- cor.test(mean_metrics$mean_f1, mean_metrics$mean_isc)
-   stats <- data.frame(
-      dataset = dataset_label,
-      isc = isc_col,
-      isc_label = isc_label,
-      group_by = paste(group_cols, collapse = ":"),
-      r2 = unname(cor_test$estimate^2),
-      pval = cor_test$p.value, n = nrow(mean_metrics)
+   stats <- cbind(
+      data.frame(
+         dataset = dataset_label,
+         isc = isc_col,
+         isc_label = isc_label,
+         group_by = paste(group_cols, collapse = ":")
+      ),
+      cor_stats(mean_metrics$mean_isc, mean_metrics$mean_f1)
    )
    
    p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc, color = classifier)) +
@@ -312,7 +410,9 @@ plot_isc_vs_f1_grouped <- function(df,
       scale_color_manual(values = palette) +
       labs(
          title = dataset_label,
-         subtitle = sprintf("R² = %.3f, p-value = %.2e", stats$r2, stats$pval),
+         subtitle = sprintf("R²(Pearson) = %.3f | R²(Spearman) = %.3f (p = %.2e)%s",
+                            stats$r2, stats$r2_spearman, stats$pval_spearman,
+                            ifelse(stats$n_influential > 0, sprintf(" | %d influential pt(s)", stats$n_influential), "")),
          y = "F1 Score Test",
          x = paste0("ISC Test (", isc_label, ")"),
          color = tools::toTitleCase(gsub("_", " ", group_by))
@@ -320,6 +420,135 @@ plot_isc_vs_f1_grouped <- function(df,
       ggpubr::theme_classic2() +
       theme(legend.position = "right")
 
+   
+   list(plot = p, stats = stats)
+}
+
+# Per-dataset R2 (F1 vs ISC) computed at the cell-type level (one fit per dataset_id x replicate,
+# using classifier x cell_type pairs as data points), so variability across replicates is preserved
+compute_r2_per_dataset_celltype <- function(df,
+                                            isc_col,
+                                            group_cols = c("dataset_id"),
+                                            excl = "ground_truth",
+                                            min_n = 3) {
+   df %>%
+      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!classifier %in% excl) %>%
+      group_by(across(all_of(group_cols))) %>%
+      filter(n() >= min_n) %>%
+      group_modify(~ cor_stats(.x[[isc_col]], .x$f1, min_n = min_n)) %>%
+      ungroup() %>%
+      mutate(isc = isc_col)
+}
+
+# Join prediction F1 (non-ground_truth, non-excluded classifiers) with each ISC metric computed on
+# the ground_truth reference row, matched by dataset_id/cell_type. Loops over every metric in
+# isc_col (defaults to the global `iscs`, skipping classifiers in excl) and returns a named list of
+# joined data frames, each keeping its own isc_col column name so it can be fed directly into
+# cor_stats()/compute_r2_per_dataset_celltype()/fit_isc_f1_lmer().
+join_reference_consistency <- function(df, isc_col = iscs, excl = "ground_truth") {
+   pred_summary <- df %>%
+      filter(classifier != "ground_truth", !classifier %in% excl, !is.na(f1)) %>%
+      select(cell_type, dataset_id, f1, classifier)
+
+   lapply(isc_col, function(ic) {
+      cons_ref <- df %>%
+         filter(classifier == "ground_truth", !is.na(.data[[ic]])) %>%
+         select(cell_type, dataset_id, .data[[ic]])
+
+      pred_summary %>%
+         left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
+         filter(!is.na(.data[[ic]]))
+   }) %>%
+      setNames(isc_col)
+}
+
+# Quadrant contingency of reference ISC vs prediction F1, thresholded at ths_isc/ths_f1: computes
+# per-quadrant counts/percentages and renders the bin2d density plot with quadrant labels. `joined`
+# is expected to come from join_reference_consistency()[[isc_col]].
+plot_isc_f1_contingency <- function(joined, isc_col, isc_label = NULL,
+                                    ths_isc = 0.5, ths_f1 = 0.5, dataset_label = "") {
+   if (is.null(isc_label)) isc_label <- labs[match(isc_col, iscs)]
+
+   quadrant_counts <- joined %>%
+      mutate(quadrant = case_when(
+         .data[[isc_col]] >= ths_isc & f1 >= ths_f1 ~ "top-right",
+         .data[[isc_col]] <  ths_isc & f1 >= ths_f1 ~ "top-left",
+         .data[[isc_col]] >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
+         TRUE                                       ~ "bottom-left"
+      )) %>%
+      count(quadrant) %>%
+      mutate(
+         dataset = dataset_label, isc = isc_col, isc_label = isc_label,
+         prop = n / sum(n),
+         x = case_when(quadrant == "top-right"   ~ 0.75,
+                       quadrant == "top-left"     ~ 0.25,
+                       quadrant == "bottom-right" ~ 0.75,
+                       quadrant == "bottom-left"  ~ 0.25),
+         y = case_when(quadrant == "top-right"   ~ 0.85,
+                       quadrant == "top-left"     ~ 0.85,
+                       quadrant == "bottom-right" ~ 0.25,
+                       quadrant == "bottom-left"  ~ 0.25),
+         label = paste0(sprintf("%.1f", 100 * prop), "%")
+      )
+
+   p <- joined %>%
+      ggplot(aes(x = .data[[isc_col]], y = f1)) +
+      geom_bin2d(bins = 50, show.legend = TRUE) +
+      scale_fill_viridis_c(option = "magma", trans = "sqrt") +
+      geom_vline(xintercept = ths_isc, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
+      geom_hline(yintercept = ths_f1, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
+      geom_label(data = quadrant_counts,
+                aes(x = x, y = y, label = label),
+                inherit.aes = FALSE, size = 6, fill = "grey90", color = "black", alpha = 0.9) +
+      scale_x_continuous(limits = c(0, 1)) +
+      scale_y_continuous(limits = c(0, 1)) +
+      labs(
+         title = paste0(gsub("_", "-", dataset_label), " - ", isc_label),
+         subtitle = "Reference ISC vs Prediction F1, per cell type",
+         x = paste0("Reference ISC (", isc_label, ")"),
+         y = "F1 score Test"
+      ) +
+      ggpubr::theme_classic2() +
+      theme(legend.position = "right")
+
+   list(plot = p, quadrant_counts = quadrant_counts)
+}
+
+
+plot_iscTest_vs_f1 <- function(df,
+                               isc_col,
+                               isc_label,
+                               excl = "ground_truth",
+                               dataset_label = "") {
+
+   stats <- cbind(
+      data.frame(
+         dataset = dataset_label,
+         isc = isc_col,
+         isc_label = isc_label
+      ),
+      cor_stats(df$f1, df[[isc_col]])
+   )
+   
+   p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc, color = classifier)) +
+      geom_point(alpha = 0.6, size = 1.5) +
+      geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) +
+      scale_x_continuous(limits = c(-0.1, 1)) +
+      scale_y_continuous(limits = c(-0.1, 1)) +
+      scale_color_manual(values = palette) +
+      labs(
+         title = dataset_label,
+         subtitle = sprintf("R²(Pearson) = %.3f | R²(Spearman) = %.3f (p = %.2e)%s",
+                            stats$r2, stats$r2_spearman, stats$pval_spearman,
+                            ifelse(stats$n_influential > 0, sprintf(" | %d influential pt(s)", stats$n_influential), "")),
+         y = "F1 Score Test",
+         x = paste0("ISC Test (", isc_label, ")"),
+         color = tools::toTitleCase(gsub("_", " ", group_by))
+      ) +
+      ggpubr::theme_classic2() +
+      theme(legend.position = "right")
+   
    
    list(plot = p, stats = stats)
 }
