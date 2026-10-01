@@ -84,10 +84,10 @@ paths <-
     "intra_dataset" = file.path("..", "label_transfer_task", "results", "aggregated", "label_transfer_consistency_detailed.csv"),
     "inter_dataset" = file.path("..", "label_transfer_task", "results_between", "aggregated", "label_transfer_between_consistency_detailed.csv")
   )
-paths <- 
-  c(
-    "intra_dataset" = "../label_transfer_task/archive/results/aggregated/label_transfer_consistency_detailed.csv",
-    "inter_dataset" = "../label_transfer_task/archive/results_between/aggregated/label_transfer_between_consistency_detailed.csv")
+# paths <- 
+#   c(
+#     "intra_dataset" = "../label_transfer_task/archive/results/aggregated/label_transfer_consistency_detailed.csv",
+#     "inter_dataset" = "../label_transfer_task/archive/results_between/aggregated/label_transfer_between_consistency_detailed.csv")
   
 res0 <- lapply(paths, read.csv)
 
@@ -416,7 +416,7 @@ lmer(f1 ~ ISC + classifier + (1 | dataset), data = t)
 where `ISC` is replaced by each metric in `iscs`.
 
 ```{r lmer_main_analysis}
-lmer_results <- lapply(names(res), function(r){
+lmer_results <- lapply(names(res_raw), function(r){
   lapply(iscs, function(isc_col){
     fit_isc_f1_lmer(res[[r]], isc_col = isc_col, excl = excl)
   }) %>% bind_rows()
@@ -439,8 +439,8 @@ lmer_forest_plots <- lapply(unique(lmer_results$dataset_group), function(dg){
     scale_color_manual(values = c("TRUE" = "#0173B2", "FALSE" = "grey60"), name = "p < 0.05") +
     labs(
       title = dg,
-      subtitle = "F1 ~ ISC + classifier + (1 | dataset_id)",
-      x = "ISC fixed-effect estimate (95% Wald CI)",
+      subtitle = "F1 ~ scale(ISC) + classifier + (1 | dataset_id)",
+      x = "ISC fixed-effect estimate per 1 SD (95% Wald CI)",
       y = "ISC metric"
     ) +
     ggpubr::theme_classic2()
@@ -597,13 +597,13 @@ reference_r2_boxplots <- lapply(unique(reference_r2_per_dataset$dataset_group), 
 reference_r2_boxplots
 ```
 
-## main analysis (mixed-effects model)
+## mixed-effects model
 
 Same rationale as the Test-set ISC main analysis: pool across datasets and classifiers properly by fitting `f1 ~ ISC + classifier + (1 | dataset_id)` per metric, here using the reference (ground_truth) ISC value joined to each classifier's prediction F1.
 
 ```{r reference_lmer_main_analysis}
-reference_lmer_results <- lapply(names(res), function(r){
-  lapply(iscs, function(isc_col){
+reference_lmer_results <- lapply(names(res_raw), function(r){
+  lapply(iscs_ref, function(isc_col){
     fit_isc_f1_lmer(reference_joined[[r]][[isc_col]], isc_col = isc_col, excl = excl)
   }) %>% bind_rows()
 }) %>%
@@ -625,8 +625,8 @@ reference_lmer_forest_plots <- lapply(unique(reference_lmer_results$dataset_grou
     scale_color_manual(values = c("TRUE" = "#0173B2", "FALSE" = "grey60"), name = "p < 0.05") +
     labs(
       title = dg,
-      subtitle = "F1 ~ Reference ISC + classifier + (1 | dataset_id)",
-      x = "ISC fixed-effect estimate (95% Wald CI)",
+      subtitle = "F1 ~ scale(Reference ISC) + classifier + (1 | dataset_id)",
+      x = "ISC fixed-effect estimate per 1 SD (95% Wald CI)",
       y = "ISC metric"
     ) +
     ggpubr::theme_classic2()
