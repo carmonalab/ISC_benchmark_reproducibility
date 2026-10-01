@@ -170,7 +170,7 @@ plot_multi_isc_corr <- function(df, iscs, labs, isc_colors, excl = "ground_truth
 }
 
 # Overall ranking agreement between F1 and a given ISC metric (geometric mean across datasets)
-plot_ranking_comparison <- function(df, isc_col, palette, excl = "ground_truth", dataset_label = "") {
+plot_ranking_comparison <- function(df, isc_col, excl = "ground_truth", dataset_label = "") {
    rankings <- df %>%
       filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
       filter(!classifier %in% excl) %>%
@@ -200,7 +200,6 @@ plot_ranking_comparison <- function(df, isc_col, palette, excl = "ground_truth",
       geom_point(aes(color = classifier), size = 4) +
       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
       ggrepel::geom_label_repel(aes(label = classifier, color = classifier), size = 5) +
-      scale_color_manual(values = palette) +
       scale_x_reverse(breaks = seq_len(nrow(rankings))) +
       scale_y_reverse(breaks = seq_len(nrow(rankings))) +
       labs(
@@ -216,7 +215,7 @@ plot_ranking_comparison <- function(df, isc_col, palette, excl = "ground_truth",
 }
 
 # Per-dataset ranking of classifiers (ranked within each dataset, then averaged across datasets)
-plot_ranking_per_dataset <- function(df, isc_col, palette, excl = "ground_truth",
+plot_ranking_per_dataset <- function(df, isc_col, excl = "ground_truth",
                                      use_geom_mean = TRUE, dataset_label = "") {
    dataset_metrics_mean <- df %>%
       filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
@@ -257,7 +256,6 @@ plot_ranking_per_dataset <- function(df, isc_col, palette, excl = "ground_truth"
       geom_point(aes(color = classifier), size = 4) +
       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
       ggrepel::geom_label_repel(aes(label = classifier, color = classifier), size = 5) +
-      scale_color_manual(values = palette) +
       scale_x_reverse() +
       scale_y_reverse() +
       labs(
@@ -274,10 +272,17 @@ plot_ranking_per_dataset <- function(df, isc_col, palette, excl = "ground_truth"
 }
 
 # Generic scatter of mean F1 vs mean ISC, grouped/colored by either "classifier" or "cell_type"
-plot_isc_vs_f1_grouped <- function(df, isc_col, isc_label, group_by = c("classifier", "cell_type"),
-                                   palette = NULL, excl = "ground_truth", dataset_label = "") {
-   group_by <- match.arg(group_by)
+plot_isc_vs_f1_grouped <- function(df,
+                                   isc_col,
+                                   isc_label,
+                                   group_by = c("classifier", "cell_type"),
+                                   palette = "f1",
+                                   excl = "ground_truth",
+                                   dataset_label = "") {
+   
    group_cols <- c("dataset_id", group_by)
+   
+   palette <- rankings_palette(df, palette)
    
    mean_metrics <- df %>%
       filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
@@ -291,15 +296,20 @@ plot_isc_vs_f1_grouped <- function(df, isc_col, isc_label, group_by = c("classif
    
    cor_test <- cor.test(mean_metrics$mean_f1, mean_metrics$mean_isc)
    stats <- data.frame(
-      dataset = dataset_label, isc = isc_col, isc_label = isc_label, group_by = group_by,
-      r2 = unname(cor_test$estimate^2), pval = cor_test$p.value, n = nrow(mean_metrics)
+      dataset = dataset_label,
+      isc = isc_col,
+      isc_label = isc_label,
+      group_by = paste(group_cols, collapse = ":"),
+      r2 = unname(cor_test$estimate^2),
+      pval = cor_test$p.value, n = nrow(mean_metrics)
    )
    
-   p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc, color = .data[[group_by]])) +
+   p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc, color = classifier)) +
       geom_point(alpha = 0.6, size = 1.5) +
       geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) +
       scale_x_continuous(limits = c(-0.1, 1)) +
       scale_y_continuous(limits = c(-0.1, 1)) +
+      scale_color_manual(values = palette) +
       labs(
          title = dataset_label,
          subtitle = sprintf("R² = %.3f, p-value = %.2e", stats$r2, stats$pval),
@@ -309,8 +319,7 @@ plot_isc_vs_f1_grouped <- function(df, isc_col, isc_label, group_by = c("classif
       ) +
       ggpubr::theme_classic2() +
       theme(legend.position = "right")
-   
-   if (!is.null(palette) && group_by == "classifier") p <- p + scale_color_manual(values = palette)
+
    
    list(plot = p, stats = stats)
 }
