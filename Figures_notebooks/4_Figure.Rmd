@@ -29,7 +29,8 @@ require(ggplot2)
 require(dplyr)
 require(tidyr)
 require(ggpubr)
-
+require(lme4)
+source("helpers/supervised_classification.R")
 # Custom theme
 theme_set(theme_bw(base_size = 12))
 ```
@@ -61,21 +62,20 @@ labs <- c("ISC Global",
           "MetaNeighbor Supervised",
           "cLISI",
           "scDiagnostics-Hotelling",
-          "scDiagnostics-Cramer") 
-
-collapse_replicates <- function(x) {
-  x %>%
-    group_by(dataset_id, classifier, cell_type) %>%
-    summarise(
-      across(
-        c(f1, accuracy, all_of(iscs)),
-        ~ mean(.x, na.rm = TRUE)
-      ),
-      n_replicates = n_distinct(replicate),
-      .groups = "drop"
-    )
-}
+          "scDiagnostics-Cramer")
 ```
+
+Some dataset show very high F1 and isc metrics, making correlation not meaningful
+
+```{r}
+excl_datasets <- c("JoaI_CRC.SG1_Normal",
+                   "JoaI_CRC.SG2_Tumor",
+                   "JoaI_KUL3_Tumor",
+                   "JoaI_SMC_Normal")
+excl_pat <- paste(excl_datasets, collapse = "|") %>% 
+  gsub("[.]", "[.]", .)
+```
+
 
 
 ```{r load_data}
@@ -84,15 +84,30 @@ paths <-
     "intra_dataset" = file.path("..", "label_transfer_task", "results", "aggregated", "label_transfer_consistency_detailed.csv"),
     "inter_dataset" = file.path("..", "label_transfer_task", "results_between", "aggregated", "label_transfer_between_consistency_detailed.csv")
   )
+paths <- 
+  c(
+    "intra_dataset" = "../label_transfer_task/archive/results/aggregated/label_transfer_consistency_detailed.csv",
+    "inter_dataset" = "../label_transfer_task/archive/results_between/aggregated/label_transfer_between_consistency_detailed.csv")
+  
 res0 <- lapply(paths, read.csv)
 
+res_raw <- lapply(res0, function(x){
+    x$product <- x[["X2label_silhouette...Pseudobulk.Cosine"]] * x[["silhouette...recip_classif.Match"]]
+    return(x)
+})
+
 res <- lapply(res0, function(x){
-  x$product <- x[["X2label_silhouette...Pseudobulk.Cosine"]] * x[["silhouette...recip_classif.Match"]]
   x <- collapse_replicates(x)
+  x <- x %>% 
+    filter(!grepl(excl_pat, dataset_id))
   return(x)
 })
 # Preview
 lapply(res, head)
+lapply(iscs, function(x){
+  table(is.na(res$intra_dataset[[x]]))
+}) %>% 
+  setNames(iscs)
 ```
 
 # Helper functions
@@ -101,7 +116,6 @@ Modular helpers reused by the sections below. Each takes the ISC metric column (
 
 ```{r isc_helpers}
 # Set to FALSE to keep "Random" and "Ensemble" classifiers in correlation/ranking analyses
-source("helpers/supervised_classification.R")
 exclude_random_ensemble <- TRUE
 excl <- if (exclude_random_ensemble) c("ground_truth", "Random", "Ensemble") else "ground_truth"
 ```
@@ -223,6 +237,27 @@ lapply(grouped_results, function(a){
 })
 
 ```
+### explore datasets
+```{r, fig.width=20, fig.height=10}
+gv = c("classifier", "cell_type")
+
+perdataset <- lapply(seq_along(iscs), function(it){
+  isc_col = iscs[it]
+  isc_label = labs[it]
+  plot_isc_vs_f1_grouped(
+    df = res$intra_dataset,
+    isc_col = isc_col,
+    isc_label = isc_label,
+    group_by = gv,
+    excl = excl,
+    dataset_label = paste0(r, " - ", paste(gv, collapse = ":")),
+    palette = "f1"
+  )[["plot"]] +
+    facet_wrap(~dataset_id)
+})
+perdataset
+```
+
 
 
 ```{r}
@@ -243,174 +278,363 @@ isc_vs_f1_stats_table
 ```
 
 
-## plot r2 per dataset
+# plot r2 per dataset
 
-```{r}
+```{r plot_r2_per_dataset}
+# Per-replicate data (not collapsed) with the product metric, to show variability across replicates
+inp <- res
+r2_per_dataset <- lapply(names(inp), function(r){
+  lapply(iscs, function(isc_col){
+    compute_r2_per_dataset_celltype(inp[[r]],
+                                    group_cols = c("dataset_id"),
+                                    isc_col = isc_col,
+                                    excl = excl)
+  }) %>%
+    bind_rows() %>%
+    mutate(dataset_group = r)
+}) %>%
+  bind_rows() %>%
+  mutate(isc_label = factor(labs[match(isc, iscs)], levels = labs))
 
+mr2 <- r2_per_dataset %>% 
+  group_by(dataset_group, isc_label) %>% 
+  summarize(mean = mean(r2, na.rm = T),
+            median = median(r2, na.rm = T))
+
+r2_per_dataset_plots <- lapply(unique(r2_per_dataset$dataset_group),
+                               function(dg){
+                                 r2_per_dataset %>%
+                                   filter(dataset_group == dg) %>% 
+                                   ggplot(aes(x = r2,
+                                              y = forcats::fct_reorder(isc_label,
+                                                                       r2,
+                                                                       .fun = median))) +
+                                   geom_boxplot(aes(fill = isc_label),
+                                                outlier.shape = NA,
+                                                alpha = 0.4,
+                                                show.legend = F) +
+                                   geom_jitter(width = 0,
+                                               height = 0.1,
+                                               size = 1.5,
+                                               alpha = 0.4) +
+                                   labs(
+                                     title = dg,
+                                     subtitle = "R² per dataset (cell-type level F1 vs ISC in Test)",
+                                     y = "Tool", x = expression(R^2)
+                                   ) +
+                                   ggpubr::theme_classic2()
+                               }) %>% setNames(unique(r2_per_dataset$dataset_group))
+
+r2_per_dataset_plots
 ```
 
+Pearson R² can be inflated by a handful of points sitting near the ISC ceiling (values clustering at 0.94-0.95 when the metric is theoretically bounded in [0,1]); those act as high-leverage points on the linear fit. Compare against Spearman (rank-based, insensitive to this) and flag dataset/ISC combos with influential points (Cook's distance > 4/n) to see where Pearson is likely overstating the relationship.
+
+```{r r2_per_dataset_diagnostics}
+r2_diagnostics <- r2_per_dataset %>%
+  mutate(r2_divergence = r2 - r2_spearman) %>%
+  select(dataset_group, dataset_id, isc_label, r2, r2_spearman, r2_divergence, n_influential, n) %>%
+  arrange(desc(r2_divergence))
+
+# Flag combos where Pearson is likely inflated: large gap vs Spearman and/or influential points present
+r2_diagnostics %>% filter(r2_divergence > 0.15 | n_influential > 0)
+
+r2_vs_spearman_plots <- lapply(unique(r2_per_dataset$dataset_group), function(dg){
+  r2_per_dataset %>%
+    filter(dataset_group == dg) %>%
+    select(dataset_id, isc_label, Pearson = r2, Spearman = r2_spearman) %>%
+    pivot_longer(c(Pearson, Spearman), names_to = "method", values_to = "r2") %>%
+    ggplot(aes(x = r2, y = forcats::fct_reorder(isc_label, r2, .fun = median), fill = method)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.5, position = position_dodge(0.8)) +
+    geom_point(position = position_jitterdodge(jitter.width = 0, jitter.height = 0.1, dodge.width = 0.8),
+               size = 1.2, alpha = 0.4) +
+    labs(title = dg, subtitle = "Pearson vs Spearman R² per dataset", y = "Tool", x = expression(R^2), fill = "Method") +
+    ggpubr::theme_classic2()
+}) %>% setNames(unique(r2_per_dataset$dataset_group))
+
+r2_vs_spearman_plots
+```
+
+A metric compressed into a narrow observed range (e.g. cLISI often sits within ~0.75-1) has far less room to vary than one spanning the full 0-1 range like ISC Local (which mirrors F1's own range). R² values are therefore not directly comparable across ISC metrics with very different observed ranges: a narrow-range metric needs a much tighter (and more leverage-sensitive) fit to reach the same R² as a full-range one. Check `isc_range`/`isc_sd` next to `r2` before concluding a narrow-range metric with a high R² is actually a better predictor.
+
+```{r r2_range_restriction}
+range_vs_r2 <- r2_per_dataset %>%
+  select(dataset_group, dataset_id, isc_label, r2, r2_spearman, isc_min, isc_max, isc_range, isc_sd)
+
+range_vs_r2 %>% arrange(isc_range)
+
+ggplot(range_vs_r2, aes(x = isc_range, y = r2, color = isc_label)) +
+  geom_point(size = 2, alpha = 0.7) +
+  geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+  facet_wrap(~dataset_group) +
+  labs(
+    title = "R² vs observed ISC range per dataset",
+    subtitle = "Narrow-range metrics (left) need a tighter fit to reach the same R² as full-range ones",
+    x = "Observed ISC range (max - min)", y = expression(R^2), color = "ISC metric"
+  ) +
+  ggpubr::theme_classic2()
+```
+
+```{r, fig.width=10, fig.height=10}
+ds <- "Stephenson_Cambridge_Healthy"
+isc_col <- "silhouette...recip_classif.Match"
+df <- res_raw$intra_dataset
+t <- df %>% 
+  filter(dataset_id == ds,
+         !classifier %in% excl,
+         !is.na(f1) & !is.na(.data[[isc_col]]))
+
+plot(t[[isc_col]], t$f1)
+cor(t[[isc_col]], t$f1, use = "complete.obs")^2
+cor_stats(t[[isc_col]], t$f1)
+```
+
+
+```{r}
+m_isc  <- lm(f1 ~ silhouette...recip_classif.Match,  data = t)
+m_lisi <- lm(f1 ~ nsa_cLISI...NA, data = t)
+
+summary(m_isc)$r.squared
+summary(m_lisi)$r.squared
+cor(t[["f1"]], t[["silhouette...recip_classif.Match"]],  use = "complete.obs")^2
+cor(t[["f1"]], t[["nsa_cLISI...NA"]], use = "complete.obs")^2
+```
+
+
+# Mixed-effects model
+
+A single-dataset `lm(f1 ~ isc)` as above ignores that observations are repeated across classifiers and cell types within the same dataset, and ignores classifier identity entirely when pooling across datasets - both can inflate the apparent ISC-F1 relationship. Account for both by fitting one mixed-effects model per ISC metric.
+
+### Main analysis
+For each ISC metric, fit a mixed-effects linear model where F1 is predicted by the ISC metric while accounting for classifier and repeated observations from the same dataset.
+
+The basic model is conceptually:
+
+```
+lmer(f1 ~ ISC + classifier + (1 | dataset), data = t)
+```
+where `ISC` is replaced by each metric in `iscs`.
+
+```{r lmer_main_analysis}
+lmer_results <- lapply(names(res), function(r){
+  lapply(iscs, function(isc_col){
+    fit_isc_f1_lmer(res[[r]], isc_col = isc_col, excl = excl)
+  }) %>% bind_rows()
+}) %>%
+  setNames(names(res)) %>%
+  bind_rows(.id = "dataset_group") %>%
+  mutate(isc_label = factor(isc_label, levels = labs))
+
+lmer_results
+```
+
+```{r lmer_main_analysis_forest, fig.width=6, fig.height=5}
+lmer_forest_plots <- lapply(unique(lmer_results$dataset_group), function(dg){
+  lmer_results %>%
+    filter(dataset_group == dg) %>%
+    ggplot(aes(x = estimate, y = forcats::fct_reorder(isc_label, estimate), color = pval < 0.05)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+    geom_errorbarh(aes(xmin = ci_low, xmax = ci_high), height = 0.2) +
+    geom_point(size = 2) +
+    scale_color_manual(values = c("TRUE" = "#0173B2", "FALSE" = "grey60"), name = "p < 0.05") +
+    labs(
+      title = dg,
+      subtitle = "F1 ~ ISC + classifier + (1 | dataset_id)",
+      x = "ISC fixed-effect estimate (95% Wald CI)",
+      y = "ISC metric"
+    ) +
+    ggpubr::theme_classic2()
+}) %>% setNames(unique(lmer_results$dataset_group))
+
+lmer_forest_plots
+```
 
 
 
 # Reference consistency
 
-
+# Consistency table
 Make a geom_point plot showing the mean of F1 in predictions for each consistency in reference, adding error bar plots to show the variability of the different predictions.
 
-## overall correlation
-```{r reference_consistency_overall}
-excl <- c("ground_truth", "Ensemble", "Random")
-# filter for only references
-cons_ref_all <- lapply(names(res), function(r){
-  # Summarise prediction F1 per dataset, classifier, and cell type
-  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
-  pred_summary <- res[[r]] %>%
-    mutate(classifier = factor(classifier,
-                               levels = c(class_levs))) %>% 
-    filter(classifier != "ground_truth",
-           !is.na(f1),
-           ) %>% 
-    select(cell_type, dataset_id, f1, classifier)
-  
-  cons_ref <- res[[r]] %>%
-    filter(classifier == "ground_truth",
-           !is.na(.data[[isc]])) %>% 
-    select(cell_type, dataset_id, .data[[isc]])
-  
-  # Join reference consistency with prediction F1
-  joined <- pred_summary %>%
-    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
-    filter(!is.na(.data[[isc]])) %>% 
-    group_by(dataset_id, cell_type)
-  
-  # Correlation per classifier (mean F1 vs reference product)
-  cor_table <- joined %>%
-    summarise(
-      r = cor(f1, .data[[isc]], use = "complete.obs"),
-      r2 = r^2,
-      p_value = cor.test(f1, .data[[isc]])$p.value,
-      n_pairs = sum(!is.na(f1) & !is.na(.data[[isc]])),
-      .groups = "drop"
-    ) %>%
-    ungroup() %>% 
-    # Apply FDR correction for multiple testing
-    mutate(
-      p_value_adjusted = p.adjust(p_value, method = "BH"),
-      label = sprintf("R² = %.3f\np = %.2e", r2, p_value)
-    )
-  
-  cat("\nCorrelation (F1 vs reference consistency product) per classifier:\n")
-  print(cor_table)
-  
-  # Plot: F1 vs reference consistency product with facets and correlation stats
-  p_ref <- joined %>% 
-    ggplot(aes(x = .data[[isc]], y = f1)) +
-    geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
-    geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
-    scale_color_manual(values = rankings_palette[[1]]) +
-    geom_label(data = cor_table, 
-               aes(x = Inf, y = -Inf, label = label),
-               fill = "white",
-               alpha = 0.4,
-               hjust = 1.1, vjust = -0.5, size = 3.5, 
-               inherit.aes = FALSE) +
-    labs(
-      title = r,
-      subtitle = "Train ISC vs Prediction F1, per cell type",
-      x = paste0("Value Train: ", isc),
-      y = "F1 (predictions)"
-    ) +
-    ggpubr::theme_classic2() +
-    theme(legend.position = "right")
-  
-  return(p_ref)
-})
+Same rationale as the Test-set ISC analysis applies here: report Pearson alongside Spearman (ceiling/leverage effects) and the observed ISC range (restriction-of-range) rather than a single Pearson R².
 
-ggarrange(plotlist = cons_ref_all)
+```{r}
+iscs_ref <- c("X2label_silhouette...Pseudobulk.Cosine",
+          "silhouette...recip_classif.Match",
+          "product",
+          "SCCAF",
+          "MetaNeighbor_Supervised...NA",
+          "nsa_cLISI...NA")
+
+labs_ref <- c("ISC Global",
+          "ISC Local",
+          "ISC Product",
+          "SCCAF",
+          "MetaNeighbor Supervised",
+          "cLISI") 
+```
+
+
+```{r reference_consistency_overall}
+
+# filter for only references
+cons_ref_all <- 
+  lapply(names(res), function(r){
+    joined <- join_reference_consistency(res[[r]], isc_col = iscs_ref, excl = excl)
+    lapply(iscs_ref, function(isc){
+      # Overall correlation (Pearson + Spearman), with the observed ISC range for context
+      cor_table <- cor_stats(joined[[isc]][[isc]], joined[[isc]]$f1) %>%
+        mutate(label = sprintf("R²(P)=%.3f R²(S)=%.3f\np=%.2e, range=%.2f",
+                               r2, r2_spearman, pval, isc_range))
+      
+      cat("\nCorrelation (F1 vs reference consistency", isc, ") overall:\n")
+      print(cor_table)
+      
+      # Plot: F1 vs reference consistency product with facets and correlation stats
+      p_ref <- joined[[isc]] %>% 
+        ggplot(aes(x = .data[[isc]], y = f1)) +
+        geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
+        geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+        geom_label(data = cor_table, 
+                   aes(x = Inf, y = -Inf, label = label),
+                   fill = "white",
+                   alpha = 0.4,
+                   hjust = 1.05, vjust = -0.2, size = 3, 
+                   inherit.aes = FALSE) +
+        labs(
+          title = r,
+          subtitle = "Train ISC (reference) vs Prediction F1, per cell type",
+          x = paste0("Value Train: ", labs_ref[match(isc, iscs_ref)]),
+          y = "F1 (predictions)" 
+        ) +
+        ggpubr::theme_classic2() +
+        theme(legend.position = "right")
+      
+      return(p_ref)
+    })
+  }) 
+
+cons_ref_all
 ```
 
 ## correlation per classifier
 
 ```{r reference_consistency_perclassifier}
-excl <- c("ground_truth", "Ensemble", "Random")
 # filter for only references
-cons_ref <- lapply(names(res), function(r){
-  # Summarise prediction F1 per dataset, classifier, and cell type
-  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
-  pred_summary <- res[[r]] %>%
-    mutate(classifier = factor(classifier,
-                               levels = c(class_levs))) %>% 
-    filter(classifier != "ground_truth",
-           !is.na(f1),
-           ) %>% 
-    select(cell_type, dataset_id, f1, classifier)
-  
-  cons_ref <- res[[r]] %>%
-    filter(classifier == "ground_truth",
-           !is.na(.data[[isc]])) %>% 
-    select(cell_type, dataset_id, .data[[isc]])
-  
-  # Join reference consistency with prediction F1
-  joined <- pred_summary %>%
-    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
-    filter(!is.na(.data[[isc]])) %>% 
-    group_by(dataset_id, cell_type)
-  
-  # Correlation per classifier (mean F1 vs reference product)
-  cor_table <- joined %>%
-    group_by(classifier) %>%
-    summarise(
-      r = cor(f1, .data[[isc]], use = "complete.obs"),
-      r2 = r^2,
-      p_value = cor.test(f1, .data[[isc]])$p.value,
-      n_pairs = sum(!is.na(f1) & !is.na(.data[[isc]])),
-      .groups = "drop"
-    ) %>%
-    ungroup() %>% 
-    # Apply FDR correction for multiple testing
-    mutate(
-      p_value_adjusted = p.adjust(p_value, method = "BH"),
-      label = sprintf("R² = %.3f\np = %.2e", r2, p_value)
-    )
-  
-  cat("\nCorrelation (F1 vs reference consistency product) per classifier:\n")
-  print(cor_table)
-  
-  # Plot: F1 vs reference consistency product with facets and correlation stats
-  p_ref <- joined %>% 
-    ggplot(aes(x = .data[[isc]], y = f1)) +
-    geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
-    geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
-    scale_color_manual(values = rankings_palette[[1]]) +
-    geom_label(data = cor_table, 
-               aes(x = Inf, y = -Inf, label = label),
-               fill = "white",
-               alpha = 0.4,
-               hjust = 1.1, vjust = -0.5, size = 3.5, 
-               inherit.aes = FALSE) +
+cons_ref <- 
+  lapply(iscs_ref, function(isc){
+    lapply(names(res), function(r){
+      # Summarise prediction F1 per dataset, classifier, and cell type
+      joined <- join_reference_consistency(res[[r]], isc_col = isc, excl = excl)[[isc]]
+      
+      # Correlation per classifier (Pearson + Spearman vs reference ISC)
+      cor_table <- joined %>%
+        group_by(classifier) %>%
+        group_modify(~ cor_stats(.x[[isc]], .x$f1)) %>%
+        ungroup() %>%
+        mutate(label = sprintf("R²(P)=%.2f R²(S)=%.2f\np=%.1e", r2, r2_spearman, pval))
+      
+      # Plot: F1 vs reference consistency product with facets and correlation stats
+      p_ref <- joined %>% 
+        ggplot(aes(x = .data[[isc]], y = f1)) +
+        geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
+        geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+        geom_label(data = cor_table, 
+                   aes(x = Inf, y = -Inf, label = label),
+                   fill = "white",
+                   alpha = 0.4,
+                   hjust = 1.05, vjust = -0.2, size = 2.8, 
+                   inherit.aes = FALSE) +
+        labs(
+          title = r,
+          subtitle = "Train ISC (reference) vs Prediction F1, per cell type",
+          x = paste0("Value Train: ", isc),
+          y = "F1 (predictions)"
+        ) +
+        ggpubr::theme_classic2() +
+        theme(legend.position = "right") +
+        facet_wrap(~classifier)
+      
+      return(p_ref)
+    })
+    
+  })
+
+cons_ref
+```
+
+## scatter and R² boxplot across all ISC metrics
+
+For every metric in `iscs`, join the ground_truth reference value with prediction F1 (per dataset) and look at both the scatter and the per-dataset R² distribution - a metric can look fine in one dataset and be driven by leverage/restricted range in another.
+
+
+```{r reference_consistency_r2_boxplot}
+reference_r2_per_dataset <- lapply(names(res), function(r){
+  lapply(iscs_ref, function(isc_col){
+    compute_r2_per_dataset_celltype(reference_joined[[r]][[isc_col]],
+                                    isc_col = isc_col,
+                                    group_cols = c("dataset_id"),
+                                    excl = excl)
+  }) %>% bind_rows()
+}) %>% setNames(names(res)) %>%
+  bind_rows(.id = "dataset_group") %>%
+  mutate(isc_label = factor(labs_ref[match(isc, iscs_ref)], levels = labs_ref))
+
+reference_r2_boxplots <- lapply(unique(reference_r2_per_dataset$dataset_group), function(dg){
+  reference_r2_per_dataset %>%
+    filter(dataset_group == dg) %>%
+    ggplot(aes(x = r2, y = forcats::fct_reorder(isc_label, r2, .fun = median))) +
+    geom_boxplot(aes(fill = isc_label), outlier.shape = NA, alpha = 0.4, show.legend = FALSE) +
+    geom_jitter(width = 0, height = 0.1, size = 1.5, alpha = 0.4) +
     labs(
-      title = r,
-      subtitle = "Train ISC vs Prediction F1, per cell type",
-      x = paste0("Value Train: ", isc),
-      y = "F1 (predictions)"
+      title = dg,
+      subtitle = "R² per dataset (reference ISC vs prediction F1)",
+      y = "Tool", x = expression(R^2)
     ) +
-    ggpubr::theme_classic2() +
-    theme(legend.position = "right") +
-    facet_wrap(~classifier)
-  
-  return(p_ref)
-})
+    ggpubr::theme_classic2()
+}) %>% setNames(unique(reference_r2_per_dataset$dataset_group))
 
-ggarrange(plotlist = cons_ref)
+reference_r2_boxplots
 ```
 
-```{r}
-pdf_file <- file.path(fig_dir, paste0("LabelProjection_referenceISC_scatter", ".pdf"))
+## main analysis (mixed-effects model)
 
-pdf(pdf_file, width = 8*1.1, height = 6*1.1)
-for(a in cons_ref) print(a)
-dev.off()
+Same rationale as the Test-set ISC main analysis: pool across datasets and classifiers properly by fitting `f1 ~ ISC + classifier + (1 | dataset_id)` per metric, here using the reference (ground_truth) ISC value joined to each classifier's prediction F1.
+
+```{r reference_lmer_main_analysis}
+reference_lmer_results <- lapply(names(res), function(r){
+  lapply(iscs, function(isc_col){
+    fit_isc_f1_lmer(reference_joined[[r]][[isc_col]], isc_col = isc_col, excl = excl)
+  }) %>% bind_rows()
+}) %>%
+  setNames(names(res)) %>%
+  bind_rows(.id = "dataset_group") %>%
+  mutate(isc_label = factor(isc_label, levels = labs))
+
+reference_lmer_results
 ```
+
+```{r reference_lmer_main_analysis_forest, fig.width=6, fig.height=5}
+reference_lmer_forest_plots <- lapply(unique(reference_lmer_results$dataset_group), function(dg){
+  reference_lmer_results %>%
+    filter(dataset_group == dg) %>%
+    ggplot(aes(x = estimate, y = forcats::fct_reorder(isc_label, estimate), color = pval < 0.05)) +
+    geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
+    geom_errorbarh(aes(xmin = ci_low, xmax = ci_high), height = 0.2) +
+    geom_point(size = 2) +
+    scale_color_manual(values = c("TRUE" = "#0173B2", "FALSE" = "grey60"), name = "p < 0.05") +
+    labs(
+      title = dg,
+      subtitle = "F1 ~ Reference ISC + classifier + (1 | dataset_id)",
+      x = "ISC fixed-effect estimate (95% Wald CI)",
+      y = "ISC metric"
+    ) +
+    ggpubr::theme_classic2()
+}) %>% setNames(unique(reference_lmer_results$dataset_group))
+
+reference_lmer_forest_plots
+```
+
 
 ## categorize ISC
 
@@ -420,7 +644,7 @@ ths <- 0.7
 # filter for only references
 cons_ref_cat <- lapply(names(res), function(r){
   # Summarise prediction F1 per dataset, classifier, and cell type
-  class_levs <- names(rankings_palette[[r]])[!names(rankings_palette[[r]]) %in% excl]
+  class_levs <- names(rankings_palette(res[[r]], "f1"))[!names(rankings_palette(res[[r]], "f1")) %in% excl]
   top_6 <- c(head(class_levs, 3), tail(class_levs,3))
   pred_summary <- res[[r]] %>%
     mutate(classifier = factor(classifier,
@@ -454,7 +678,7 @@ cons_ref_cat <- lapply(names(res), function(r){
                  fill = NA,
                  outlier.colour = NA,
                  show.legend = FALSE) +
-    scale_color_manual(values = rankings_palette[[1]]) +
+    scale_color_manual(values = rankings_palette(res[[r]], "f1")) +
     labs(
       title = r,
       subtitle = paste0("F1 in consistent (ISC>", ths,
@@ -472,118 +696,63 @@ ggarrange(plotlist = cons_ref_cat)
 ```
 
 
-## Export plots
-```{r}
-# Save as PDF
-pdf_file <- file.path(fig_dir, paste0("LabelProjection_", "TrainISC.pdf"))
-ggsave(
-  pdf_file,
-  plot = p_ref,
-  width = 7,
-  height = 5,
-  device = "pdf"
-)
-
-```
-
 ## contigency plot
 
 ```{r density_contigency}
 ths_f1 <- 0.7
 ths_isc <- 0.5
-xcl <- c("ground_truth", "Ensemble", "Random")
-# filter for only references
-cons_ref_contingency <- lapply(names(res), function(r){
-  # Summarise prediction F1 per dataset, classifier, and cell type
-  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
-  pred_summary <- res[[r]] %>%
-    mutate(classifier = factor(classifier,
-                               levels = c(class_levs))) %>% 
-    filter(classifier != "ground_truth",
-           !is.na(f1),
-           ) %>% 
-    select(cell_type, dataset_id, f1, classifier)
-  
-  cons_ref <- res[[r]] %>%
-    filter(classifier == "ground_truth",
-           !is.na(.data[[isc]])) %>% 
-    select(cell_type, dataset_id, .data[[isc]])
-  
-  # Join reference consistency with prediction F1
-  joined <- pred_summary %>%
-    left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
-    filter(!is.na(.data[[isc]])) %>% 
-    group_by(dataset_id, cell_type)
 
+# One contingency plot per ISC metric and per dataset group
+contingency_results <- lapply(names(res), function(r){
+  joined_r <- join_reference_consistency(res[[r]], excl = excl)
+  lapply(iscs_ref, function(isc_col){
+    ths_isc <- quantile(joined_r[[isc_col]][[isc_col]], 0.5)
+    plot_isc_f1_contingency(joined_r[[isc_col]], isc_col = isc_col,
+                            ths_isc = ths_isc, ths_f1 = ths_f1, dataset_label = r)
+  }) %>% setNames(iscs_ref)
+}) %>% setNames(names(res))
 
-  
-  # Compute quadrant counts (threshold = 0.5 on both axes)
-  quadrant_counts <- joined %>%
-    ungroup() %>%
-    mutate(quadrant = case_when(
-      .data[[isc]] >= ths_isc & f1 >= ths_f1 ~ "top-right",
-      .data[[isc]] <  ths_isc & f1 >= ths_f1 ~ "top-left",
-      .data[[isc]] >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
-      TRUE                        ~ "bottom-left"
-    )) %>%
-    count(quadrant) %>%
-    mutate(
-      x = case_when(quadrant == "top-right"    ~ 0.75,
-                    quadrant == "top-left"      ~ 0.25,
-                    quadrant == "bottom-right"  ~ 0.75,
-                    quadrant == "bottom-left"   ~ 0.25),
-      y = case_when(quadrant == "top-right"    ~ 0.85,
-                    quadrant == "top-left"      ~ 0.85,
-                    quadrant == "bottom-right"  ~ 0.25,
-                    quadrant == "bottom-left"   ~ 0.25),
-      #label = n
-      label = paste0(sprintf("%.1f", 100 * n / sum(n)), "%")
-    )
-
-  # Plot: bin2d density + quadrant percentages
-  p_ref <- joined %>%
-    ggplot(aes(x = .data[[isc]], y = f1)) +
-    geom_bin2d(bins = 50, show.legend = T) +
-    scale_fill_viridis_c(option = "magma", trans = "sqrt") +
-    geom_vline(xintercept = ths_isc, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
-    geom_hline(yintercept = ths_f1, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
-    geom_label(data = quadrant_counts,
-              aes(x = x, y = y, label = label),
-              inherit.aes = FALSE,
-              size = 6,
-              fill = "grey90",
-              color = "black",
-              alpha = 0.9) +
-    scale_x_continuous(limits = c(0, 1)) +
-    scale_y_continuous(limits = c(0, 1)) +
-    labs(
-      title = gsub("_", "-", r),
-      subtitle = "Train ISC vs Prediction F1, per cell type",
-      x = "ISC Train",
-      y = "F1 score Test"
-    ) +
-    ggpubr::theme_classic2() +
-    theme(legend.position = "right")
-  
-  return(p_ref)
+# Render one grid of plots (across all ISC metrics) per dataset group
+lapply(names(contingency_results), function(r){
+  ggarrange(plotlist = lapply(contingency_results[[r]], `[[`, "plot"))
 })
-
-ggarrange(plotlist = cons_ref_contingency)
 ```
 
-```{r}
-pdf_file <- file.path(fig_dir, paste0("LabelProjection_referenceISC_contigency", ".pdf"))
+## quadrant quantification across all ISC metrics
 
-pdf(pdf_file, width = 4.5, height = 4)
-for(a in cons_ref_contingency) print(a)
-dev.off()
+```{r quadrant_quantification_all_isc}
+quadrant_quantification <- lapply(names(contingency_results), function(r){
+  lapply(contingency_results[[r]], `[[`, "quadrant_counts") %>% bind_rows()
+}) %>%
+  setNames(names(contingency_results)) %>%
+  bind_rows(.id = "dataset_group") %>%
+  mutate(isc_label = factor(isc_label, levels = labs))
+
+quadrant_quantification %>%
+  select(dataset_group, isc_label, quadrant, n, prop) %>%
+  arrange(dataset_group, isc_label, quadrant)
+
+ggplot(quadrant_quantification, aes(x = isc_label, y = prop, fill = quadrant)) +
+  geom_col(position = "stack") +
+  geom_text(aes(label = paste0(sprintf("%.0f", 100 * prop), "%")),
+            position = position_stack(vjust = 0.5), size = 2.8) +
+  facet_wrap(~dataset_group) +
+  scale_y_continuous(labels = scales::percent_format()) +
+  labs(
+    title = "Quadrant composition per ISC metric",
+    subtitle = sprintf("Reference ISC vs Prediction F1 (thresholds: ISC=%.1f, F1=%.1f)", ths_isc, ths_f1),
+    x = "ISC metric", y = "Proportion of cell type / classifier pairs", fill = "Quadrant"
+  ) +
+  ggpubr::theme_classic2() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
 ```
+
 
 
 ```{r upper_left_quadrant_depletion}
 # Test whether upper-left quadrant is depleted vs 25% null expectation
 quadrant_stats_plots <- lapply(names(res), function(r){
-  class_levs <- names(rankings_palette[[1]])[!names(rankings_palette[[1]]) %in% excl]
+  class_levs <- names(rankings_palette(res[[r]], "f1"))[!names(rankings_palette(res[[r]], "f1")) %in% excl]
 
   pred_summary <- res[[r]] %>%
     mutate(classifier = factor(classifier, levels = c(class_levs))) %>%
