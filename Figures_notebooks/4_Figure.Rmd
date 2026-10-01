@@ -48,7 +48,9 @@ iscs <- c("X2label_silhouette...Pseudobulk.Cosine",
           "product",
           "SCCAF",
           "MetaNeighbor_Supervised...NA",
-          "nsa_cLISI...NA")
+          "nsa_cLISI...NA",
+          "hotelling",
+          "cramer")
 collapse_replicates <- function(x) {
   x %>%
     group_by(dataset_id, classifier, cell_type) %>%
@@ -69,7 +71,7 @@ paths <-
   c(
     "intra_dataset" = file.path("..", "label_transfer_task", "results", "aggregated", "label_transfer_consistency_detailed.csv"),
     "inter_dataset" = file.path("..", "label_transfer_task", "results_between", "aggregated", "label_transfer_between_consistency_detailed.csv")
-  )[1]
+  )
 res <- lapply(paths, read.csv)
 
 res <- lapply(res, function(x){
