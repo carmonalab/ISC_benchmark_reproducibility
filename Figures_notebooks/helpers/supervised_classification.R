@@ -122,6 +122,9 @@ cor_stats <- function(isc, f1, min_n = 3) {
 # Satterthwaite-corrected t-test, and r2_marginal/r2_conditional are pseudo-R2 (squared correlation
 # between predicted and observed F1, fixed-effects-only vs fixed+random), not the exact
 # Nakagawa & Schielzeth decomposition.
+# The ISC metric is z-scored (mean 0, SD 1) before fitting: this avoids convergence issues from
+# very different ISC scales/ranges, and makes `estimate` comparable across metrics (change in F1
+# per 1 SD increase in that ISC) rather than confounded by each metric's own observed range.
 fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth") {
    if (is.null(isc_label)) isc_label <- labs[match(isc_col, iscs)]
 
@@ -132,6 +135,8 @@ fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth"
 
    n_datasets <- dplyr::n_distinct(dat$dataset_id)
    n_classifiers <- dplyr::n_distinct(dat$classifier)
+   isc_mean <- mean(dat[[isc_col]])
+   isc_sd <- stats::sd(dat[[isc_col]])
 
    empty <- data.frame(
       isc = isc_col, isc_label = isc_label, estimate = NA_real_, se = NA_real_,
@@ -139,19 +144,20 @@ fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth"
       r2_marginal = NA_real_, r2_conditional = NA_real_,
       n = nrow(dat), n_datasets = n_datasets, n_classifiers = n_classifiers, singular = NA
    )
-   if (nrow(dat) < 10 || n_datasets < 2 || n_classifiers < 2) return(empty)
+   if (nrow(dat) < 10 || n_datasets < 2 || n_classifiers < 2 || isc_sd == 0) return(empty)
 
-   fml <- stats::as.formula(sprintf("f1 ~ `%s` + classifier + (1 | dataset_id)", isc_col))
+   dat$.isc_z <- (dat[[isc_col]] - isc_mean) / isc_sd
+
    fit <- tryCatch(
-      lme4::lmer(fml, data = dat, REML = TRUE,
+      lme4::lmer(f1 ~ .isc_z + classifier + (1 | dataset_id), data = dat, REML = TRUE,
                 control = lme4::lmerControl(check.conv.singular = "ignore")),
       error = function(e) NULL
    )
-   if (is.null(fit) || !isc_col %in% rownames(summary(fit)$coefficients)) return(empty)
+   if (is.null(fit) || !".isc_z" %in% rownames(summary(fit)$coefficients)) return(empty)
 
    co <- summary(fit)$coefficients
-   est <- unname(co[isc_col, "Estimate"])
-   se  <- unname(co[isc_col, "Std. Error"])
+   est <- unname(co[".isc_z", "Estimate"])
+   se  <- unname(co[".isc_z", "Std. Error"])
    pval <- 2 * stats::pnorm(-abs(est / se))
 
    r2_marginal <- suppressWarnings(stats::cor(stats::predict(fit, re.form = NA), dat$f1)^2)
@@ -501,8 +507,8 @@ plot_isc_f1_contingency <- function(joined, isc_col, isc_label = NULL,
       geom_label(data = quadrant_counts,
                 aes(x = x, y = y, label = label),
                 inherit.aes = FALSE, size = 6, fill = "grey90", color = "black", alpha = 0.9) +
-      scale_x_continuous(limits = c(0, 1)) +
-      scale_y_continuous(limits = c(0, 1)) +
+      # scale_x_continuous(limits = c(0, 1)) +
+      # scale_y_continuous(limits = c(0, 1)) +
       labs(
          title = paste0(gsub("_", "-", dataset_label), " - ", isc_label),
          subtitle = "Reference ISC vs Prediction F1, per cell type",
