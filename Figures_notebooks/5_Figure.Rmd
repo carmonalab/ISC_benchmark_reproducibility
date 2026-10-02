@@ -253,7 +253,7 @@ median_minus_sd(cons_wide$product)
 
 # Figure 5B
 
-Meta-analysis of author-provided cell type annotations across all datasets. Each point represents a cell type label, positioned by its local ISC score (ISCL, x-axis; silhouette score from reciprocal-classification dissimilarity) and global ISC score (ISCG, y-axis; 2-label silhouette score from pseudobulk cosine similarity). Dashed lines indicate data-driven thresholds (ISCL = 0.56, ISCG = 0.76; median minus one standard deviation across datasets), partitioning the space into consistent (high–high), inconsistent (low–low), and discordant annotation regimes. 
+Meta-analysis of author-provided cell type annotations across all datasets. Each point represents a cell type label, positioned by its local ISC score (ISCL, x-axis; silhouette score from reciprocal-classification dissimilarity) and global ISC score (ISCG, y-axis; 2-label silhouette score from pseudobulk cosine similarity). Dashed lines indicate data-driven thresholds, partitioning the space into consistent (high–high), inconsistent (low–low), and discordant annotation regimes. 
 
 ```{r scatter_plot}
 fixed_value <- NA

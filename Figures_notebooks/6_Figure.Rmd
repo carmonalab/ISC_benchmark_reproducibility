@@ -206,11 +206,6 @@ Joint distribution of per-cell-type ISCL (silhouette on reciprocal-classificatio
 
 linewidth <- 0.5
 alpha_line <- 0.6
-# Empiric threshold obtain in Figure 5, and 5_Figure.Rmd script.
-q_local <- 0.5649059
-q_global <- 0.7551685
-
-
 
 pl_scatter <- consis$original %>%
   ggplot(aes(x = local,
@@ -1296,8 +1291,8 @@ dfp2 <- left_join(dfp, dict, by = "celltype") %>%
 linewidth <- 0.5
 alpha_line <- 0.6
 # empirical threshold found in 5_Figure.Rmd
-q_local <- 0.5649059
-q_global <- 0.7551685
+q_local <- 0.45
+q_global <- 0.74
 
 cols <- c("original"  = "grey20", "reannot" = "red4")
 vals <- c("yes" = 1, "no" = 0.3)
