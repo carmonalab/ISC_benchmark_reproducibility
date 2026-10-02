@@ -96,12 +96,17 @@ res_raw <- lapply(res0, function(x){
     return(x)
 })
 
+res_raw$inter_dataset <- res_raw$inter_dataset %>% 
+  separate(dataset_id, sep = "__TO__",
+           into = c("dataset_ref", "dataset_test"),
+           remove = F)
+
 res <- lapply(res0, function(x){
-  x <- collapse_replicates(x)
   x <- x %>% 
     filter(!grepl(excl_pat, dataset_id))
   return(x)
 })
+res$intra_dataset <- collapse_replicates(res$intra_dataset)
 # Preview
 lapply(res, head)
 lapply(iscs, function(x){
@@ -315,18 +320,29 @@ r2_per_dataset_plots <- lapply(unique(r2_per_dataset$dataset_group),
                                                 show.legend = F) +
                                    geom_jitter(width = 0,
                                                height = 0.1,
-                                               size = 1.5,
-                                               alpha = 0.4) +
+                                               size = 1,
+                                               alpha = 0.2) +
                                    labs(
                                      title = dg,
                                      subtitle = "R² per dataset (cell-type level F1 vs ISC in Test)",
-                                     y = "Tool", x = expression(R^2)
+                                     y = "", x = expression(R^2)
                                    ) +
                                    ggpubr::theme_classic2()
                                }) %>% setNames(unique(r2_per_dataset$dataset_group))
 
 r2_per_dataset_plots
 ```
+
+## export plots
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("Test_R2_", "boxplot.pdf"))
+
+pdf(pdf_file, width = 3.5, height = 2.5)
+for(a in r2_per_dataset_plots) print(a)
+dev.off()
+```
+
 
 Pearson R² can be inflated by a handful of points sitting near the ISC ceiling (values clustering at 0.94-0.95 when the metric is theoretically bounded in [0,1]); those act as high-leverage points on the linear fit. Compare against Spearman (rank-based, insensitive to this) and flag dataset/ISC combos with influential points (Cook's distance > 4/n) to see where Pearson is likely overstating the relationship.
 
@@ -602,9 +618,17 @@ reference_r2_boxplots
 Same rationale as the Test-set ISC main analysis: pool across datasets and classifiers properly by fitting `f1 ~ ISC + classifier + (1 | dataset_id)` per metric, here using the reference (ground_truth) ISC value joined to each classifier's prediction F1.
 
 ```{r reference_lmer_main_analysis}
+reference_joined <- lapply(res, function(r) {
+  join_reference_consistency(r, isc_col = iscs_ref, excl = excl) 
+  })
+fml <- list(intra_dataset = ~ classifier + (1 | dataset_id) + (1 | dataset_id:replicate),
+            inter_dataset = ~ classifier + (1 | dataset_ref:dataset_test))
 reference_lmer_results <- lapply(names(res_raw), function(r){
   lapply(iscs_ref, function(isc_col){
-    fit_isc_f1_lmer(reference_joined[[r]][[isc_col]], isc_col = isc_col, excl = excl)
+    fit_isc_f1_lmer(reference_joined[[r]][[isc_col]],
+                    isc_col = isc_col,
+                    excl = excl,
+                    model = fml[[r]])
   }) %>% bind_rows()
 }) %>%
   setNames(names(res)) %>%
