@@ -96,11 +96,6 @@ res_raw <- lapply(res0, function(x){
     return(x)
 })
 
-res_raw$inter_dataset <- res_raw$inter_dataset %>% 
-  separate(dataset_id, sep = "__TO__",
-           into = c("dataset_ref", "dataset_test"),
-           remove = F)
-
 res <- lapply(res0, function(x){
   x <- x %>% 
     filter(!grepl(excl_pat, dataset_id))
@@ -621,8 +616,8 @@ Same rationale as the Test-set ISC main analysis: pool across datasets and class
 reference_joined <- lapply(res, function(r) {
   join_reference_consistency(r, isc_col = iscs_ref, excl = excl) 
   })
-fml <- list(intra_dataset = ~ classifier + (1 | dataset_id) + (1 | dataset_id:replicate),
-            inter_dataset = ~ classifier + (1 | dataset_ref:dataset_test))
+fml <- list(intra_dataset = ~ classifier + (1 | dataset_id),
+            inter_dataset = ~ classifier + (1 | reference_dataset_id) + (1 | query_dataset_id))
 reference_lmer_results <- lapply(names(res_raw), function(r){
   lapply(iscs_ref, function(isc_col){
     fit_isc_f1_lmer(reference_joined[[r]][[isc_col]],
@@ -642,21 +637,31 @@ reference_lmer_results
 reference_lmer_forest_plots <- lapply(unique(reference_lmer_results$dataset_group), function(dg){
   reference_lmer_results %>%
     filter(dataset_group == dg) %>%
-    ggplot(aes(x = estimate, y = forcats::fct_reorder(isc_label, estimate), color = pval < 0.05)) +
+    ggplot(aes(x = estimate, y = forcats::fct_reorder(isc_label, estimate))) +
     geom_vline(xintercept = 0, linetype = "dashed", color = "gray40") +
-    geom_errorbarh(aes(xmin = ci_low, xmax = ci_high), height = 0.2) +
-    geom_point(size = 2) +
-    scale_color_manual(values = c("TRUE" = "#0173B2", "FALSE" = "grey60"), name = "p < 0.05") +
+    geom_errorbarh(aes(xmin = ci_low, xmax = ci_high),
+                   height = 0.2) +
+    geom_point(color = "#0173B2") +
     labs(
       title = dg,
-      subtitle = "F1 ~ scale(Reference ISC) + classifier + (1 | dataset_id)",
-      x = "ISC fixed-effect estimate per 1 SD (95% Wald CI)",
-      y = "ISC metric"
+      subtitle = "Association between Reference ISC and Test F1",
+      x = "Change in F1 per 1-SD increase in reference ISC (β ± 95% CI)",
+      y = ""
     ) +
     ggpubr::theme_classic2()
 }) %>% setNames(unique(reference_lmer_results$dataset_group))
 
 reference_lmer_forest_plots
+```
+
+## export plots
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("Reference_LM_", "forestplot.pdf"))
+
+pdf(pdf_file, width = 4, height = 2.5)
+for(a in reference_lmer_forest_plots) print(a)
+dev.off()
 ```
 
 
