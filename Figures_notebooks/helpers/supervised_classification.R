@@ -125,7 +125,8 @@ cor_stats <- function(isc, f1, min_n = 3) {
 # The ISC metric is z-scored (mean 0, SD 1) before fitting: this avoids convergence issues from
 # very different ISC scales/ranges, and makes `estimate` comparable across metrics (change in F1
 # per 1 SD increase in that ISC) rather than confounded by each metric's own observed range.
-fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth") {
+fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth",
+                            model = ~ classifier + (1 | dataset_id) + (1 | dataset_id:replicate)) {
    if (is.null(isc_label)) isc_label <- labs[match(isc_col, iscs)]
 
    dat <- df %>%
@@ -147,9 +148,11 @@ fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth"
    if (nrow(dat) < 10 || n_datasets < 2 || n_classifiers < 2 || isc_sd == 0) return(empty)
 
    dat$.isc_z <- (dat[[isc_col]] - isc_mean) / isc_sd
+   model_formula <- stats::update.formula(model, f1 ~ .isc_z + .)
 
    fit <- tryCatch(
-      lme4::lmer(f1 ~ .isc_z + classifier + (1 | dataset_id), data = dat, REML = TRUE,
+      lme4::lmer(model_formula,
+                 data = dat, REML = TRUE,
                 control = lme4::lmerControl(check.conv.singular = "ignore")),
       error = function(e) NULL
    )
@@ -455,15 +458,15 @@ compute_r2_per_dataset_celltype <- function(df,
 join_reference_consistency <- function(df, isc_col = iscs, excl = "ground_truth") {
    pred_summary <- df %>%
       filter(classifier != "ground_truth", !classifier %in% excl, !is.na(f1)) %>%
-      select(cell_type, dataset_id, f1, classifier)
+      select(cell_type, dataset_id, f1, classifier, replicate)
 
    lapply(isc_col, function(ic) {
       cons_ref <- df %>%
-         filter(classifier == "ground_truth", !is.na(.data[[ic]])) %>%
-         select(cell_type, dataset_id, .data[[ic]])
+         filter(classifier == "ground_truth", !is.na(.data[[ic]])) %>% 
+         select(-f1, -classifier)
 
       pred_summary %>%
-         left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
+         left_join(cons_ref, by = c("dataset_id", "cell_type", "replicate")) %>%
          filter(!is.na(.data[[ic]]))
    }) %>%
       setNames(isc_col)
