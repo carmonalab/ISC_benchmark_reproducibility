@@ -458,7 +458,7 @@ compute_r2_per_dataset_celltype <- function(df,
 join_reference_consistency <- function(df, isc_col = iscs, excl = "ground_truth") {
    pred_summary <- df %>%
       filter(classifier != "ground_truth", !classifier %in% excl, !is.na(f1)) %>%
-      select(cell_type, dataset_id, f1, classifier, replicate)
+      select(cell_type, dataset_id, f1, classifier)
 
    lapply(isc_col, function(ic) {
       cons_ref <- df %>%
@@ -466,7 +466,7 @@ join_reference_consistency <- function(df, isc_col = iscs, excl = "ground_truth"
          select(-f1, -classifier)
 
       pred_summary %>%
-         left_join(cons_ref, by = c("dataset_id", "cell_type", "replicate")) %>%
+         left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
          filter(!is.na(.data[[ic]]))
    }) %>%
       setNames(isc_col)
