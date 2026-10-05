@@ -249,7 +249,46 @@ pl_scatter
 ```
 ## 4. SCCAF
 ```{r}
+repo_root <- if (dir.exists("sample_agnostic_utils")) {
+  getwd()
+} else {
+  normalizePath("..", mustWork = TRUE)
+}
+source(file.path(repo_root, "sample_agnostic_utils", "run_python_pipelines.R"))
 
+sccaf_results <- run_sample_agnostic_python_pipelines(
+  scTypeEval = sc,
+  pipelines = list(
+    sccaf = pipeline_spec_sccaf(cluster_key = ident, n = 100)
+  ),
+  file_prefix = basename(tempfile("stressed_tcells_")),
+  continue_on_error = FALSE,
+  cleanup = TRUE
+)$sccaf
+
+sccaf_results
+```
+
+### barplot
+```{r}
+yval <- "score"
+pl <- sccaf_results %>% 
+  ggplot(aes(y = reorder(celltype, .data[[yval]]),
+             x = .data[[yval]],
+             fill = .data[[yval]])) +
+  geom_col(show.legend = FALSE,
+           color = "grey50") +
+  scale_fill_gradient(
+    low  = "white",
+    high = "#2166AC"   # deep blue
+  ) +
+  labs(y = "Author's annotation",
+       x = "SCCAF F1") +
+  ggpubr::theme_classic2() +
+  theme(axis.title = element_text(size = 22),
+        axis.ticks = element_blank())
+
+pl
 ```
 
 
@@ -258,5 +297,34 @@ pl_scatter
 
 ```{r}
 library(MetaNeighbor)
+
+meta_neighbor_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "MetaNeighbor_Supervised"
+)
+
+meta_neighbor_results
+```
+### barplot
+```{r}
+yval <- "measure"
+pl <- meta_neighbor_results %>% 
+  ggplot(aes(y = reorder(celltype, .data[[yval]]),
+             x = .data[[yval]],
+             fill = .data[[yval]])) +
+  geom_col(show.legend = FALSE,
+           color = "grey50") +
+  scale_fill_gradient(
+    low  = "white",
+    high = "#2166AC"   # deep blue
+  ) +
+  labs(y = "Author's annotation",
+       x = "MetaNeighbor AUROC") +
+  ggpubr::theme_classic2() +
+  theme(axis.title = element_text(size = 22),
+        axis.ticks = element_blank())
+
+pl
 ```
 
