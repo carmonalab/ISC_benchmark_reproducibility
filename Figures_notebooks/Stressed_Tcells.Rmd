@@ -327,4 +327,139 @@ pl <- meta_neighbor_results %>%
 
 pl
 ```
+# 6. Markers expression
+
+Using same authors markers as in the paper:
+
+```{r}
+path <- "~/Documents/Projects/Pan-cancer_human_TILs/cache"
+chu.markers <- list()
+chu.markers[["CD4"]] <- read.table(file.path(path, "Chu_cd4_markers.txt"))$V1
+chu.markers[["CD8"]] <- read.table(file.path(path, "Chu_cd8_markers.txt"))$V1
+```
+
+
+### umap
+
+```{r}
+helper.plot.scatter <- function(df,
+                                show.legend = FALSE,
+                                label = TRUE,
+                                dot.size = 5,
+                                label.size = 8,
+                                color.by = "celltype",
+                                label.by = "celltype",
+                                vars = NULL,
+                                keep.square = TRUE) {
+   # Replace dots with spaces in the ident column
+   
+  pl <- ggplot2::ggplot() +
+    ggplot2::geom_point(
+      data = df,
+      ggplot2::aes(
+        x = .data[[names(df)[1]]],  # First column
+        y = .data[[names(df)[2]]],  # Second column
+        color = .data[[color.by]]
+      ),
+      alpha = 0.8,
+      size = dot.size,
+      show.legend = show.legend) +
+    ggpubr::theme_classic2() +
+    ggplot2::theme(legend.text = ggplot2::element_text(size = 12, face = "bold"),
+                   axis.title = ggplot2::element_text(size = 22),
+                   axis.text = ggplot2::element_blank(),
+                   axis.ticks = ggplot2::element_blank(),
+                   axis.line = ggplot2::element_blank()
+    )
+
+  if (keep.square) {
+    pl <- pl +
+      ggplot2::coord_fixed() +
+      ggplot2::theme(aspect.ratio = 1)
+  }
+  
+   if(label){
+      # Calculate centroids and format labels
+      cnt <- df |>
+         dplyr::group_by(.data[[label.by]]) |>
+         dplyr::summarize(
+            x = mean(.data[[names(df)[1]]]),
+            y = mean(.data[[names(df)[2]]]),
+         )
+      # Always show labels for mentioned cell types
+      pl <- pl +
+        ggrepel::geom_label_repel(
+          data = cnt,
+          ggplot2::aes(
+            x = x,
+            y = y,
+            label = .data[[label.by]],
+            color = .data[[label.by]],
+          ),
+          alpha = 0.9,
+          size = label.size,
+          max.overlaps = Inf,
+          show.legend = FALSE
+        )
+   }
+  
+  if(!is.null(vars)){
+    labs <- paste0(names(vars), " (", vars, "%)")
+    
+    pl <- 
+      pl +
+      ggplot2::labs(x = labs[1],
+                    y = labs[2])
+  }
+   
+   return(pl)
+}
+```
+
+
+Same but with umap
+```{r}
+# obtain umap embeddings from 30 PCs PCA
+um <- uwot::umap(sc@reductions$`single-cell`@embeddings %>% t(),
+                 seed = 22
+                 # metric = "cosine",
+                 # min_dist = 0.3,
+                 # n_neighbors = 10
+)
+
+df <- um |>
+  as.data.frame()
+
+names(df) <- c("umap_1", "umap_2")
+
+df_umap <- df %>%
+   tibble::rownames_to_column("id") %>% 
+   left_join(., sc@metadata,
+             by = "id") %>% 
+   tibble::column_to_rownames("id")
+
+
+```
+
+
+```{r}
+dt <- 0.5
+umap_celltype <- helper.plot.scatter(df = df_umap,
+                                     dot.size = dt,
+                                     show.legend = F)
+
+umap_celltype
+```
+
+```{r}
+
+```
+
+
+
+# 7. Reannotation
+
+
+# 8. Scores reevaluation
+
 
