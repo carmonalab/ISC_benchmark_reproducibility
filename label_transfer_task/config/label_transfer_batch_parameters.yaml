@@ -1,0 +1,27 @@
+# label_transfer_task/config/label_transfer_batch_parameters.yaml
+# Batch label-transfer benchmark: one dataset as reference, all other datasets
+# (same annotation framework, different batch) combined as a single query.
+
+seed: 22
+n_cores: 1                  # Cores per branch (branches run in parallel via future)
+n_replicates: 1
+
+# Optional filter of reference dataset IDs. Leave commented to run all eligible references.
+# references_filter:
+#   - "JoaI_CRC.SG1_Tumor"
+
+classifiers:
+  methods:
+    - "SingleR"
+    - "LogisticRegression"
+    - "XGBoost"
+    - "MLP"
+    - "RandomForest"
+    - "SVM"
+    - "kNN"
+    - "NaiveBayes"
+    - "LDA"
+    - "SeuratTransfer"
+    - "DecisionTree"
+    - "scPred"
+    - "Random"
