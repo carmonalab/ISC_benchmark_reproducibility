@@ -32,35 +32,38 @@ lt_batch_consistency_dir <- function() {
 
 # One row per reference: pair_id, reference_dataset_id, query_dataset_id (label),
 # query_dataset_ids (";"-separated members of the combined query), framework info.
+# The query contains every other eligible dataset with the same annotation,
+# including datasets from the reference's own batch (e.g. Bassez Pre for Bassez Post).
 list_batch_pairs <- function(params) {
-  between_params <- params
-  between_params$pairs_filter <- NULL
-  bp <- list_between_dataset_pairs(between_params)
+  specs_path <- proj_path("data_processing/config/specs_datasets.csv")
+  if (!file.exists(specs_path)) stop("Missing specs file: ", specs_path)
+  specs <- read.csv(specs_path, stringsAsFactors = FALSE, check.names = FALSE)
 
-  empty <- tibble::tibble(
-    pair_id = character(0),
-    reference_dataset_id = character(0),
-    query_dataset_id = character(0),
-    query_dataset_ids = character(0),
-    annotation_framework = character(0),
-    annotation_reference = character(0),
-    condition = character(0)
+  specs <- specs[specs[["Label-Transfer Task"]] == "yes", , drop = FALSE]
+  specs$dataset_id <- vapply(seq_len(nrow(specs)), function(i) {
+    specs_row_to_dataset_id(specs[i, , drop = FALSE])
+  }, character(1))
+  specs <- specs[!is.na(specs$dataset_id) & !duplicated(specs$dataset_id), , drop = FALSE]
+
+  available_ids <- tools::file_path_sans_ext(
+    list.files(lt_isc_processed_dir(), pattern = "\\.rds$", full.names = FALSE)
   )
-  if (nrow(bp) == 0) return(empty)
+  specs <- specs[specs$dataset_id %in% available_ids, , drop = FALSE]
 
-  keys <- unique(bp[, c("reference_dataset_id", "annotation_framework", "annotation_reference")])
-  out <- lapply(seq_len(nrow(keys)), function(i) {
-    sub <- bp[bp$reference_dataset_id == keys$reference_dataset_id[i] &
-                bp$annotation_framework == keys$annotation_framework[i], , drop = FALSE]
-    tibble::tibble(
-      pair_id = paste(keys$reference_dataset_id[i], "TO", lt_batch_query_label, sep = "__"),
-      reference_dataset_id = keys$reference_dataset_id[i],
-      query_dataset_id = lt_batch_query_label,
-      query_dataset_ids = paste(sort(unique(sub$query_dataset_id)), collapse = ";"),
-      annotation_framework = keys$annotation_framework[i],
-      annotation_reference = keys$annotation_reference[i],
-      condition = sub$condition[1]
-    )
+  groups <- split(specs, paste(specs[["# Annotation frameworks"]], specs[["Annotation reference"]], sep = "||"))
+  out <- lapply(groups, function(g) {
+    if (nrow(g) < 2) return(NULL)
+    dplyr::bind_rows(lapply(seq_len(nrow(g)), function(i) {
+      tibble::tibble(
+        pair_id = paste(g$dataset_id[i], "TO", lt_batch_query_label, sep = "__"),
+        reference_dataset_id = g$dataset_id[i],
+        query_dataset_id = lt_batch_query_label,
+        query_dataset_ids = paste(sort(g$dataset_id[-i]), collapse = ";"),
+        annotation_framework = g[["# Annotation frameworks"]][i],
+        annotation_reference = g[["Annotation reference"]][i],
+        condition = g[["Condition"]][i]
+      )
+    }))
   })
   pairs <- dplyr::bind_rows(out)
 
