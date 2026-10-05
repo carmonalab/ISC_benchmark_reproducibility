@@ -1,0 +1,262 @@
+---
+title: "ISC-guided refinement of stressed T cells"
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: show
+---
+
+# Introduction
+
+To demonstrate the utility of ISC for identifying and resolving problematic annotations on [Chu et al., 2023](https://www.nature.com/articles/s41591-023-02371-y) which identifies T-stressed cell subsets.
+
+
+# 0. Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 6)
+```
+
+```{r libraries}
+# Load packages
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(BiocParallel)
+library(Seurat)
+library(scTypeEval)
+
+# Custom theme
+theme_set(theme_bw(base_size = 12))
+```
+
+Define which ISC paramters
+```{r set_ISC}
+#black list from scTypeEval package
+data(black_list)
+bl <- list(black_list$TCR, black_list$Immunoglobulins, black_list$Ygenes) %>% unlist()
+# define used ISC
+mety <- c("local" = "silhouette | recip_classif:Match",
+          "global" = "2label_silhouette | Pseudobulk:Cosine")
+# Define dissimilarities to use
+dm <- c("Pseudobulk:Cosine",
+        "recip_classif:Match")
+# min samples to consider a cell type
+min_samples <- 3
+min_cells <- 10
+```
+
+
+# 1. Load dataset
+
+```{r}
+lpath <- "~/Documents/Projects/Pan-cancer_human_TILs/cache/Yost_Stressed_annotation.rds"
+
+object <- load_single_cell_object(lpath)
+object$metadata %>%
+   distinct(cell.type, Celltype, Cluster,
+            Cellsubtype, celltype)
+
+ident <- "celltype" # annotation column to use
+sample = "sample" # column identifying sample of origin
+
+n_distinct(object$metadata[[sample]])
+unique(object$metadata[[ident]])
+table(is.na(object$metadata[[ident]]))
+```
+
+
+# 2. Run scTypeEval
+
+## 2.1 Processing
+
+```{r}
+#create sceval object
+sc <- create_scTypeEval(matrix = object$counts,
+                        metadata = object$metadata,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = ident,
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+
+sc <- run_pca(sc,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 6,
+                          verbose = F)
+}
+```
+
+## 2.2 Explore plots
+
+### RMC plot
+```{r}
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+```
+### PCA
+
+```{r}
+plot_pca(sc)
+```
+
+
+# 3. Consistency
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure)
+```
+
+## 3.1. plotting
+### barplot
+```{r}
+yval <- "local"
+pl <- consis %>% 
+  ggplot(aes(y = reorder(celltype, .data[[yval]]),
+             x = .data[[yval]],
+             fill = .data[[yval]])) +
+  geom_col(show.legend = FALSE,
+           color = "grey50") +
+  scale_fill_gradient(
+    low  = "white",
+    high = "#2166AC"   # deep blue
+  ) +
+  labs(y = "Author's annotation",
+       x = "ISC score") +
+  ggpubr::theme_classic2() +
+  theme(axis.title = element_text(size = 22),
+        axis.ticks = element_blank())
+
+pl
+```
+### scatter
+
+Joint distribution of per-cell-type ISCL (silhouette on reciprocal-classification match) and ISCG (2-label silhouette on pseudobulk cosine similarity) across atlas labels (“cell_type”). Each point represents one annotated cell type. 
+
+```{r}
+# empirical threshold found in 5_Figure.Rmd
+q_local <- 0.45
+q_global <- 0.74
+
+linewidth <- 0.5
+alpha_line <- 0.6
+
+pl_scatter <- consis %>%
+  ggplot(aes(x = local,
+             y = global)) +
+  # threshold line of figure 5
+  geom_vline(
+    xintercept = q_local,
+    linetype = "dashed",
+    linewidth = linewidth,
+    alpha = alpha_line
+  ) +
+  geom_hline(
+    yintercept = q_global,
+    linetype = "dashed",
+    linewidth = linewidth,
+    alpha = alpha_line
+  ) +
+  # Points
+  geom_point(aes(fill = measure),
+             shape = 21,
+             size = 3.2,
+             stroke = 0.4,
+             color = "black",
+             alpha = 0.9,
+             show.legend = FALSE) +
+  
+  # Clean blue gradient (Nature-friendly, perceptually smooth)
+  scale_fill_gradient(
+    low  = "#F7FBFF",
+    high = "#08306B"
+  ) +
+  
+  # Repelled labels (better spacing control)
+  ggrepel::geom_text_repel(
+    aes(label = celltype),
+    size = 3.5,
+    max.overlaps = 8,
+    box.padding = 0.4,
+    point.padding = 0.3,
+    segment.size = 0.3,
+    segment.color = "grey50",
+    min.segment.length = 0,
+    seed = 123
+  ) +
+  
+  labs(
+    x = "ISC score (Local)",
+    y = "ISC score (Global)"
+  ) +
+  
+  coord_cartesian(clip = "off") +
+  
+  theme_classic(base_size = 12) +
+  theme(
+    axis.title = element_text(size = 20),
+    axis.text  = element_text(size = 11),
+    axis.line  = element_line(linewidth = 0.4),
+    axis.ticks = element_blank(),
+    plot.margin = margin(10, 20, 10, 10)
+  )
+
+pl_scatter
+
+```
+## 4. SCCAF
+```{r}
+
+```
+
+
+
+## 5. MetaNeighbor
+
+```{r}
+library(MetaNeighbor)
+```
+
