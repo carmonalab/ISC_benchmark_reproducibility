@@ -598,6 +598,36 @@ write_lt_between_reference_consistency_outputs <- function(unique_cons,
   out_files
 }
 
+# Batch pairs use the same reference-file layout and output schema as
+# between-dataset pairs, so reuse the shared compute-and-fan-out helpers.
+compute_lt_batch_unique_reference_consistency <- function(reference_dataset_id,
+                                                           rep,
+                                                           pairs,
+                                                           data_dir,
+                                                           sample_col = "sample",
+                                                           ncores = 1) {
+  compute_lt_between_unique_reference_consistency(
+    reference_dataset_id = reference_dataset_id,
+    rep = rep,
+    pairs = pairs,
+    data_dir = data_dir,
+    sample_col = sample_col,
+    ncores = ncores
+  )
+}
+
+write_lt_batch_reference_consistency_outputs <- function(unique_cons,
+                                                          unique_grid,
+                                                          pairs,
+                                                          output_dir = NULL) {
+  write_lt_between_reference_consistency_outputs(
+    unique_cons = unique_cons,
+    unique_grid = unique_grid,
+    pairs = pairs,
+    output_dir = output_dir
+  )
+}
+
 # One-vs-rest MCC per true cell type from a raw prediction file (query split).
 compute_mcc_one_vs_rest <- function(result_path) {
   run_df <- readRDS(result_path)
