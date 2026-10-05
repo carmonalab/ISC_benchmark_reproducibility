@@ -598,6 +598,33 @@ write_lt_between_reference_consistency_outputs <- function(unique_cons,
   out_files
 }
 
+# One-vs-rest MCC per true cell type from a raw prediction file (query split).
+compute_mcc_one_vs_rest <- function(result_path) {
+  run_df <- readRDS(result_path)
+  pred_vector <- purge_label_local(run_df$prediction)
+  true_vector <- purge_label_local(run_df$cell_type)
+
+  cell_types <- unique(true_vector)
+  cell_types <- cell_types[!is.na(cell_types)]
+
+  do.call(rbind, lapply(cell_types, function(ct) {
+    p <- pred_vector == ct
+    t <- true_vector == ct
+    valid <- !(is.na(p) | is.na(t))
+    p <- p[valid]
+    t <- t[valid]
+
+    tp <- sum(p & t)
+    fp <- sum(p & !t)
+    fn <- sum(!p & t)
+    tn <- sum(!p & !t)
+
+    denom <- sqrt(as.numeric(tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    data.frame(cell_type = ct,
+               mcc = if (denom > 0) (tp * tn - fp * fn) / denom else 0)
+  }))
+}
+
 aggregate_lt_consistency_results <- function(consistency_dir, output_file) {
   ensure_dir(dirname(output_file))
   files <- list.files(consistency_dir, pattern = "\\.rds$", full.names = TRUE)
@@ -607,6 +634,30 @@ aggregate_lt_consistency_results <- function(consistency_dir, output_file) {
   }
 
   combined <- purrr::map_df(files, readRDS)
+
+  # MCC is not stored per-branch; recompute it from the raw predictions.
+  raw_dir <- file.path(dirname(consistency_dir), "raw_results")
+  mcc_keys <- combined %>%
+    dplyr::filter(split == "query") %>%
+    dplyr::distinct(dataset_id, classifier, replicate)
+  mcc_table <- purrr::pmap_dfr(mcc_keys, function(dataset_id, classifier, replicate) {
+    result_path <- file.path(raw_dir,
+                             sprintf("%s_%s_rep%d.rds", dataset_id, classifier, replicate))
+    if (!file.exists(result_path)) return(NULL)
+    res <- tryCatch(compute_mcc_one_vs_rest(result_path), error = function(e) NULL)
+    if (is.null(res)) return(NULL)
+    dplyr::mutate(res, dataset_id = dataset_id, classifier = classifier,
+                  replicate = replicate, split = "query")
+  })
+  if (nrow(mcc_table) == 0) {
+    mcc_table <- data.frame(cell_type = character(), mcc = numeric(),
+                            dataset_id = character(), classifier = character(),
+                            replicate = integer(), split = character())
+  }
+  combined <- dplyr::left_join(
+    combined, mcc_table,
+    by = c("dataset_id", "classifier", "replicate", "split", "cell_type")
+  )
 
   # "product" (combined ISC score) was never written per-branch, so derive it
   # here from the core method columns instead of recomputing every branch.
@@ -624,6 +675,10 @@ aggregate_lt_consistency_results <- function(consistency_dir, output_file) {
       mean_product = mean(product, na.rm = TRUE),
       macro_f1 = {
         m <- mean(f1, na.rm = TRUE)
+        if (is.nan(m)) NA_real_ else m
+      },
+      macro_mcc = {
+        m <- mean(mcc, na.rm = TRUE)
         if (is.nan(m)) NA_real_ else m
       },
       .groups = "drop"
