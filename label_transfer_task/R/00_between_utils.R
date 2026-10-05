@@ -51,7 +51,7 @@ get_lt_between_pairs_filter <- function(params) {
 # ============================================================================
 
 normalize_specs_token <- function(x) {
-  x <- as.character(x)
+  x <- trimws(as.character(x))
   x <- gsub("[^a-zA-Z0-9._-]", ".", x)
   x <- gsub("\\.+", ".", x)
   x
