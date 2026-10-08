@@ -179,3 +179,166 @@ run_seurat_workflow <- function(
    
    return(seu)
 }
+
+
+get_umap_embeddings <- function(scTypeEval,
+                                assay = "single-cell",
+                                seed = 22,
+                                ...) {
+   embeds <- scTypeEval@reductions[[assay]]@embeddings
+   
+   um <- uwot::umap(t(embeds), seed = seed, ...)
+   colnames(um) <- c("umap_1", "umap_2")
+   
+   md <- scTypeEval@metadata
+   md <- md[rownames(um),]
+   
+   if(!identical(rownames(md), rownames(um))){
+      stop("Not identical rownames between umap embeddings and metadata")
+   }
+   df <- cbind(um, md)
+
+   return(df)
+}
+
+
+plot_umap_embeddings <- function(df,
+                                 color.by = "celltype",
+                                 label = TRUE,
+                                 label.by = color.by,
+                                 colors = NULL,
+                                 dot.size = 0.5,
+                                 label.size = 8,
+                                 show.legend = FALSE,
+                                 keep.square = TRUE) {
+
+   pl <- ggplot2::ggplot(df) +
+      ggplot2::geom_point(
+         ggplot2::aes(x = umap_1, y = umap_2, color = .data[[color.by]]),
+         alpha = 0.8,
+         size = dot.size,
+         show.legend = show.legend
+      ) +
+      ggpubr::theme_classic2() +
+      ggplot2::theme(
+         legend.text = ggplot2::element_text(size = 12, face = "bold"),
+         axis.title = ggplot2::element_text(size = 22),
+         axis.text = ggplot2::element_blank(),
+         axis.ticks = ggplot2::element_blank(),
+         axis.line = ggplot2::element_blank()
+      )
+   
+   if (keep.square) {
+      pl <- pl + ggplot2::coord_fixed() + ggplot2::theme(aspect.ratio = 1)
+   }
+   
+   if (!is.null(colors)) {
+      pl <- pl + ggplot2::scale_color_manual(values = colors)
+   }
+   
+   if (label) {
+      cnt <- df |>
+         dplyr::group_by(.data[[label.by]]) |>
+         dplyr::summarize(umap_1 = mean(umap_1), umap_2 = mean(umap_2))
+      pl <- pl +
+         ggrepel::geom_label_repel(
+            data = cnt,
+            ggplot2::aes(x = umap_1, y = umap_2,
+                         label = .data[[label.by]],
+                         color = .data[[label.by]]),
+            alpha = 0.9,
+            size = label.size,
+            max.overlaps = Inf,
+            show.legend = FALSE
+         )
+   }
+   return(pl)
+}
+
+
+get_pseudobulk <- function(scTypeEval,
+                           filter = NULL,
+                           genes = NULL,
+                           order = NULL,
+                           ident = "celltype",
+                           sample = "sample",
+                           vars = NULL){
+   
+   if(is.null(filter)){
+      md <- scTypeEval@metadata
+      
+   } else {
+      md <- scTypeEval@metadata %>% 
+         filter(.data[[names(filter)]] == filter)
+   }
+   
+   mat <- scTypeEval@data$pseudobulk@matrix
+   cts <- scTypeEval@data$pseudobulk@ident[[ident]] %>%
+      unique()
+   
+   if(!is.null(genes)){
+      g <- intersect(genes, rownames(mat))
+      mat <- mat[g,]
+   }
+   
+   
+   # get metadata
+   ps_md <- md %>% 
+      mutate(!!ident := scTypeEval:::purge_label(.data[[ident]]),
+             !!sample := scTypeEval:::purge_label(.data[[sample]]),
+            sample_id  = paste(.data[[sample]], .data[[ident]], sep = "_")
+             ) %>% 
+      filter(.data[[ident]] %in% cts,
+             sample_id %in% colnames(mat))
+   selected_vars <- c("sample_id", ident, sample, vars)
+   ps_md <- ps_md[,selected_vars] %>% 
+      distinct(sample_id, .keep_all = T)
+   rownames(ps_md) <- ps_md$sample_id
+   ps_md <- ps_md %>% 
+      select(-sample_id)
+   
+   if(!is.null(order)){
+      ps_md[[ident]] <- factor(ps_md[[ident]],
+                               levels = order)
+      ps_md <- ps_md %>% 
+         arrange(.data[[ident]],
+                 .data[[sample]])
+   }
+   
+   mat <- mat[,rownames(ps_md)]
+   ps_md <- ps_md %>% 
+      select(-.data[[sample]])
+   
+   ret <- list(matrix = mat,
+               metadata = ps_md)
+}
+
+library(pheatmap)
+do_heatmap <- function(ps,
+                       do_scale = TRUE,
+                       cap = 4,
+                       cluster_rows = TRUE,
+                       cluster_cols = FALSE){
+   
+   if(do_scale){
+      mat_scaled <- t(scale(t(ps$matrix)))
+      mat_scaled <- pmax(pmin(mat_scaled, cap), -cap)
+   } else {
+      mat_scaled <- ps$matrix
+   }
+   
+   gaps <- table(ps$metadata[[ident]]) %>% as.vector()
+   gaps <- cumsum(gaps)
+   
+   ph <- pheatmap(
+      mat = mat_scaled,
+      cluster_cols = cluster_cols,
+      cluster_rows = cluster_rows,
+      annotation_col = ps$metadata,
+      show_colnames = FALSE,
+      gaps_col = gaps
+   )
+   
+   return(ph)
+   
+}
