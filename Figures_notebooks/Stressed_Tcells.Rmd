@@ -320,17 +320,17 @@ markers <- list(
     "CD8.Tex"    = c("TOX", "LAG3", "PRDM1", "CD27"),
     "CD4.Th17"   = c("RORC", "RORA", "CCR6", "IL17A"),
     "CD8.t.Teff" = c("GZMH", "FGFBP2", "PRF1", "CD69"),
-    "CD4.Tcm"    = c("MAL", "LTB", "BCL2", "TCF7"),
+    "CD4.Tcm"    = c("IL7R", "GPR183", "CD69", "TCF7"),
     "CD8.Tstr"   = str.genes,
     "CD8.Tn"     = c("CCR7", "TCF7", "SELL"),
-    "CD8.p.Tex"  = c("CXCL13", "PDCD1", "TIGIT", "CD27"),
+    "CD8.p-Tex"  = c("PDCD1", "TIGIT", "TOX", "TCF7"),
     "CD8.Teff"   = c("NKG7", "GNLY", "GZMB"),
     "CD4.Tfh"    = c("CXCR5", "ICOS", "BCL6", "PDCD1"),
-    "CD4.Tctl"   = c("GZMH", "GZMB", "GNLY", "NKG7", "CCL3", "KLRG1"),
+    "CD4.Tctl"   = c("GZMA", "GZMB", "GNLY", "NKG7", "FGFBP2", "PRF1"),
     "CD4.Tn"     = c("LEF1", "CCR7", "SELL", "IL7R"),
     "CD8.Tisg"   = c("ISG15", "IFIT1", "MX1"),
     "CD4.Tstr"   = str.genes,
-    "CD8.Tcm"    = c("DKK3")
+    "CD8.Tcm"    = c("CCR7", "TCF7", "SELL", "LEF1", "NOSIP")
 )
 ```
 
@@ -380,6 +380,72 @@ ph_cd4 <- do_heatmap(ps_cd4,
                      cap = 4,
                      cluster_rows = F)
 ```
+
+## 6.3 UCell scoring
+
+### CD4
+```{r}
+library(UCell)
+sigs <- markers[grepl("CD4", names(markers))] 
+cd4 <- AddModuleScore_UCell(cd4,
+                            features = sigs,
+                            ncores = 7,
+                            name = "_score")
+```
+
+```{r}
+bp_do <- c("CD4.Tn","CD4.Tctl",
+           "CD4.Treg", "CD4.Tcm",
+           "CD4.Tstr") %>% 
+  sort()
+pat <- paste(bp_do, collapse = "|") %>% 
+  gsub("[.]", "[.]", .)
+bp_cd4 <- lapply(bp_do,
+                 function(c){
+                   sample_boxplot_expression(cd4,
+                                             signature_pattern = pat,
+                                             ident = ident,
+                                             ident_sel = c,
+                                             sample = "sample")
+                 })
+
+bp_cd4_gg <- ggpubr::ggarrange(plotlist = bp_cd4,
+                               nrow = 1)
+bp_cd4_gg
+```
+
+### CD8
+```{r}
+library(UCell)
+sigs <- markers[grepl("CD8", names(markers))] 
+cd8 <- AddModuleScore_UCell(cd8,
+                            features = sigs,
+                            ncores = 7,
+                            name = "_score")
+```
+
+```{r}
+bp_do <- c("CD8.Tn","CD8.Teff",
+           "CD8.Tex", "CD8.Tcm",
+           "CD8.Tstr", "CD8.p-Tex") %>% 
+  sort()
+pat <- paste(bp_do, collapse = "|") %>% 
+  gsub("[.]", "[.]", .)
+bp_cd8 <- lapply(bp_do,
+                 function(c){
+                   sample_boxplot_expression(cd8,
+                                             signature_pattern = pat,
+                                             ident = ident,
+                                             ident_sel = c,
+                                             sample = "sample")
+                 })
+
+bp_cd8_gg <- ggpubr::ggarrange(plotlist = bp_cd8,
+                               nrow = 1)
+bp_cd8_gg
+```
+
+
 
 
 # 7. Reannotation
