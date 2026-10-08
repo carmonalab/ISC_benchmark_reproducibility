@@ -48,7 +48,7 @@ dm <- c("Pseudobulk:Cosine",
         "recip_classif:Match")
 # min samples to consider a cell type
 min_samples <- 3
-min_cells <- 10
+min_cells <- 5
 ```
 
 
@@ -214,132 +214,172 @@ consistency_barplot(meta_neighbor_results,
 ```
 # 6. Markers expression
 
-Using same authors markers as in the paper:
+## 6.1 umap
+
+### Process for Seurat - CD4 & CD8
+
+```{r}
+filter_sctypeval <- FALSE # if false run standard Seurat workflow
+
+if(filter_sctypeval){
+  keep <- colnames(sc@data$`single-cell`@matrix)
+  md <- object$metadata[keep,]
+  counts <- object$counts[,keep]
+  hvg <- sc@gene_lists$HVG
+} else {
+  md <- object$metadata
+  counts <- object$counts
+  hvg <- NULL
+}
+
+seu <- run_seurat_workflow(counts = counts,
+                           metadata = md,
+                           do.scale = T,
+                           hvg = hvg)
+```
+
+```{r}
+UMAPPlot(seu,
+         group.by = ident,
+         label = T,
+         repel = T)
+```
+### scTypeEval
+
+```{r}
+um <- get_umap_embeddings(sc)
+plot_umap_embeddings(um)
+```
+
+
+
+### CD4
+
+#### Seurat
+
+```{r}
+md <- object$metadata %>% 
+  filter(Celltype == "CD4")
+counts <- object$counts[,rownames(md)]
+
+cd4 <- run_seurat_workflow(counts = counts,
+                           metadata = md,
+                           do.scale = T)
+```
+
+```{r}
+UMAPPlot(cd4,
+         group.by = ident,
+         label = T,
+         repel = T)
+UMAPPlot(cd4,
+         group.by = sample)
+```
+
+### CD8
+
+#### Seurat
+
+```{r}
+md <- object$metadata %>% 
+  filter(Celltype == "CD8")
+counts <- object$counts[,rownames(md)]
+
+cd8 <- run_seurat_workflow(counts = counts,
+                           metadata = md,
+                           do.scale = T)
+```
+
+```{r}
+UMAPPlot(cd8,
+         group.by = ident,
+         label = T,
+         repel = T)
+UMAPPlot(cd8,
+         group.by = sample)
+```
+
+
+## 6.2 Gene markers
+
+### Define gene markers
 
 ```{r}
 path <- "~/Documents/Projects/Pan-cancer_human_TILs/cache"
 chu.markers <- list()
-chu.markers[["CD4"]] <- read.table(file.path(path, "Chu_cd4_markers.txt"))$V1
-chu.markers[["CD8"]] <- read.table(file.path(path, "Chu_cd8_markers.txt"))$V1
+chu.markers[["CD4"]] <- read.table(file.path(path, "Chu_cd4_markers.txt"))
+chu.markers[["CD8"]] <- read.table(file.path(path, "Chu_cd8_markers.txt"))
+
+str.genes <- c("HSPA1A","HSPA1B", "BAG3", "HSPE1", "HSPB1", "HSPD1", "NR4A1", "NFKB1")
 ```
 
 
-### umap
-
 ```{r}
-helper.plot.scatter <- function(df,
-                                show.legend = FALSE,
-                                label = TRUE,
-                                dot.size = 5,
-                                label.size = 8,
-                                color.by = "celltype",
-                                label.by = "celltype",
-                                vars = NULL,
-                                keep.square = TRUE) {
-   # Replace dots with spaces in the ident column
-   
-  pl <- ggplot2::ggplot() +
-    ggplot2::geom_point(
-      data = df,
-      ggplot2::aes(
-        x = .data[[names(df)[1]]],  # First column
-        y = .data[[names(df)[2]]],  # Second column
-        color = .data[[color.by]]
-      ),
-      alpha = 0.8,
-      size = dot.size,
-      show.legend = show.legend) +
-    ggpubr::theme_classic2() +
-    ggplot2::theme(legend.text = ggplot2::element_text(size = 12, face = "bold"),
-                   axis.title = ggplot2::element_text(size = 22),
-                   axis.text = ggplot2::element_blank(),
-                   axis.ticks = ggplot2::element_blank(),
-                   axis.line = ggplot2::element_blank()
-    )
-
-  if (keep.square) {
-    pl <- pl +
-      ggplot2::coord_fixed() +
-      ggplot2::theme(aspect.ratio = 1)
-  }
-  
-   if(label){
-      # Calculate centroids and format labels
-      cnt <- df |>
-         dplyr::group_by(.data[[label.by]]) |>
-         dplyr::summarize(
-            x = mean(.data[[names(df)[1]]]),
-            y = mean(.data[[names(df)[2]]]),
-         )
-      # Always show labels for mentioned cell types
-      pl <- pl +
-        ggrepel::geom_label_repel(
-          data = cnt,
-          ggplot2::aes(
-            x = x,
-            y = y,
-            label = .data[[label.by]],
-            color = .data[[label.by]],
-          ),
-          alpha = 0.9,
-          size = label.size,
-          max.overlaps = Inf,
-          show.legend = FALSE
-        )
-   }
-  
-  if(!is.null(vars)){
-    labs <- paste0(names(vars), " (", vars, "%)")
-    
-    pl <- 
-      pl +
-      ggplot2::labs(x = labs[1],
-                    y = labs[2])
-  }
-   
-   return(pl)
-}
-```
-
-
-Same but with umap
-```{r}
-# obtain umap embeddings from 30 PCs PCA
-um <- uwot::umap(sc@reductions$`single-cell`@embeddings %>% t(),
-                 seed = 22
-                 # metric = "cosine",
-                 # min_dist = 0.3,
-                 # n_neighbors = 10
+markers <- list(
+    "CD4.Treg"   = c("FOXP3", "CTLA4", "IL2RA", "TNFRSF4"),
+    "CD8.Tex"    = c("TOX", "LAG3", "PRDM1", "CD27"),
+    "CD4.Th17"   = c("RORC", "RORA", "CCR6", "IL17A"),
+    "CD8.t.Teff" = c("GZMH", "FGFBP2", "PRF1", "CD69"),
+    "CD4.Tcm"    = c("MAL", "LTB", "BCL2", "TCF7"),
+    "CD8.Tstr"   = str.genes,
+    "CD8.Tn"     = c("CCR7", "TCF7", "SELL"),
+    "CD8.p.Tex"  = c("CXCL13", "PDCD1", "TIGIT", "CD27"),
+    "CD8.Teff"   = c("NKG7", "GNLY", "GZMB"),
+    "CD4.Tfh"    = c("CXCR5", "ICOS", "BCL6", "PDCD1"),
+    "CD4.Tctl"   = c("GZMH", "GZMB", "GNLY", "NKG7", "CCL3", "KLRG1"),
+    "CD4.Tn"     = c("LEF1", "CCR7", "SELL", "IL7R"),
+    "CD8.Tisg"   = c("ISG15", "IFIT1", "MX1"),
+    "CD4.Tstr"   = str.genes,
+    "CD8.Tcm"    = c("DKK3")
 )
-
-df <- um |>
-  as.data.frame()
-
-names(df) <- c("umap_1", "umap_2")
-
-df_umap <- df %>%
-   tibble::rownames_to_column("id") %>% 
-   left_join(., sc@metadata,
-             by = "id") %>% 
-   tibble::column_to_rownames("id")
-
-
 ```
 
 
+### Heatmap
+Get pseudobulk expression per sample and cell type
 ```{r}
-dt <- 0.5
-umap_celltype <- helper.plot.scatter(df = df_umap,
-                                     dot.size = dt,
-                                     show.legend = F)
+isc_order <- rev(consis$celltype)
 
-umap_celltype
+genes <- markers[isc_order] %>%
+  unlist(use.names = F)
 ```
 
 ```{r}
-
+ps <- get_pseudobulk(sc,
+                     order = isc_order,
+                     genes = genes)
 ```
 
+Make heatmap
+
+```{r}
+phall <- do_heatmap(ps)
+```
+
+### Per CD4 & CD8
+
+```{r}
+genes <- markers[grepl("CD8", names(markers))] %>%
+  unlist(use.names = F)
+ps_cd8 <- get_pseudobulk(sc,
+                     order = isc_order,
+                     genes = genes,
+                     filter = c("Celltype" = "CD8"))
+ph_cd8 <- do_heatmap(ps_cd8,
+                     cap = 4)
+```
+
+```{r}
+genes <- markers[grepl("CD4", names(markers))] %>%
+  unlist(use.names = F)
+ps_cd4 <- get_pseudobulk(sc,
+                     order = isc_order,
+                     genes = genes,
+                     filter = c("Celltype" = "CD4"))
+ph_cd4 <- do_heatmap(ps_cd4,
+                     cap = 4,
+                     cluster_rows = F)
+```
 
 
 # 7. Reannotation
