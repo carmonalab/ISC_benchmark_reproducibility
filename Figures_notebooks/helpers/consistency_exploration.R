@@ -342,3 +342,44 @@ do_heatmap <- function(ps,
    return(ph)
    
 }
+
+
+sample_boxplot_expression <- function(seu,
+                                      signature_pattern = "_score",
+                                      ident = "celltype",
+                                      ident_sel = "CD4.Tstr",
+                                      sample = "sample") {
+   
+   df <- seu@meta.data %>% 
+      filter(.data[[ident]] == ident_sel)
+   keep <- grep(signature_pattern, names(df), value = T)
+   keep <- c(sample, keep)
+   
+   df <- df[,keep]
+   
+   df <- df %>% 
+      pivot_longer(-c(.data[[sample]]),
+                   names_to = "signature",
+                   values_to = "score") %>% 
+      mutate(signature = factor(
+         gsub("_score", "", signature),
+         levels = sort(unique(gsub("_score", "", signature)))
+      ))
+   
+   pl <- df %>% 
+      ggplot(aes(.data[[sample]], score,
+                 fill = signature)) +
+      geom_boxplot(show.legend = F) +
+      ylim(c(0,1)) +
+      facet_wrap(~ signature,
+                 ncol = 1) +
+      labs(y = "Cell type gene signature score",
+           x = sample,
+           title = ident_sel) +
+      ggpubr::theme_classic2() +
+      theme(axis.text.x = element_text(angle = 45,
+                                       hjust = 1,
+                                       vjust = 1))
+   
+   
+}
