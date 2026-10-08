@@ -30,7 +30,7 @@ library(tidyr)
 library(BiocParallel)
 library(Seurat)
 library(scTypeEval)
-
+source("helpers/consistency_exploration.R")
 # Custom theme
 theme_set(theme_bw(base_size = 12))
 ```
@@ -153,99 +153,14 @@ consis <- cons %>%
 ## 3.1. plotting
 ### barplot
 ```{r}
-yval <- "local"
-pl <- consis %>% 
-  ggplot(aes(y = reorder(celltype, .data[[yval]]),
-             x = .data[[yval]],
-             fill = .data[[yval]])) +
-  geom_col(show.legend = FALSE,
-           color = "grey50") +
-  scale_fill_gradient(
-    low  = "white",
-    high = "#2166AC"   # deep blue
-  ) +
-  labs(y = "Author's annotation",
-       x = "ISC score") +
-  ggpubr::theme_classic2() +
-  theme(axis.title = element_text(size = 22),
-        axis.ticks = element_blank())
-
-pl
+consistency_barplot(consis, x_threshold = q_local)
 ```
 ### scatter
 
 Joint distribution of per-cell-type ISCL (silhouette on reciprocal-classification match) and ISCG (2-label silhouette on pseudobulk cosine similarity) across atlas labels (“cell_type”). Each point represents one annotated cell type. 
 
 ```{r}
-# empirical threshold found in 5_Figure.Rmd
-q_local <- 0.45
-q_global <- 0.74
-
-linewidth <- 0.5
-alpha_line <- 0.6
-
-pl_scatter <- consis %>%
-  ggplot(aes(x = local,
-             y = global)) +
-  # threshold line of figure 5
-  geom_vline(
-    xintercept = q_local,
-    linetype = "dashed",
-    linewidth = linewidth,
-    alpha = alpha_line
-  ) +
-  geom_hline(
-    yintercept = q_global,
-    linetype = "dashed",
-    linewidth = linewidth,
-    alpha = alpha_line
-  ) +
-  # Points
-  geom_point(aes(fill = measure),
-             shape = 21,
-             size = 3.2,
-             stroke = 0.4,
-             color = "black",
-             alpha = 0.9,
-             show.legend = FALSE) +
-  
-  # Clean blue gradient (Nature-friendly, perceptually smooth)
-  scale_fill_gradient(
-    low  = "#F7FBFF",
-    high = "#08306B"
-  ) +
-  
-  # Repelled labels (better spacing control)
-  ggrepel::geom_text_repel(
-    aes(label = celltype),
-    size = 3.5,
-    max.overlaps = 8,
-    box.padding = 0.4,
-    point.padding = 0.3,
-    segment.size = 0.3,
-    segment.color = "grey50",
-    min.segment.length = 0,
-    seed = 123
-  ) +
-  
-  labs(
-    x = "ISC score (Local)",
-    y = "ISC score (Global)"
-  ) +
-  
-  coord_cartesian(clip = "off") +
-  
-  theme_classic(base_size = 12) +
-  theme(
-    axis.title = element_text(size = 20),
-    axis.text  = element_text(size = 11),
-    axis.line  = element_line(linewidth = 0.4),
-    axis.ticks = element_blank(),
-    plot.margin = margin(10, 20, 10, 10)
-  )
-
-pl_scatter
-
+consistency_scatter(consis)
 ```
 ## 4. SCCAF
 ```{r}
@@ -271,24 +186,9 @@ sccaf_results
 
 ### barplot
 ```{r}
-yval <- "score"
-pl <- sccaf_results %>% 
-  ggplot(aes(y = reorder(celltype, .data[[yval]]),
-             x = .data[[yval]],
-             fill = .data[[yval]])) +
-  geom_col(show.legend = FALSE,
-           color = "grey50") +
-  scale_fill_gradient(
-    low  = "white",
-    high = "#2166AC"   # deep blue
-  ) +
-  labs(y = "Author's annotation",
-       x = "SCCAF F1") +
-  ggpubr::theme_classic2() +
-  theme(axis.title = element_text(size = 22),
-        axis.ticks = element_blank())
-
-pl
+consistency_barplot(sccaf_results,
+                    xval = "f1_score",
+                    xlabel = "SCCAF F1")
 ```
 
 
@@ -308,24 +208,9 @@ meta_neighbor_results
 ```
 ### barplot
 ```{r}
-yval <- "measure"
-pl <- meta_neighbor_results %>% 
-  ggplot(aes(y = reorder(celltype, .data[[yval]]),
-             x = .data[[yval]],
-             fill = .data[[yval]])) +
-  geom_col(show.legend = FALSE,
-           color = "grey50") +
-  scale_fill_gradient(
-    low  = "white",
-    high = "#2166AC"   # deep blue
-  ) +
-  labs(y = "Author's annotation",
-       x = "MetaNeighbor AUROC") +
-  ggpubr::theme_classic2() +
-  theme(axis.title = element_text(size = 22),
-        axis.ticks = element_blank())
-
-pl
+consistency_barplot(meta_neighbor_results,
+                    xval = "measure",
+                    x_threshold = 0.5)
 ```
 # 6. Markers expression
 
