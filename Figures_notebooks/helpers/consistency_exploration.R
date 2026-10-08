@@ -124,8 +124,11 @@ library(Seurat)
 run_seurat_workflow <- function(
       counts,
       metadata = NULL,
+      hvg = NULL,
       nfeatures = 2000,
       npcs = 30,
+      do.center = TRUE,
+      do.scale = TRUE,
       seed = 22
 ) {
    
@@ -140,21 +143,31 @@ run_seurat_workflow <- function(
       scale.factor = 10000,
       verbose = FALSE
    )
-   seu <- FindVariableFeatures(
-      seu,
-      selection.method = "vst",
-      nfeatures = nfeatures,
-      verbose = FALSE
-   )
+   
+   if(is.null(hvg)){
+      seu <- FindVariableFeatures(
+         seu,
+         selection.method = "vst",
+         nfeatures = nfeatures,
+         verbose = FALSE
+      )
+      
+   } else {
+      VariableFeatures(seu) <- hvg
+   }
+   
    seu <- ScaleData(
       seu,
       features = VariableFeatures(seu),
+      do.center = do.center,
+      do.scale = do.scale,
       verbose = FALSE
    )
    seu <- RunPCA(
       seu,
       features = VariableFeatures(seu),
       npcs = npcs,
+      seed.use = 22,
       verbose = FALSE
    )
    seu <- RunUMAP(
