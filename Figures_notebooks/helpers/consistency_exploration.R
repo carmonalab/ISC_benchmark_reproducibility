@@ -385,45 +385,96 @@ sample_boxplot_expression <- function(seu,
 }
 
 library(ProjecTILs)
-self_project_pt <- function(seu,
-                            heldout = "CD4.Tstr",
-                            ident = "celltype",
-                            sample_split = 0.5,
-                            sample_id = "patient",
-                            npcs = 50,
-                            seed = 22){
+self_project_pt <- function(
+      seu,
+      heldout = "CD4.Tstr",
+      ident = "celltype",
+      sample_split = 0.5,
+      sample_id = "patient",
+      npcs = 30,
+      nfeatures = 2000,
+      seed = 22
+) {
    
-   spls <- unique(seu@meta.data[[sample_id]])
-   n_samples <- ceiling(length(spls)*sample_split)
+   stopifnot(sample_split > 0, sample_split <= 1)
    
+   meta <- seu[[]]
+   
+   # Validate metadata
+   if (!all(c(ident, sample_id) %in% colnames(meta))) {
+      stop("ident or sample_id is not present in Seurat metadata.")
+   }
+   
+   if (!heldout %in% meta[[ident]]) {
+      stop("Held-out cell type not found in metadata.")
+   }
+   
+   # Select patients containing at least one held-out cell
+   target_samples <- unique(
+      as.character(meta[[sample_id]][
+         meta[[ident]] == heldout &
+            !is.na(meta[[sample_id]])
+      ])
+   )
+   
+   if (length(target_samples) < 2) {
+      stop("At least two patients containing the held-out cell type are needed.")
+   }
+   
+   # Hold out a subset of target-positive patients
    set.seed(seed)
-   query_samples <- sample(spls, n_samples)
+   n_query <- min(
+      length(target_samples) - 1L,
+      ceiling(length(target_samples) * sample_split)
+   )
    
+   query_samples <- sample(target_samples, n_query)
    
-   query <- seu[,seu@meta.data[[ident]] == heldout &
-                   seu@meta.data[[sample_id]] %in% query_samples]
-   query <- CreateSeuratObject(counts = GetAssayData(query, assay = "RNA",
-                                                     layer = "counts"),
-                               meta.data = query@meta.data)
+   query_cells <- rownames(meta)[
+      meta[[ident]] == heldout &
+         as.character(meta[[sample_id]]) %in% query_samples
+   ]
    
-   ref <- seu[,seu@meta.data[[ident]] != heldout &
-                 !seu@meta.data[[sample_id]] %in% query_samples]
-   ref <- run_seurat_workflow(counts = GetAssayData(ref, assay = "RNA",
-                                                    layer = "counts"),
-                              metadata = ref@meta.data,
-                              npcs = npcs)
+   # Exclude all cells from query patients from the reference
+   ref_cells <- rownames(meta)[
+      meta[[ident]] != heldout &
+         !as.character(meta[[sample_id]]) %in% query_samples
+   ]
    
-   ref_manual <- make.reference(
+   if (length(query_cells) == 0 || length(ref_cells) == 0) {
+      stop("The query or reference contains no cells.")
+   }
+   
+   # Create query from raw counts
+   query <- subset(seu, cells = query_cells)
+   
+   query <- CreateSeuratObject(
+      counts = GetAssayData(query, assay = "RNA", layer = "counts"),
+      meta.data = query[[]]
+   )
+   
+   # Build reference from remaining patients and cell types
+   ref0 <- subset(seu, cells = ref_cells)
+   
+   ref <- run_seurat_workflow(
+      counts = GetAssayData(ref0, assay = "RNA", layer = "counts"),
+      metadata = ref0[[]],
+      npcs = npcs
+   )
+   
+   # Create ProjecTILs reference
+   ref_manual <- ProjecTILs::make.reference(
       ref = ref,
       assay = "RNA",
       ndim = npcs,
       seed = seed,
       recalculate.umap = TRUE,
-      nfeatures = 2000,
+      nfeatures = nfeatures,
       annotation.column = ident
    )
    
-   proj <- Run.ProjecTILs(
+   # Project held-out cells onto the reference
+   proj <- ProjecTILs::Run.ProjecTILs(
       query = query,
       ref = ref_manual,
       filter.cells = FALSE,
@@ -433,12 +484,27 @@ self_project_pt <- function(seu,
       fast.umap.predict = FALSE
    )
    
-   pl <- plot.projection(
+   # UMAP visualization
+   p_projection <- ProjecTILs::plot.projection(
       ref = ref_manual,
       query = proj,
       linesize = 0.2,
       pointsize = 1.2
-   ) + ggtitle(heldout)
+   ) +
+      ggplot2::ggtitle(paste("Held out:", heldout))
    
-   return(pl)
+   # Which reference annotations receive the query cells?
+   p_composition <- ProjecTILs::plot.statepred.composition(
+      ref = ref_manual,
+      query = proj
+   ) +
+      ggplot2::ggtitle(paste("Predicted states:", heldout))
+   
+   return(list(
+      projection = p_projection,
+      composition = p_composition,
+      projected_query = proj,
+      reference = ref_manual,
+      query_samples = query_samples
+   ))
 }
