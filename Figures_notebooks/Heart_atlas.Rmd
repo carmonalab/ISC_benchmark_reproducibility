@@ -50,14 +50,14 @@ dm <- c("Pseudobulk:Cosine",
         "recip_classif:Match")
 # min samples to consider a cell type
 min_samples <- 3
-min_cells <- 5
+min_cells <- 10
 ```
 
 
 # 1. Load dataset
 
 ```{r}
-lpath <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/hca_subsampled_20k.h5ad"
+lpath <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/hca_global_raw.h5ad"
 
 object <- load_single_cell_object(lpath)
 
