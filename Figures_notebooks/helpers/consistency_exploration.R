@@ -383,3 +383,62 @@ sample_boxplot_expression <- function(seu,
    
    
 }
+
+library(ProjecTILs)
+self_project_pt <- function(seu,
+                            heldout = "CD4.Tstr",
+                            ident = "celltype",
+                            sample_split = 0.5,
+                            sample_id = "patient",
+                            npcs = 50,
+                            seed = 22){
+   
+   spls <- unique(seu@meta.data[[sample_id]])
+   n_samples <- ceiling(length(spls)*sample_split)
+   
+   set.seed(seed)
+   query_samples <- sample(spls, n_samples)
+   
+   
+   query <- seu[,seu@meta.data[[ident]] == heldout &
+                   seu@meta.data[[sample_id]] %in% query_samples]
+   query <- CreateSeuratObject(counts = GetAssayData(query, assay = "RNA",
+                                                     layer = "counts"),
+                               meta.data = query@meta.data)
+   
+   ref <- seu[,seu@meta.data[[ident]] != heldout &
+                 !seu@meta.data[[sample_id]] %in% query_samples]
+   ref <- run_seurat_workflow(counts = GetAssayData(ref, assay = "RNA",
+                                                    layer = "counts"),
+                              metadata = ref@meta.data,
+                              npcs = npcs)
+   
+   ref_manual <- make.reference(
+      ref = ref,
+      assay = "RNA",
+      ndim = npcs,
+      seed = seed,
+      recalculate.umap = TRUE,
+      nfeatures = 2000,
+      annotation.column = ident
+   )
+   
+   proj <- Run.ProjecTILs(
+      query = query,
+      ref = ref_manual,
+      filter.cells = FALSE,
+      ndim = npcs,
+      ncores = 1,
+      progressbar = FALSE,
+      fast.umap.predict = FALSE
+   )
+   
+   pl <- plot.projection(
+      ref = ref_manual,
+      query = proj,
+      linesize = 0.2,
+      pointsize = 1.2
+   ) + ggtitle(heldout)
+   
+   return(pl)
+}
