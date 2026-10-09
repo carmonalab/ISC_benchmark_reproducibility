@@ -5,7 +5,7 @@ Workflow:
 1. Load AnnData from .h5ad.
 2. Pick a clustering column from adata.obs (manual or auto-detected).
 3. Run SCCAF_assessment once.
-4. Compute per-cluster precision, recall, and F1 from SCCAF hold-out predictions.
+4. Compute per-cluster precision, recall, F1, and MCC from SCCAF hold-out predictions.
 5. Save one CSV with per-cluster values.
 """
 
@@ -17,7 +17,7 @@ from pathlib import Path
 import numpy as np
 import scanpy as sc
 from SCCAF import SCCAF_assessment
-from sklearn.metrics import precision_recall_fscore_support
+from sklearn.metrics import matthews_corrcoef, precision_recall_fscore_support
 
 
 def _pick_cluster_key(adata, requested_key=None):
@@ -101,6 +101,16 @@ def run_sccaf_per_cluster(h5ad_path, output_csv, cluster_key=None, n=100):
 	recall = np.asarray(recall, dtype=float)
 	f1 = np.asarray(f1, dtype=float)
 	support = np.asarray(support, dtype=int)
+	mcc = np.asarray(
+		[
+			matthews_corrcoef(
+				np.asarray(true_labels) == cluster,
+				np.asarray(pred_labels) == cluster,
+			)
+			for cluster in all_clusters
+		],
+		dtype=float,
+	)
 
 	with output_path.open("w", newline="") as handle:
 		writer = csv.DictWriter(
@@ -118,6 +128,7 @@ def run_sccaf_per_cluster(h5ad_path, output_csv, cluster_key=None, n=100):
 				"recall_within_cluster",
 				"precision_for_cluster",
 				"f1_score",
+				"mcc",
 			],
 		)
 		writer.writeheader()
@@ -141,6 +152,7 @@ def run_sccaf_per_cluster(h5ad_path, output_csv, cluster_key=None, n=100):
 					"recall_within_cluster": float(recall[i]),
 					"precision_for_cluster": float(precision[i]),
 					"f1_score": float(f1[i]),
+					"mcc": float(mcc[i]),
 				}
 			)
 
