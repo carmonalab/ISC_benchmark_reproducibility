@@ -153,6 +153,8 @@ consis <- cons %>%
 ## 3.1. plotting
 ### barplot
 ```{r}
+q_local <- 0.45
+q_global <- 0.74
 consistency_barplot(consis, x_threshold = q_local)
 ```
 ### scatter
@@ -447,10 +449,27 @@ bp_cd8_gg
 
 
 
+# 7. Self-projection
 
-# 7. Reannotation
+Project using ProjecTILls each cell type
 
+## CD4
 
-# 8. Scores reevaluation
+```{r}
+sp_do <- c("CD4.Tn","CD4.Tctl",
+           "CD4.Treg", "CD4.Tcm",
+           "CD4.Tstr")
+
+cd4_pls <- list()
+
+for(c in sp_do){
+  if(c %in% names(cd4_pls)){next}
+  cat("## Doing ", c, " ## \n ---------------------- \n")
+  cd4_pls[[c]] <- self_project_pt(seu = cd4,
+                  heldout = c)
+}
+  
+```
+
 
 
