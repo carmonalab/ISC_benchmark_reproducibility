@@ -11,13 +11,31 @@ Workflow:
 
 import argparse
 import csv
+import sys
 from collections import Counter
 from pathlib import Path
 
+import h5py
 import numpy as np
 import scanpy as sc
 from SCCAF import SCCAF_assessment
 from sklearn.metrics import matthews_corrcoef, precision_recall_fscore_support
+
+MIN_CELLS_PER_CLUSTER = 10
+
+
+def _decode_strings_as_utf8():
+	"""Make h5py decode string datasets as UTF-8 even when flagged as ASCII.
+
+	anndataR writes strings with the ASCII charset flag but keeps non-ASCII
+	UTF-8 bytes (e.g. "M\u00d8"), which anndata would otherwise fail to decode.
+	"""
+	original = h5py.Dataset.asstr
+
+	def asstr(self, encoding=None, errors="strict"):
+		return original(self, encoding or "utf-8", errors)
+
+	h5py.Dataset.asstr = asstr
 
 
 def _pick_cluster_key(adata, requested_key=None):
@@ -64,10 +82,25 @@ def run_sccaf_per_cluster(h5ad_path, output_csv, cluster_key=None, n=100):
 	n : int
 		SCCAF assessment iterations (passed to SCCAF_assessment).
 	"""
+	_decode_strings_as_utf8()
 	adata = sc.read_h5ad(h5ad_path)
 	key = _pick_cluster_key(adata, cluster_key)
 
 	labels = adata.obs[key].astype(str)
+
+	# SCCAF trains on half of each cluster and runs 5-fold CV, so very small
+	# clusters make StratifiedKFold fail.
+	counts = labels.value_counts()
+	small = counts[counts < MIN_CELLS_PER_CLUSTER].index
+	if len(small) > 0:
+		print(
+			f"Skipping {len(small)} cluster(s) with < {MIN_CELLS_PER_CLUSTER} cells: "
+			f"{list(small)}",
+			file=sys.stderr,
+		)
+		keep = ~labels.isin(small).values
+		adata = adata[keep].copy()
+		labels = labels[keep]
 	_, y_pred, y_test, _, _, _ = SCCAF_assessment(adata.X, labels, n=n)
 
 	output_path = Path(output_csv)
