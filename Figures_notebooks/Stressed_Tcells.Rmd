@@ -471,5 +471,155 @@ for(c in sp_do){
   
 ```
 
+# 8. Reannotation
+
+Try firstly only with CD4+ T cells
+```{r}
+md <- object$metadata %>% 
+  filter(Celltype == "CD4")
+counts <- object$counts[,rownames(md)]
+
+cd4 <- CreateSeuratObject(counts = counts,
+                          meta.data = md)
+```
+
+
+```{r}
+sp_do <- c(
+           "CD4.Th17",
+           "CD4.Treg",
+           "CD4.Tstr")
+
+reann <- list()
+
+for(c in sp_do){
+  if(c %in% names(reann)){next}
+  cat("## Doing ", c, " ## \n ---------------------- \n")
+  reann[[c]] <- reannotate_singleR(seu = cd4,
+                                   heldout = c,
+                                   ncores = 8)
+}
+
+```
+
+
+## Inject new annotation
+
+```{r}
+meta <- md %>% 
+  tibble::rownames_to_column("cellid")
+
+for(c in names(reann)){
+  nc <- paste0("reannot_", c)
+  snout <- reann[[c]] %>% 
+    select(pruned.labels) %>% 
+    tibble::rownames_to_column("cellid")
+  
+  meta <- meta %>% 
+    left_join(., snout, by = "cellid")
+  meta[[nc]] <- ifelse(is.na(meta$pruned.labels),
+                       meta[[ident]],
+                       meta$pruned.labels)
+  meta[["pruned.labels"]] <- NULL
+}
+
+meta <- meta %>% 
+  tibble::column_to_rownames("cellid")
+```
+
+## ISC
+
+```{r}
+isc_idents <- c(ident, grep("reannot_", names(meta),value = T))
+cc <- counts[,rownames(meta)]
+scs <- lapply(isc_idents,
+              function(i){
+                wrapper_scTypeEval(count_matrix = cc,
+                                   metadata = meta,
+                                   ident = i,
+                                   sample = sample,
+                                   dissimilarity_method = dm,
+                                   ncores = 6,
+                                   min_samples = min_samples,
+                                   min_cells = min_cells)
+              })
+names(scs) <- isc_idents
+```
+#### RCM
+```{r}
+lapply(scs, function(x){
+  plot_heatmap(x, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+})
+```
+
+#### ISC-Scatter
+
+```{r}
+cons <- lapply(names(scs), function(x){
+  cons0 <- get_consistency(scs[[x]],
+                           consistency_metric = c("silhouette",
+                                                  "2label_silhouette")
+  )
+  
+  cons <- 
+    cons0 %>% 
+    mutate(method.type = paste(consistency_metric,
+                               dissimilarity_method,
+                               sep = " | ")) %>% 
+    filter(method.type %in% mety) %>% 
+    mutate(method.type = factor(method.type,
+                                levels = mety,
+                                labels = names(mety))) %>% 
+    select(method.type, measure, celltype) %>% 
+    pivot_wider(names_from = "method.type",
+                values_from = "measure") %>% 
+    mutate(measure = global * local
+    ) %>% 
+    filter(!is.na(measure))
+  
+  consis <- cons %>%
+    arrange(measure) %>% 
+    mutate(annot = x)
+  
+  return(consis)
+})
+names(cons) <- names(scs)
+```
+
+```{r}
+lapply(names(cons), function(x){
+  consistency_scatter(cons[[x]]) +
+    labs(title = x)
+})
+```
+
+
+### Annotation improvement
+
+```{r}
+allcons <- cons %>% 
+  data.table::rbindlist()
+```
+
+```{r}
+yval <- "local"
+allcons %>% 
+  ggplot(aes(annot, .data[[yval]])) +
+  geom_boxplot(
+    outlier.color = NA,
+    width = 0.3
+  ) +
+  geom_point(aes(color = celltype),
+                 show.legend = F
+  ) + 
+  ggrepel::geom_text_repel(aes(label = celltype,
+                               color = celltype),
+                           show.legend = F) + 
+  ggpubr::theme_classic2()
+```
+
 
 
