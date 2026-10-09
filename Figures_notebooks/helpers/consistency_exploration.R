@@ -508,3 +508,61 @@ self_project_pt <- function(
       query_samples = query_samples
    ))
 }
+
+
+library(SingleR)
+library(SingleCellExperiment)
+
+reannotate_singleR <- function(seu,
+                               heldout = "CD4.Tstr",
+                               ident = "celltype",
+                               ncores = 1) {
+   
+   # Query: held-out cell type in held-out samples
+   query_cells <- colnames(seu)[
+      seu@meta.data[[ident]] == heldout]
+   
+   # Reference: all other cell types in remaining samples
+   ref_cells <- colnames(seu)[
+      seu@meta.data[[ident]] != heldout]
+   
+   if (length(query_cells) == 0 || length(ref_cells) == 0) {
+      stop("No query or reference cells available. Check the split and metadata.")
+   }
+   
+   # Extract raw counts
+   counts <- GetAssayData(seu, assay = "RNA", layer = "counts")
+   
+   # Create SingleCellExperiment objects
+   query <- SingleCellExperiment(
+      assays = list(counts = counts[, query_cells, drop = FALSE])
+   )
+   query <- scuttle::logNormCounts(query)
+   
+   ref <- SingleCellExperiment(
+      assays = list(counts = counts[, ref_cells, drop = FALSE])
+   )
+   ref <- scuttle::logNormCounts(ref)
+   
+   # Reference labels
+   ref_labels <- seu@meta.data[ref_cells, ident, drop = TRUE]
+   ref_labels <- as.character(ref_labels)
+   
+   bparam <- MulticoreParam(workers = ncores,
+                            progressbar = F)
+   
+   # Run SingleR
+   pred <- SingleR(
+      test = query,
+      ref = ref,
+      labels = ref_labels,
+      de.method = "classic",
+      BPPARAM = bparam
+   )
+   
+   # Return predictions and evaluation data
+   return(as.data.frame(pred))
+}
+
+
+
