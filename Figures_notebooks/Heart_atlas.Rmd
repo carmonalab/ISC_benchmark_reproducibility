@@ -215,3 +215,78 @@ consistency_barplot(meta_neighbor_results,
 ```
 
 
+# 6. Explore dataset
+
+```{r}
+seu <- run_seurat_workflow(counts = object$counts,
+                           metadata = object$metadata)
+```
+
+```{r}
+gb <- c(ident, "age_group", "cell_source",
+        "donor", "gender", "region",
+        "sample", "type", "version",
+        "cell_states")
+
+ups <- lapply(gb, function(g){
+  UMAPPlot(seu,
+           group.by = g)
+})
+names(ups) <- gb
+```
+
+
+# 7. Reannotations
+
+## 7.1. Cardiomyocytes
+
+### PCA-pseudobulk
+
+```{r}
+md <- object$metadata %>% 
+  filter(grepl("Cardio", .data[[ident]]))
+counts <- object$counts[,rownames(md)]
+
+```
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = ident,
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+sc@data$`single-cell` <- NULL
+sc <- run_pca(sc,
+              verbose = F)
+```
+
+```{r}
+plot_pca(sc)
+```
+
+
+
+### Markers expression
+```{r}
+cardiomyo <- list(ventricular = c("MYH7", "MYL2", "IRX3", "IRX5",
+                                  "IRX6", "MASP1", "HEY2", "PRDM16",
+                                  "FHL2", "PCDH7"),
+                  atrial = )
+```
+
+### Merging
+
+
+### ISC
+
