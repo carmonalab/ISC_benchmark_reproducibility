@@ -76,6 +76,50 @@ table(is.na(object$metadata[[ident]]))
 ```
 
 
+# Sample -composition
+
+```{r}
+th <- 1
+
+df <- table(object$metadata[[ident]], object$metadata[[sample]]) %>% 
+  as.data.frame() %>% 
+  dplyr::rename(
+    celltype = Var1,
+    sample = Var2
+  )
+
+# Calculate proportion of samples with zero counts per cell type
+zero_prop <- df %>%
+  group_by(celltype) %>%
+  summarise(
+    prop_zero = mean(Freq < th),
+    .groups = "drop"
+  ) %>%
+  mutate(label = scales::percent(prop_zero, accuracy = 1))
+
+comp_pl <- df %>% 
+  ggplot(aes(celltype, Freq)) +
+  geom_boxplot(show.legend = FALSE) +
+  geom_jitter(
+    aes(color = sample),
+    show.legend = FALSE,
+    width = 0.2
+  ) +
+  geom_text(
+    data = zero_prop,
+    aes(x = celltype, y = Inf, label = paste0("0: ", label)),
+    inherit.aes = FALSE,
+    vjust = 1.5,
+    size = 3
+  ) +
+  scale_y_log10() +
+  ggpubr::theme_classic2() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1, 
+                                   vjust = 1))
+```
+
+
 # 2. Run scTypeEval
 
 ## 2.1 Processing
@@ -114,39 +158,6 @@ for(mdiss in dm){
 # return single-cell data for SCCAF and MetaNeighbor
 sc@data$`single-cell` <- single_mat
 rm(single_mat); gc()
-```
-
-
-
-```{r}
-# remove batch effect using limma
-# ps_mat <- scor@data$pseudobulk@matrix
-# pr_md <- object$metadata %>% 
-#   distinct(.data[[sample]], .data[[ident]],
-#            .data[["cell_source"]]) %>% 
-#   mutate(!!ident := scTypeEval:::purge_label(.data[[ident]]),
-#          !!sample := scTypeEval:::purge_label(.data[[sample]]),
-#          id = paste(.data[[sample]], .data[[ident]], sep = "_")
-#          ) %>% 
-#   tibble::remove_rownames() %>% 
-#   tibble::column_to_rownames("id")
-# 
-# mat_corrected <- remove_batch_effect(
-#   mat = mat,
-#   batch = metadata$batch,
-#   covariates = 
-# )
-
-scor <- run_pca(scor,
-              verbose = F)
-
-for(mdiss in dm){
-  cat("#### Running ", mdiss, " ####\n")
-  scor <- run_dissimilarity(scor,
-                          method = mdiss,
-                          ncores = 6,
-                          verbose = F)
-}
 ```
 
 
@@ -345,10 +356,11 @@ unique(seu_cardio$cell_type)
 
 ```{r}
 cthem <- theme(axis.title.x = element_blank(),
-               axis.text.x = element_text(size = 14,
+               axis.text.x = element_text(size = 15,
                                           angle = 45,
                                           vjust = 1,
-                                          hjust = 1))
+                                          hjust = 1),
+               axis.text.y = element_text(size = 15))
 feats <- unlist(cardiomyo, use.names = F)
 dotplot_seurat_style(seu_cardio,
                      features = feats,
@@ -368,7 +380,7 @@ dotplot_seurat_style(seu_cardio,
 ```{r}
 dotplot_seurat_style(seu_cardio,
                      features = feats,
-                     ident_col = sample,
+                     ident_col = "donor",
                      split_by = ident,
                      scale_expression = FALSE) +
   cthem
@@ -383,7 +395,8 @@ ps <- get_pseudobulk(sc,
                      genes = feats)
 phall <- do_heatmap(ps,
                     do_scale = F,
-                    cluster_cols = T)
+                    cluster_cols = T,
+                    cluster_rows = T)
 ```
 
 
@@ -416,7 +429,7 @@ sc <- run_processing_data(sc,
 
 sc <- run_hvg(sc,
               ngenes = 2000,
-              ncores = 4, 
+              ncores = 6, 
               verbose = F)
 sc@data$`single-cell` <- NULL
 sc <- run_pca(sc,
@@ -426,7 +439,7 @@ for(mdiss in dm){
   cat("#### Running ", mdiss, " ####\n")
   sc <- run_dissimilarity(sc,
                           method = mdiss,
-                          ncores = 6,
+                          ncores = 8,
                           verbose = F)
 }
 ```
@@ -498,7 +511,7 @@ sc <- run_processing_data(sc,
 
 sc <- run_hvg(sc,
               ngenes = 2000,
-              ncores = 4, 
+              ncores = 6, 
               verbose = F)
 sc@data$`single-cell` <- NULL
 sc <- run_pca(sc,
@@ -508,7 +521,7 @@ for(mdiss in dm){
   cat("#### Running ", mdiss, " ####\n")
   sc <- run_dissimilarity(sc,
                           method = mdiss,
-                          ncores = 6,
+                          ncores = 8,
                           verbose = F)
 }
 ```
@@ -550,17 +563,87 @@ consis <- cons %>%
 ```{r}
 consistency_scatter(consis) +
   geom_point(data = consis %>% 
-               filter(grepl("CM", celltype)),,
-             color = "red") +
-  ylim(c(0.25, 0.96))
+               filter(grepl("CM", celltype)),
+             color = "red")
 ```
 
 #### Number of cells/sample
 
 
 ```{r}
-table(md$cardio_split, md$donor)
+th <- 10
+
+# Calculate proportion of samples with zero counts per cell type
+pl_comp <- lapply(c("ventricular", "atrial"),
+                  function(r){
+                    
+                    df <- object$metadata %>% 
+                      mutate(region_id = ifelse(region %in% c("AX", "LV", "RV", "SP"),
+                                                "ventricular",
+                                                "atrial")) %>% 
+                      filter(region_id == r,
+                             grepl("Nuclei", cell_source)) %>% 
+                      mutate(cell_states = as.character(cell_states),
+                             sample = as.character(sample)) %>% 
+                      {table(.[["cell_states"]], .[["sample"]])} %>% 
+                      as.data.frame() %>% 
+                      dplyr::rename(
+                        cell_state = Var1,
+                        sample = Var2
+                      ) %>% 
+                      filter(grepl("[a|v]CM", cell_state))
+                    
+                    zero_prop <- df %>%
+                      group_by(cell_state) %>%
+                      summarise(
+                        prop_zero = mean(Freq < th),
+                        .groups = "drop"
+                      ) %>% 
+                      mutate(label = scales::percent(prop_zero, accuracy = 1))
+                    
+                    comp_pl <- df %>% 
+                      ggplot(aes(cell_state, Freq)) +
+                      geom_boxplot(show.legend = FALSE) +
+                      geom_jitter(
+                        aes(color = sample),
+                        show.legend = FALSE,
+                        width = 0.2
+                      ) + 
+                      geom_label(
+                        data = zero_prop,
+                        aes(x = cell_state, y = Inf, label = label),
+                        fill = "orange",
+                        alpha = 0.3,
+                        inherit.aes = FALSE,
+                        vjust = 1.5,
+                        size = 5
+                      ) + 
+                      geom_hline(yintercept = th,
+                                 linetype = "dashed",
+                                 color = "brown") +
+                      scale_y_log10() +
+                      labs(y = "Number of cells per sample") +
+                      ggpubr::theme_classic2() +
+                      theme(axis.text.x = element_text(angle = 45,
+                                                       hjust = 1, 
+                                                       vjust = 1))
+                    return(comp_pl)
+                    
+                  })  
+
+pl_comp[[1]] / pl_comp[[2]]
+
 ```
+
+```{r}
+dfi <- object$metadata %>% 
+  mutate(region_id = ifelse(region %in% c("AX", "LV", "RV", "SP"),
+                            "ventricular",
+                            "atrial")) %>% 
+  distinct(sample, region_id, cell_source)
+table(dfi$region_id, dfi$cell_source)
+```
+
 
 
 ## 7.2 Smooth muscle cells
@@ -568,7 +651,7 @@ table(md$cardio_split, md$donor)
 ### ISC
 ```{r}
 md <- object$metadata %>% 
-  mutate(fine_smc = ifelse(grepl("Smooth", .data[[ident]]),
+  mutate(fine_smc = ifelse(grepl("Smooth|Peri", .data[[ident]]),
                            as.character(.data[["cell_states"]]),
                            as.character(.data[[ident]])
                            )
@@ -643,7 +726,7 @@ consis <- cons %>%
 ```{r}
 consistency_scatter(consis) +
   geom_point(data = consis %>% 
-               filter(grepl("PC|SMC", celltype)),,
+               filter(grepl("PC|SMC", celltype)),
              color = "red")
 ```
 
