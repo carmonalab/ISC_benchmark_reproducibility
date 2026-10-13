@@ -741,3 +741,24 @@ dotplot_seurat_style <- function(
    
    return(p)
 }
+
+
+remove_batch_effect <- function(
+      mat,
+      batch,
+      covariates = NULL
+) {
+   stopifnot(ncol(mat) == length(batch))
+   
+   design <- NULL
+   
+   if (!is.null(covariates)) {
+      design <- model.matrix(~ ., data = covariates)
+   }
+   
+   limma::removeBatchEffect(
+      x = as.matrix(mat),
+      batch = factor(batch),
+      design = design
+   )
+}
