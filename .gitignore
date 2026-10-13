@@ -11,6 +11,7 @@ ign_*
 *.RData
 .Rproj.user/
 *.Rproj
+.Renviron
 
 # Python
 __pycache__/
