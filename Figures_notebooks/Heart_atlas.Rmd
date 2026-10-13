@@ -60,9 +60,15 @@ min_cells <- 10
 lpath <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/hca_global_raw.h5ad"
 
 object <- load_single_cell_object(lpath)
+object$metadata %>%
+  distinct(donor, cell_source, source, version, sample, region)
+# add cell source as sample
+object$metadata$sample_id <- paste(object$metadata$cell_source,
+                                   object$metadata$donor,
+                                   sep = "-")
 
 ident <- "cell_type" # annotation column to use
-sample = "donor" # column identifying sample of origin
+sample = "sample" # column identifying sample of origin
 
 n_distinct(object$metadata[[sample]])
 unique(object$metadata[[ident]])
@@ -90,9 +96,11 @@ sc <- run_processing_data(sc,
 
 sc <- run_hvg(sc,
               ngenes = 2000,
-              ncores = 4, 
+              ncores = 6, 
               verbose = F)
-
+# no need to run pca on single-cell data
+single_mat <- sc@data$`single-cell`
+sc@data$`single-cell` <- NULL
 sc <- run_pca(sc,
               verbose = F)
 
@@ -100,10 +108,47 @@ for(mdiss in dm){
   cat("#### Running ", mdiss, " ####\n")
   sc <- run_dissimilarity(sc,
                           method = mdiss,
+                          ncores = 8,
+                          verbose = F)
+}
+# return single-cell data for SCCAF and MetaNeighbor
+sc@data$`single-cell` <- single_mat
+rm(single_mat); gc()
+```
+
+
+
+```{r}
+# remove batch effect using limma
+# ps_mat <- scor@data$pseudobulk@matrix
+# pr_md <- object$metadata %>% 
+#   distinct(.data[[sample]], .data[[ident]],
+#            .data[["cell_source"]]) %>% 
+#   mutate(!!ident := scTypeEval:::purge_label(.data[[ident]]),
+#          !!sample := scTypeEval:::purge_label(.data[[sample]]),
+#          id = paste(.data[[sample]], .data[[ident]], sep = "_")
+#          ) %>% 
+#   tibble::remove_rownames() %>% 
+#   tibble::column_to_rownames("id")
+# 
+# mat_corrected <- remove_batch_effect(
+#   mat = mat,
+#   batch = metadata$batch,
+#   covariates = 
+# )
+
+scor <- run_pca(scor,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  scor <- run_dissimilarity(scor,
+                          method = mdiss,
                           ncores = 6,
                           verbose = F)
 }
 ```
+
 
 ## 2.2 Explore plots
 
@@ -279,14 +324,408 @@ plot_pca(sc)
 
 ### Markers expression
 ```{r}
-cardiomyo <- list(ventricular = c("MYH7", "MYL2", "IRX3", "IRX5",
-                                  "IRX6", "MASP1", "HEY2", "PRDM16",
+cardiomyo <- list(ventricular = c("MYH7", "MYL2", "MASP1",
+                                  "HEY2", "PRDM16",
                                   "FHL2", "PCDH7"),
-                  atrial = )
+                  atrial = c("ADGRL2", "NFXL1", "ROBO2",
+                             "MYH6", "NPPA", "MYL4",
+                             "ALDH1A2", "CHRM2"))
 ```
+
+
+#### Scaled Dotplot
+
+```{r}
+seu_cardio <- CreateSeuratObject(counts = counts,
+                                 meta.data = md)
+seu_cardio <- NormalizeData(seu_cardio)
+unique(seu_cardio$cell_type)
+```
+
+
+```{r}
+cthem <- theme(axis.title.x = element_blank(),
+               axis.text.x = element_text(size = 14,
+                                          angle = 45,
+                                          vjust = 1,
+                                          hjust = 1))
+feats <- unlist(cardiomyo, use.names = F)
+dotplot_seurat_style(seu_cardio,
+                     features = feats,
+                     ident_col = ident,
+                     split_by = NULL,
+                     scale_expression = TRUE) +
+  cthem
+
+dotplot_seurat_style(seu_cardio,
+                     features = feats,
+                     ident_col = ident,
+                     split_by = NULL,
+                     scale_expression = FALSE) +
+  cthem
+```
+
+```{r}
+dotplot_seurat_style(seu_cardio,
+                     features = feats,
+                     ident_col = sample,
+                     split_by = ident,
+                     scale_expression = FALSE) +
+  cthem
+```
+
+### hetmap
+
+```{r}
+ps <- get_pseudobulk(sc,
+                     ident = ident,
+                     sample = sample,
+                     genes = feats)
+phall <- do_heatmap(ps,
+                    do_scale = F,
+                    cluster_cols = T)
+```
+
+
 
 ### Merging
 
+```{r}
+md <- object$metadata %>% 
+  mutate(cardio_merged = ifelse(grepl("Cardio", .data[[ident]]),
+                                "Cardiomyocyte",
+                                as.character(.data[[ident]])
+                                )
+  )
+counts <- object$counts[,rownames(md)]
+unique(md$cardio_merged)
+```
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "cardio_merged",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+sc@data$`single-cell` <- NULL
+sc <- run_pca(sc,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 6,
+                          verbose = F)
+}
+```
+
+
+
+```{r}
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+```
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure)
+```
+
+```{r}
+consistency_scatter(consis)
+```
+
+### Splitting
+
+```{r}
+md <- object$metadata %>% 
+  mutate(cardio_split = ifelse(grepl("Cardio", .data[[ident]]),
+                                as.character(.data[["cell_states"]]),
+                                as.character(.data[[ident]])
+                                )
+  )
+counts <- object$counts[,rownames(md)]
+unique(md$cardio_split)
+```
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "cardio_split",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+sc@data$`single-cell` <- NULL
+sc <- run_pca(sc,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 6,
+                          verbose = F)
+}
+```
+
+
+```{r}
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+```
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure)
+```
+
+```{r}
+consistency_scatter(consis) +
+  geom_point(data = consis %>% 
+               filter(grepl("CM", celltype)),,
+             color = "red") +
+  ylim(c(0.25, 0.96))
+```
+
+#### Number of cells/sample
+
+
+```{r}
+table(md$cardio_split, md$donor)
+```
+
+
+## 7.2 Smooth muscle cells
 
 ### ISC
+```{r}
+md <- object$metadata %>% 
+  mutate(fine_smc = ifelse(grepl("Smooth", .data[[ident]]),
+                           as.character(.data[["cell_states"]]),
+                           as.character(.data[[ident]])
+                           )
+         )
+counts <- object$counts[,rownames(md)]
+unique(md$fine_smc)
+```
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "fine_smc",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+sc@data$`single-cell` <- NULL
+sc <- run_pca(sc,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 6,
+                          verbose = F)
+}
+```
+
+```{r}
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+```
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure)
+```
+
+```{r}
+consistency_scatter(consis) +
+  geom_point(data = consis %>% 
+               filter(grepl("PC|SMC", celltype)),,
+             color = "red")
+```
+
+
+
+### Markers expression
+```{r}
+peri_smooth <- c("RGS5", "AGT", "ABCC9",
+                 "KCNJ8", "NCAM2", "CD38",
+                 "CSPG4", "MYH11", "ACTA2",
+                 "TAGLN", "CNN1")
+```
+
+
+#### Scaled Dotplot
+
+```{r}
+md <- object$metadata %>% 
+  filter(grepl("Smooth|Peri", .data[[ident]]))
+counts <- object$counts[,rownames(md)]
+unique(md$cell_type)
+# seu_perismo <- CreateSeuratObject(counts = counts,
+#                                  meta.data = md)
+# seu_perismo <- NormalizeData(seu_perismo)
+seu_perismo <- run_seurat_workflow(counts = counts,
+                                   metadata = md)
+unique(seu_perismo$cell_type)
+```
+
+```{r}
+UMAPPlot(seu_perismo,
+         group.by = "cell_states")
+UMAPPlot(seu_perismo,
+         group.by = "cell_source")
+```
+
+
+
+```{r}
+cthem <- theme(axis.title.x = element_blank(),
+               axis.text.x = element_text(size = 15,
+                                          angle = 45,
+                                          vjust = 1,
+                                          hjust = 1),
+               axis.text.y = element_text(size = 14))
+feats <- rev(peri_smooth)
+dotplot_seurat_style(seu_perismo,
+                     features = feats,
+                     ident_col = "cell_states",
+                     split_by = NULL,
+                     scale_expression = TRUE) +
+  cthem
+
+dotplot_seurat_style(seu_perismo,
+                     features = feats,
+                     ident_col = "cell_states",
+                     split_by = NULL,
+                     scale_expression = FALSE) +
+  cthem +
+  coord_flip()
+```
+
+```{r}
+dotplot_seurat_style(seu_perismo,
+                     features = feats,
+                     ident_col = sample,
+                     split_by = "cell_states",
+                     scale_expression = FALSE) +
+  cthem
+```
+
+### hetmap
+
+```{r}
+ps <- get_pseudobulk(sc,
+                     ident = "cell_states",
+                     sample = sample,
+                     genes = peri_smooth)
+phall <- do_heatmap(ps,
+                    do_scale = F,
+                    cluster_cols = T,
+                    cluster_rows = F)
+```
+
 
