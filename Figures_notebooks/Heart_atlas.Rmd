@@ -32,6 +32,7 @@ library(tidyr)
 library(BiocParallel)
 library(Seurat)
 library(scTypeEval)
+library(tibble)
 source("helpers/consistency_exploration.R")
 # Custom theme
 theme_set(theme_bw(base_size = 12))
@@ -76,48 +77,6 @@ table(is.na(object$metadata[[ident]]))
 ```
 
 
-# Sample -composition
-
-```{r}
-th <- 1
-
-df <- table(object$metadata[[ident]], object$metadata[[sample]]) %>% 
-  as.data.frame() %>% 
-  dplyr::rename(
-    celltype = Var1,
-    sample = Var2
-  )
-
-# Calculate proportion of samples with zero counts per cell type
-zero_prop <- df %>%
-  group_by(celltype) %>%
-  summarise(
-    prop_zero = mean(Freq < th),
-    .groups = "drop"
-  ) %>%
-  mutate(label = scales::percent(prop_zero, accuracy = 1))
-
-comp_pl <- df %>% 
-  ggplot(aes(celltype, Freq)) +
-  geom_boxplot(show.legend = FALSE) +
-  geom_jitter(
-    aes(color = sample),
-    show.legend = FALSE,
-    width = 0.2
-  ) +
-  geom_text(
-    data = zero_prop,
-    aes(x = celltype, y = Inf, label = paste0("0: ", label)),
-    inherit.aes = FALSE,
-    vjust = 1.5,
-    size = 3
-  ) +
-  scale_y_log10() +
-  ggpubr::theme_classic2() +
-  theme(axis.text.x = element_text(angle = 45,
-                                   hjust = 1, 
-                                   vjust = 1))
-```
 
 
 # 2. Run scTypeEval
@@ -125,9 +84,12 @@ comp_pl <- df %>%
 ## 2.1 Processing
 
 ```{r}
+md <- object$metadata %>%
+  filter(grepl("Nuclei", cell_source))
+counts <- object$counts[,rownames(md)]
 #create sceval object
-sc <- create_scTypeEval(matrix = object$counts,
-                        metadata = object$metadata,
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
                         black_list = bl)
 
 sc <- run_processing_data(sc,
@@ -138,27 +100,109 @@ sc <- run_processing_data(sc,
                           min_cells = min_cells,
                           verbose = F)
 
-sc <- run_hvg(sc,
+sc <- run_hvg(sc, 
+              aggregation = "single-cell",
               ngenes = 2000,
-              ncores = 6, 
+              var_method = "scran",
+              ncores = 5, 
               verbose = F)
+
 # no need to run pca on single-cell data
 single_mat <- sc@data$`single-cell`
 sc@data$`single-cell` <- NULL
+
 sc <- run_pca(sc,
+              scale. = F,
               verbose = F)
 
 for(mdiss in dm){
   cat("#### Running ", mdiss, " ####\n")
   sc <- run_dissimilarity(sc,
                           method = mdiss,
-                          ncores = 8,
+                          ncores = 6,
                           verbose = F)
 }
 # return single-cell data for SCCAF and MetaNeighbor
 sc@data$`single-cell` <- single_mat
 rm(single_mat); gc()
 ```
+
+
+### check sparsity across modalities
+Nuclei vs whole-cell, to check if HVG actually takes into account this
+
+```{r}
+feats <- sc@gene_lists$HVG
+ps <- get_pseudobulk(sc,
+                     ident = ident,
+                     sample = sample,
+                     genes = feats)
+
+mmd <- object$metadata %>%
+  mutate(!!sample := scTypeEval:::purge_label(.data[[sample]]),
+         !!ident := scTypeEval:::purge_label(.data[[ident]]),
+         id = paste(.data[[sample]], .data[[ident]], sep = "_")
+         ) %>% 
+  distinct(id, cell_source)
+
+ps$metadata <- ps$metadata %>% 
+  tibble::rownames_to_column("id") %>% 
+  left_join(., mmd, by = "id") %>% 
+  tibble::column_to_rownames("id")
+
+phall <- do_heatmap(ps,
+                    do_scale = F,
+                    cluster_cols = T,
+                    cluster_rows = T)
+```
+
+### zero counts?
+
+```{r}
+zero_genes <- as.data.frame(ps$matrix) %>%
+  rownames_to_column("gene") %>%
+  pivot_longer(
+    cols = -gene,
+    names_to = "id",
+    values_to = "counts"
+  ) %>%
+  filter(counts == 0) %>%
+  left_join(
+    ps$metadata %>% rownames_to_column("id") %>%
+      select(id, cell_source),
+    by = "id"
+  )
+
+zero_summary <- as.data.frame(ps$matrix) %>%
+  rownames_to_column("gene") %>%
+  pivot_longer(
+    cols = -gene,
+    names_to = "id",
+    values_to = "counts"
+  ) %>%
+  left_join(
+    ps$metadata %>% rownames_to_column("id") %>%
+      select(id, cell_source),
+    by = "id"
+  ) %>%
+  group_by(gene, cell_source) %>%
+  summarise(
+    n_samples = n(),
+    n_zero = sum(counts == 0),
+    prop_zero = mean(counts == 0),
+    .groups = "drop"
+  )
+
+ggplot(zero_summary, aes(x = cell_source, y = gene, fill = prop_zero)) +
+  geom_tile() +
+  scale_fill_viridis_c(limits = c(0, 1), name = "Proportion\nzero") +
+  theme_minimal() +
+  theme(
+    axis.text.y = element_text(size = 6),
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+```
+
 
 
 ## 2.2 Explore plots
@@ -174,6 +218,8 @@ plot_heatmap(sc,
 
 ```{r}
 plot_pca(sc)
+plot_pca(sc, dims = c(2,3))
+plot_mds(sc, dissimilarity_slot = "Pseudobulk:Cosine")
 ```
 
 
@@ -211,6 +257,8 @@ consis <- cons %>%
 q_local <- 0.45
 q_global <- 0.74
 consistency_barplot(consis, x_threshold = q_local)
+consistency_barplot(consis, xval = "global",
+                    x_threshold = q_global, xlabel = "global")
 ```
 ### scatter
 
@@ -655,12 +703,14 @@ md <- object$metadata %>%
                            as.character(.data[["cell_states"]]),
                            as.character(.data[[ident]])
                            )
-         )
+         ) %>% 
+  filter(grepl("Nuclei", cell_source))
 counts <- object$counts[,rownames(md)]
 unique(md$fine_smc)
 ```
 
 ```{r}
+rerun_hvg <- FALSE
 sc <- create_scTypeEval(matrix = counts,
                         metadata = md,
                         black_list = bl)
@@ -672,13 +722,19 @@ sc <- run_processing_data(sc,
                           min_samples = min_samples,
                           min_cells = min_cells,
                           verbose = F)
-
-sc <- run_hvg(sc,
-              ngenes = 2000,
-              ncores = 4, 
-              verbose = F)
+if(rerun_hvg){
+  sc <- run_hvg(sc,
+                ngenes = 2000,
+                aggregation = "single-cell",
+                var_method = "scran",
+                ncores = 4, 
+                verbose = F)
+} else {
+  sc <- add_gene_list(sc, gene_list = list(HVG = hvg))
+} 
 sc@data$`single-cell` <- NULL
-sc <- run_pca(sc,
+sc <- run_pca(sc, 
+              scale. = T,
               verbose = F)
 
 for(mdiss in dm){
@@ -689,6 +745,11 @@ for(mdiss in dm){
                           verbose = F)
 }
 ```
+
+```{r}
+plot_pca(sc)
+```
+
 
 ```{r}
 plot_heatmap(sc, 
@@ -731,6 +792,143 @@ consistency_scatter(consis) +
 ```
 
 
+### subset pca
+
+
+```{r}
+md <- object$metadata %>% 
+  filter(grepl("Smooth|Peri", .data[[ident]]),
+         grepl("Nuclei", cell_source))
+counts <- object$counts[,rownames(md)]
+unique(md$cell_type)
+unique(md$cell_source)
+```
+
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          #aggregation = "pseudobulk",
+                          ident = "cell_states",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+if(rerun_hvg){
+  sc <- run_hvg(sc,
+                ngenes = 2000,
+                aggregation = "single-cell",
+                var_method = "scran",
+                ncores = 6, 
+                verbose = F)
+} else {
+  sc <- add_gene_list(sc, gene_list = list(HVG = hvg_design))
+} 
+sc@data$`single-cell` <- NULL
+
+sc <- add_processed_data(scTypeEval = sc,
+                         data = as(br_mat, "dgCMatrix"),
+                         aggregation = "pseudobulk",
+                         ident_name = "cell_states",
+                         ident = mds$cell_states,
+                         sample = mds$sample)
+
+sc <- run_pca(sc, 
+              scale. = T,
+              verbose = F)
+
+plot_pca(sc, dims = c(1,2))
+```
+### try model batch effect
+not possible due to incomplete rank
+
+```{r}
+norm_mat <- sc@data$`single-cell`@matrix
+norm_mat <- norm_mat[!rownames(norm_mat) %in% bl,]
+mds <- sc@metadata[colnames(norm_mat),]
+block <- mds$sample
+ngenes = 2000
+design <- model.matrix(~ 0 + cell_source, mds)
+
+var <- scran::modelGeneVar(x = norm_mat,
+                           block = block,
+                           equiweight = T)
+
+hvg_design <- scran::getTopHVGs(var,
+                         n=ngenes)
+
+identical(hvg_design, sc@gene_lists$HVG)
+```
+
+### try removing batch effect
+
+```{r}
+norm_mat <- sc@data$pseudobulk@matrix
+norm_mat <- norm_mat[!rownames(norm_mat) %in% bl,]
+mds <- process_metadata_pseudobulk(sc@metadata,
+                                   ident = "cell_states",
+                                   sample = "sample",
+                                   covariates = c("cell_source","sample", "cell_states"))
+mds <- mds[colnames(norm_mat),]
+batch <- mds$cell_source
+
+br_mat <- remove_batch_effect(mat = norm_mat,
+                              batch = batch)
+```
+
+### test RCM
+
+Will fine_smc
+```{r}
+
+a <- "H0020.LA.new" #Havard-Nuclei
+b <- "HCAHeart7843999" #Sanger-CD45
+
+a <- "H0026.LA" #Havard-Nuclei
+b <- "HCAHeart7844004" #Sanger-CD45
+
+a <- "HCAHeart8102862"
+b <- "HCAHeart7844004"
+
+norm_mat <- sc@data$pseudobulk@matrix
+norm_mat <- norm_mat[!rownames(norm_mat) %in% bl,]
+norm_mat <- norm_mat[sc@gene_lists$HVG,]
+mat.split <- scTypeEval:::split_matrix(mat = norm_mat,
+                                       ident = sc@data$pseudobulk@ident$fine_smc,
+                                       sample = sc@data$pseudobulk@sample)
+classifier <- scTypeEval:::singler_helper
+
+pred1 <- classifier(mat.split[[a]]@matrix,
+                    mat.split[[b]]@matrix,
+                    ref.ident = mat.split[[b]]@ident)
+pred2 <- classifier(mat.split[[b]]@matrix,
+                    mat.split[[a]]@matrix,
+                    ref.ident = mat.split[[a]]@ident)
+```
+
+
+
+
+```{r}
+# seu_perismo <- CreateSeuratObject(counts = counts,
+#                                  meta.data = md)
+# seu_perismo <- NormalizeData(seu_perismo)
+seu_perismo <- run_seurat_workflow(counts = counts,
+                                   metadata = md)
+unique(seu_perismo$cell_type)
+```
+
+
+```{r}
+UMAPPlot(seu_perismo,
+         group.by = "cell_states")
+UMAPPlot(seu_perismo,
+         group.by = "cell_source")
+```
 
 ### Markers expression
 ```{r}
@@ -742,28 +940,6 @@ peri_smooth <- c("RGS5", "AGT", "ABCC9",
 
 
 #### Scaled Dotplot
-
-```{r}
-md <- object$metadata %>% 
-  filter(grepl("Smooth|Peri", .data[[ident]]))
-counts <- object$counts[,rownames(md)]
-unique(md$cell_type)
-# seu_perismo <- CreateSeuratObject(counts = counts,
-#                                  meta.data = md)
-# seu_perismo <- NormalizeData(seu_perismo)
-seu_perismo <- run_seurat_workflow(counts = counts,
-                                   metadata = md)
-unique(seu_perismo$cell_type)
-```
-
-```{r}
-UMAPPlot(seu_perismo,
-         group.by = "cell_states")
-UMAPPlot(seu_perismo,
-         group.by = "cell_source")
-```
-
-
 
 ```{r}
 cthem <- theme(axis.title.x = element_blank(),
