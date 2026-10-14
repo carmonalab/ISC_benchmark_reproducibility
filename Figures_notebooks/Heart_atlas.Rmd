@@ -46,6 +46,9 @@ bl <- list(black_list$TCR, black_list$Immunoglobulins, black_list$Ygenes) %>% un
 # define used ISC
 mety <- c("local" = "silhouette | recip_classif:Match",
           "global" = "2label_silhouette | Pseudobulk:Cosine")
+
+# mety <- c("local" = "silhouette | recip_classif:Match",
+#           "global" = "NeighborhoodPurity | Pseudobulk:Cosine")
 # Define dissimilarities to use
 dm <- c("Pseudobulk:Cosine",
         "recip_classif:Match")
@@ -119,7 +122,7 @@ for(mdiss in dm){
   cat("#### Running ", mdiss, " ####\n")
   sc <- run_dissimilarity(sc,
                           method = mdiss,
-                          ncores = 6,
+                          ncores = 7,
                           verbose = F)
 }
 # return single-cell data for SCCAF and MetaNeighbor
@@ -228,7 +231,8 @@ plot_mds(sc, dissimilarity_slot = "Pseudobulk:Cosine")
 ```{r}
 cons0 <- get_consistency(sc,
                          consistency_metric = c("silhouette",
-                                                "2label_silhouette")
+                                                "2label_silhouette",
+                                                "NeighborhoodPurity")
 )
 
 cons <- 
@@ -348,7 +352,9 @@ names(ups) <- gb
 
 ```{r}
 md <- object$metadata %>% 
-  filter(grepl("Cardio", .data[[ident]]))
+  filter(grepl("Cardio", .data[[ident]]),
+         grepl("Nuclei", cell_source)
+         )
 counts <- object$counts[,rownames(md)]
 
 ```
@@ -457,7 +463,8 @@ md <- object$metadata %>%
                                 "Cardiomyocyte",
                                 as.character(.data[[ident]])
                                 )
-  )
+  ) %>% 
+  filter(grepl("Nuclei", cell_source))
 counts <- object$counts[,rownames(md)]
 unique(md$cardio_merged)
 ```
@@ -487,7 +494,7 @@ for(mdiss in dm){
   cat("#### Running ", mdiss, " ####\n")
   sc <- run_dissimilarity(sc,
                           method = mdiss,
-                          ncores = 8,
+                          ncores = 6,
                           verbose = F)
 }
 ```
@@ -539,7 +546,8 @@ md <- object$metadata %>%
                                 as.character(.data[["cell_states"]]),
                                 as.character(.data[[ident]])
                                 )
-  )
+  ) %>% 
+  filter(grepl("Nuclei", cell_source))
 counts <- object$counts[,rownames(md)]
 unique(md$cardio_split)
 ```
@@ -710,7 +718,6 @@ unique(md$fine_smc)
 ```
 
 ```{r}
-rerun_hvg <- FALSE
 sc <- create_scTypeEval(matrix = counts,
                         metadata = md,
                         black_list = bl)
@@ -722,26 +729,24 @@ sc <- run_processing_data(sc,
                           min_samples = min_samples,
                           min_cells = min_cells,
                           verbose = F)
-if(rerun_hvg){
-  sc <- run_hvg(sc,
-                ngenes = 2000,
-                aggregation = "single-cell",
-                var_method = "scran",
-                ncores = 4, 
-                verbose = F)
-} else {
-  sc <- add_gene_list(sc, gene_list = list(HVG = hvg))
-} 
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              aggregation = "single-cell",
+              var_method = "scran",
+              ncores = 4, 
+              verbose = F)
+
 sc@data$`single-cell` <- NULL
 sc <- run_pca(sc, 
-              scale. = T,
+              scale. = F,
               verbose = F)
 
 for(mdiss in dm){
   cat("#### Running ", mdiss, " ####\n")
   sc <- run_dissimilarity(sc,
                           method = mdiss,
-                          ncores = 6,
+                          ncores = 8,
                           verbose = F)
 }
 ```
@@ -801,6 +806,7 @@ md <- object$metadata %>%
          grepl("Nuclei", cell_source))
 counts <- object$counts[,rownames(md)]
 unique(md$cell_type)
+unique(md$cell_states)
 unique(md$cell_source)
 ```
 
@@ -818,27 +824,18 @@ sc <- run_processing_data(sc,
                           min_samples = min_samples,
                           min_cells = min_cells,
                           verbose = F)
-if(rerun_hvg){
-  sc <- run_hvg(sc,
-                ngenes = 2000,
-                aggregation = "single-cell",
-                var_method = "scran",
-                ncores = 6, 
-                verbose = F)
-} else {
-  sc <- add_gene_list(sc, gene_list = list(HVG = hvg_design))
-} 
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              aggregation = "single-cell",
+              var_method = "scran",
+              ncores = 6, 
+              verbose = F)
+
 sc@data$`single-cell` <- NULL
 
-sc <- add_processed_data(scTypeEval = sc,
-                         data = as(br_mat, "dgCMatrix"),
-                         aggregation = "pseudobulk",
-                         ident_name = "cell_states",
-                         ident = mds$cell_states,
-                         sample = mds$sample)
-
 sc <- run_pca(sc, 
-              scale. = T,
+              scale. = F,
               verbose = F)
 
 plot_pca(sc, dims = c(1,2))
@@ -910,6 +907,16 @@ pred2 <- classifier(mat.split[[b]]@matrix,
                     ref.ident = mat.split[[a]]@ident)
 ```
 
+#### plot correlation
+
+```{r}
+keep <- grep("SMC1[.]basic", colnames(norm_mat), value = T) %>% 
+  grep("H0020[.]LA[.]new|HCAHeart7843999", ., value = T)
+filt_mat <- norm_mat[,keep] %>% 
+  as.matrix()
+
+plot(filt_mat[,1], filt_mat[,2])
+```
 
 
 
@@ -987,4 +994,98 @@ phall <- do_heatmap(ps,
                     cluster_rows = F)
 ```
 
+
+## 7.3 Lymphoid
+
+### ISC
+```{r}
+md <- object$metadata %>% 
+  mutate(fine_lym = ifelse(grepl("Lymph", .data[[ident]]),
+                           as.character(.data[["cell_states"]]),
+                           as.character(.data[[ident]])
+                           )
+         ) %>% 
+  filter(grepl("Nuclei", cell_source))
+counts <- object$counts[,rownames(md)]
+unique(md$fine_lym)
+```
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "fine_lym",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              aggregation = "single-cell",
+              var_method = "scran",
+              ncores = 4, 
+              verbose = F)
+
+sc@data$`single-cell` <- NULL
+sc <- run_pca(sc, 
+              scale. = F,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 8,
+                          verbose = F)
+}
+```
+
+```{r}
+plot_pca(sc)
+```
+
+
+```{r}
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+```
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure)
+```
+
+```{r}
+consistency_scatter(consis) +
+  geom_point(data = consis %>% 
+               filter(grepl("CD4|NK|CD8|DC|B[.]|Mast", celltype)),
+             color = "red")
+```
 
