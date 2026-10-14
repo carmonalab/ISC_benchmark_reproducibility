@@ -762,3 +762,21 @@ remove_batch_effect <- function(
       design = design
    )
 }
+
+
+process_metadata_pseudobulk <- function(md,
+                                        ident = "cell_type",
+                                        sample = "sample",
+                                        covariates = NULL){
+   df <- md %>% 
+      mutate(!!sample := scTypeEval:::purge_label(.data[[sample]]),
+             !!ident := scTypeEval:::purge_label(.data[[ident]]),
+             id = paste(.data[[sample]], .data[[ident]], sep = "_")
+      ) %>% 
+      .[,c("id", covariates)] %>% 
+      distinct() %>% 
+      tibble::remove_rownames() %>% 
+      tibble::column_to_rownames("id")
+   
+   return(df)
+}
