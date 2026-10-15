@@ -1,9 +1,9 @@
-collapse_replicates <- function(x) {
+collapse_replicates <- function(x, metric = "f1") {
    x %>%
       group_by(dataset_id, classifier, cell_type) %>%
       summarise(
          across(
-            c(f1, accuracy, all_of(iscs)),
+            all_of(unique(c(metric, "accuracy", iscs))),
             ~ mean(.x, na.rm = TRUE)
          ),
          n_replicates = n_distinct(replicate),
@@ -15,23 +15,27 @@ collapse_replicates <- function(x) {
 # Generate ranking-based color palette
 rankings_palette <- function(cons_combined,
                              isc = "product",
+                             metric = "f1",
                              verbose = FALSE)
 {
    rankings_for_palette <- cons_combined %>%
-      filter(!is.na(f1) & !is.na(.data[[isc]]),
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc]]),
              classifier != "ground_truth") %>%
       group_by(dataset_id, classifier) %>%
       summarise(
-         mean_product_per_dataset = mean(.data[[isc]], na.rm = TRUE),
+         mean_product_per_dataset = mean(.data[[metric]], na.rm = TRUE),
          .groups = "drop"
       ) %>%
       group_by(classifier) %>%
       summarise(
-         geom_mean_product = exp(mean(log(mean_product_per_dataset), na.rm = TRUE)),
-         mean_product = mean(mean_product_per_dataset, na.rm = T),
+         mean_product = if (metric == "f1") {
+            exp(mean(log(mean_product_per_dataset), na.rm = TRUE))
+         } else {
+            mean(mean_product_per_dataset, na.rm = TRUE)
+         },
          .groups = "drop"
       ) %>% 
-      mutate(rank = rank(-geom_mean_product, ties.method = "average")) %>%
+      mutate(rank = rank(-mean_product, ties.method = "average")) %>%
       arrange(rank)
    
    if(verbose) {print(rankings_for_palette)}
@@ -90,11 +94,11 @@ rankings_palette <- function(cons_combined,
 # 0-1 range (e.g. ISC Local), so R2 values are not directly comparable across metrics with very
 # different observed ranges (restriction-of-range problem) - a narrow-range metric needs a much
 # tighter fit to reach the same R2, making any high R2 there less robust/more leverage-sensitive.
-cor_stats <- function(isc, f1, min_n = 3) {
-   keep <- stats::complete.cases(isc, f1)
-   isc <- isc[keep]; f1 <- f1[keep]
+cor_stats <- function(isc, score, min_n = 3) {
+   keep <- stats::complete.cases(isc, score)
+   isc <- isc[keep]; score <- score[keep]
    n <- length(isc)
-   if (n < min_n || stats::sd(isc) == 0 || stats::sd(f1) == 0) {
+   if (n < min_n || stats::sd(isc) == 0 || stats::sd(score) == 0) {
       return(data.frame(
          r2 = NA_real_, pval = NA_real_,
          r2_spearman = NA_real_, pval_spearman = NA_real_,
@@ -103,9 +107,9 @@ cor_stats <- function(isc, f1, min_n = 3) {
          isc_range = NA_real_, isc_sd = stats::sd(isc)
       ))
    }
-   pear <- stats::cor.test(isc, f1, method = "pearson")
-   spear <- suppressWarnings(stats::cor.test(isc, f1, method = "spearman"))
-   cooks <- stats::cooks.distance(stats::lm(f1 ~ isc))
+   pear <- stats::cor.test(isc, score, method = "pearson")
+   spear <- suppressWarnings(stats::cor.test(isc, score, method = "spearman"))
+   cooks <- stats::cooks.distance(stats::lm(score ~ isc))
    data.frame(
       r2 = unname(pear$estimate^2), pval = pear$p.value,
       r2_spearman = unname(spear$estimate^2), pval_spearman = spear$p.value,
@@ -114,23 +118,24 @@ cor_stats <- function(isc, f1, min_n = 3) {
    )
 }
 
-# Mixed-effects model: f1 ~ ISC + classifier + (1 | dataset_id). Unlike cor_stats()/
+# Mixed-effects model: selected metric ~ ISC + classifier + random effects. Unlike cor_stats()/
 # compute_r2_per_dataset_celltype(), this adjusts for classifier identity and avoids
 # pseudo-replication from the repeated classifier/cell-type observations within each dataset
 # (random intercept per dataset_id). Only base lme4 is available in this project (no lmerTest/
 # performance), so the ISC fixed-effect p-value uses a normal (Wald z) approximation instead of a
 # Satterthwaite-corrected t-test, and r2_marginal/r2_conditional are pseudo-R2 (squared correlation
-# between predicted and observed F1, fixed-effects-only vs fixed+random), not the exact
+# between predicted and observed selected scores, fixed-effects-only vs fixed+random), not the exact
 # Nakagawa & Schielzeth decomposition.
 # The ISC metric is z-scored (mean 0, SD 1) before fitting: this avoids convergence issues from
-# very different ISC scales/ranges, and makes `estimate` comparable across metrics (change in F1
+# very different ISC scales/ranges, and makes `estimate` comparable across metrics (change in score
 # per 1 SD increase in that ISC) rather than confounded by each metric's own observed range.
 fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth",
+                            metric = "f1",
                             model = ~ classifier + (1 | dataset_id) + (1 | dataset_id:replicate)) {
    if (is.null(isc_label)) isc_label <- labs[match(isc_col, iscs)]
 
    dat <- df %>%
-      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc_col]])) %>%
       filter(!classifier %in% excl) %>%
       mutate(classifier = droplevels(factor(classifier)))
 
@@ -148,7 +153,10 @@ fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth"
    if (nrow(dat) < 10 || n_datasets < 2 || n_classifiers < 2 || isc_sd == 0) return(empty)
 
    dat$.isc_z <- (dat[[isc_col]] - isc_mean) / isc_sd
-   model_formula <- stats::update.formula(model, f1 ~ .isc_z + .)
+   model_formula <- stats::update.formula(
+      model,
+      stats::as.formula(paste0("`", metric, "` ~ .isc_z + ."))
+   )
 
    fit <- tryCatch(
       lme4::lmer(model_formula,
@@ -163,8 +171,8 @@ fit_isc_f1_lmer <- function(df, isc_col, isc_label = NULL, excl = "ground_truth"
    se  <- unname(co[".isc_z", "Std. Error"])
    pval <- 2 * stats::pnorm(-abs(est / se))
 
-   r2_marginal <- suppressWarnings(stats::cor(stats::predict(fit, re.form = NA), dat$f1)^2)
-   r2_conditional <- suppressWarnings(stats::cor(stats::predict(fit), dat$f1)^2)
+   r2_marginal <- suppressWarnings(stats::cor(stats::predict(fit, re.form = NA), dat[[metric]])^2)
+   r2_conditional <- suppressWarnings(stats::cor(stats::predict(fit), dat[[metric]])^2)
 
    data.frame(
       isc = isc_col, isc_label = isc_label,
@@ -190,35 +198,35 @@ compressed_axis_trans <- scales::trans_new(
    }
 )
 
-# Scatter of mean F1 vs mean ISC per classifier, labelled points
+# Scatter of mean selected score vs mean ISC per classifier, labelled points
 plot_isc_vs_f1_per_classifier <- function(df,
                                           isc_col,
                                           isc_label = NULL,
-                                          palette = "f1",
+                                          metric = "f1",
                                           excl = "ground_truth",
                                           dataset_label = "") {
-   palette <- rankings_palette(df, palette)
+   palette <- rankings_palette(df, isc = isc_col, metric = metric)
    if(is.null(isc_label)){
       isc_label <- labs[match(isc_col, iscs)]
    }
    
    mean_metrics <- df %>%
-      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc_col]])) %>%
       filter(!classifier %in% excl) %>%
       mutate(classifier = factor(classifier, levels = names(palette))) %>%
       group_by(classifier) %>%
       summarise(
-         mean_f1 = mean(f1, na.rm = TRUE),
+         mean_score = mean(.data[[metric]], na.rm = TRUE),
          mean_isc = mean(.data[[isc_col]], na.rm = TRUE),
          .groups = "drop"
       )
    
    stats <- cbind(
       data.frame(dataset = dataset_label, isc = isc_col, isc_label = isc_label, group_by = "classifier"),
-      cor_stats(mean_metrics$mean_isc, mean_metrics$mean_f1)
+      cor_stats(mean_metrics$mean_isc, mean_metrics$mean_score)
    )
    
-   p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc)) +
+   p <- ggplot(mean_metrics, aes(y = mean_score, x = mean_isc)) +
       geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE, alpha = 0.2) +
       geom_point(aes(color = classifier), size = 2, show.legend = FALSE) +
       ggrepel::geom_label_repel(aes(label = classifier, color = classifier),
@@ -229,7 +237,7 @@ plot_isc_vs_f1_per_classifier <- function(df,
          subtitle = sprintf("R²(Pearson) = %.3f (p = %.2e) | R²(Spearman) = %.3f (p = %.2e)%s",
                             stats$r2, stats$pval, stats$r2_spearman, stats$pval_spearman,
                             ifelse(stats$n_influential > 0, sprintf(" | %d influential pt(s)", stats$n_influential), "")),
-         y = "F1 Score Test",
+         y = paste(tools::toTitleCase(metric), "Test"),
          x = paste0("ISC Test (", isc_label, ")"),
          color = "Classifier"
       ) +
@@ -238,22 +246,23 @@ plot_isc_vs_f1_per_classifier <- function(df,
    list(plot = p, stats = stats)
 }
 
-# Overlay of all ISC metrics vs F1 (per-dataset mean, one fit line per metric)
-plot_multi_isc_corr <- function(df, iscs, labs, isc_colors, excl = "ground_truth", dataset_label = "") {
+# Overlay of all ISC metrics vs the selected score (per-dataset mean, one fit line per metric)
+plot_multi_isc_corr <- function(df, iscs, labs, isc_colors, excl = "ground_truth",
+                                metric = "f1", dataset_label = "") {
    mean_metrics <- df %>%
       filter(!classifier %in% excl) %>%
       group_by(dataset_id, classifier) %>%
       summarise(
-         mean_f1 = mean(f1, na.rm = TRUE),
+         mean_score = mean(.data[[metric]], na.rm = TRUE),
          across(all_of(iscs), ~ mean(.x, na.rm = TRUE), .names = "{.col}"),
          .groups = "drop"
       ) %>%
-      pivot_longer(-c(dataset_id, classifier, mean_f1), names_to = "metric", values_to = "score") %>%
+      pivot_longer(-c(dataset_id, classifier, mean_score), names_to = "metric", values_to = "score") %>%
       mutate(metric = factor(metric, levels = iscs, labels = labs))
    
    corrs <- mean_metrics %>%
       group_by(metric) %>%
-      group_modify(~ cor_stats(.x$score, .x$mean_f1)) %>%
+      group_modify(~ cor_stats(.x$score, .x$mean_score)) %>%
       ungroup() %>%
       mutate(dataset = dataset_label)
    
@@ -264,11 +273,11 @@ plot_multi_isc_corr <- function(df, iscs, labs, isc_colors, excl = "ground_truth
       corrs$metric
    )
    
-   p <- ggplot(mean_metrics, aes(y = mean_f1, x = score, color = metric, fill = metric)) +
+   p <- ggplot(mean_metrics, aes(y = mean_score, x = score, color = metric, fill = metric)) +
       geom_smooth(method = "lm", se = TRUE, linetype = "solid", alpha = 0.4, show.legend = TRUE) +
       scale_color_manual(values = isc_colors, labels = legend_labels, name = "ISC metric") +
       scale_fill_manual(values = isc_colors, guide = "none") +
-      labs(title = dataset_label, y = "F1 Score Test", x = "ISC Test") +
+      labs(title = dataset_label, y = paste(tools::toTitleCase(metric), "Test"), x = "ISC Test") +
       guides(fill = "none") +
       ggpubr::theme_classic2() +
       theme(legend.position = "bottom", legend.title = element_blank())
@@ -276,43 +285,47 @@ plot_multi_isc_corr <- function(df, iscs, labs, isc_colors, excl = "ground_truth
    list(plot = p, stats = corrs)
 }
 
-# Overall ranking agreement between F1 and a given ISC metric (geometric mean across datasets)
-plot_ranking_comparison <- function(df, isc_col, excl = "ground_truth", dataset_label = "") {
+# Overall ranking agreement between the selected score and a given ISC metric.
+plot_ranking_comparison <- function(df, isc_col, excl = "ground_truth",
+                                    metric = "f1", dataset_label = "") {
    rankings <- df %>%
-      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc_col]])) %>%
       filter(!classifier %in% excl) %>%
       group_by(dataset_id, classifier) %>%
       summarise(
-         mean_f1_per_dataset = mean(f1, na.rm = TRUE),
+         mean_score_per_dataset = mean(.data[[metric]], na.rm = TRUE),
          mean_isc_per_dataset = mean(.data[[isc_col]], na.rm = TRUE),
          .groups = "drop"
       ) %>%
       group_by(classifier) %>%
       summarise(
-         geom_mean_f1 = exp(mean(log(mean_f1_per_dataset), na.rm = TRUE)),
+         mean_score = if (metric == "f1") {
+            exp(mean(log(mean_score_per_dataset), na.rm = TRUE))
+         } else {
+            mean(mean_score_per_dataset, na.rm = TRUE)
+         },
          geom_mean_isc = exp(mean(log(mean_isc_per_dataset), na.rm = TRUE)),
          .groups = "drop"
       ) %>%
       mutate(
-         rank_f1 = rank(-geom_mean_f1, ties.method = "average"),
+         rank_score = rank(-mean_score, ties.method = "average"),
          rank_isc = rank(-geom_mean_isc, ties.method = "average"),
-         rank_difference = abs(rank_f1 - rank_isc)
+         rank_difference = abs(rank_score - rank_isc)
       ) %>%
-      mutate(classifier = factor(classifier, levels = names(palette))) %>%
       arrange(rank_isc)
    
-   rank_cor <- cor.test(rankings$rank_f1, rankings$rank_isc, method = "spearman")
+   rank_cor <- cor.test(rankings$rank_score, rankings$rank_isc, method = "spearman")
    
-   p <- ggplot(rankings, aes(x = rank_isc, y = rank_f1)) +
+   p <- ggplot(rankings, aes(x = rank_isc, y = rank_score)) +
       geom_point(aes(color = classifier), size = 4) +
       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
       ggrepel::geom_label_repel(aes(label = classifier, color = classifier), size = 5) +
       scale_x_reverse(breaks = seq_len(nrow(rankings))) +
       scale_y_reverse(breaks = seq_len(nrow(rankings))) +
       labs(
-         title = "Ranking Agreement: ISC vs F1",
+         title = paste("Ranking Agreement: ISC vs", tools::toTitleCase(metric)),
          subtitle = dataset_label,
-         x = "ISC Rank", y = "F1 Rank", color = "Classifier"
+         x = "ISC Rank", y = paste(tools::toTitleCase(metric), "Rank"), color = "Classifier"
       ) +
       coord_fixed() +
       ggpubr::theme_classic2() +
@@ -323,13 +336,15 @@ plot_ranking_comparison <- function(df, isc_col, excl = "ground_truth", dataset_
 
 # Per-dataset ranking of classifiers (ranked within each dataset, then averaged across datasets)
 plot_ranking_per_dataset <- function(df, isc_col, excl = "ground_truth",
-                                     use_geom_mean = TRUE, dataset_label = "") {
+                                     metric = "f1", use_geom_mean = TRUE,
+                                     dataset_label = "") {
+   palette <- rankings_palette(df, isc = isc_col, metric = metric)
    dataset_metrics_mean <- df %>%
-      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc_col]])) %>%
       filter(!classifier %in% excl) %>%
       group_by(dataset_id, classifier) %>%
       summarise(
-         mean_f1 = mean(f1, na.rm = TRUE),
+         mean_score = mean(.data[[metric]], na.rm = TRUE),
          mean_isc = mean(.data[[isc_col]], na.rm = TRUE),
          .groups = "drop"
       )
@@ -337,7 +352,7 @@ plot_ranking_per_dataset <- function(df, isc_col, excl = "ground_truth",
    dataset_rankings <- dataset_metrics_mean %>%
       group_by(dataset_id) %>%
       mutate(
-         rank_f1 = rank(-mean_f1, ties.method = "average"),
+         rank_score = rank(-mean_score, ties.method = "average"),
          rank_isc = rank(-mean_isc, ties.method = "average")
       ) %>%
       ungroup()
@@ -345,9 +360,9 @@ plot_ranking_per_dataset <- function(df, isc_col, excl = "ground_truth",
    mean_rank_per_classifier <- dataset_rankings %>%
       group_by(classifier) %>%
       summarise(
-         mean_rank_f1 = if (use_geom_mean) exp(mean(log(rank_f1), na.rm = TRUE)) else mean(rank_f1, na.rm = TRUE),
+         mean_rank_score = if (use_geom_mean) exp(mean(log(rank_score), na.rm = TRUE)) else mean(rank_score, na.rm = TRUE),
          mean_rank_isc = if (use_geom_mean) exp(mean(log(rank_isc), na.rm = TRUE)) else mean(rank_isc, na.rm = TRUE),
-         sd_rank_f1 = sd(rank_f1, na.rm = TRUE),
+         sd_rank_score = sd(rank_score, na.rm = TRUE),
          sd_rank_isc = sd(rank_isc, na.rm = TRUE),
          n_datasets = n(),
          .groups = "drop"
@@ -355,11 +370,11 @@ plot_ranking_per_dataset <- function(df, isc_col, excl = "ground_truth",
       mutate(classifier = factor(classifier, levels = names(palette))) %>%
       arrange(mean_rank_isc)
    
-   rank_cor_dataset <- cor.test(mean_rank_per_classifier$mean_rank_f1,
+   rank_cor_dataset <- cor.test(mean_rank_per_classifier$mean_rank_score,
                                 mean_rank_per_classifier$mean_rank_isc, method = "spearman")
    mean_type <- if (use_geom_mean) "Geometric Mean" else "Arithmetic Mean"
    
-   p <- ggplot(mean_rank_per_classifier, aes(x = mean_rank_isc, y = mean_rank_f1)) +
+   p <- ggplot(mean_rank_per_classifier, aes(x = mean_rank_isc, y = mean_rank_score)) +
       geom_point(aes(color = classifier), size = 4) +
       geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "gray40") +
       ggrepel::geom_label_repel(aes(label = classifier, color = classifier), size = 5) +
@@ -367,9 +382,10 @@ plot_ranking_per_dataset <- function(df, isc_col, excl = "ground_truth",
       scale_y_reverse() +
       labs(
          title = dataset_label,
-         subtitle = sprintf("Ranking Agreement per Dataset: ISC vs F1 [%s], Spearman ρ = %.3f (p = %.2e)",
+         subtitle = sprintf("Ranking Agreement per Dataset: ISC vs %s [%s], Spearman ρ = %.3f (p = %.2e)",
+                            tools::toTitleCase(metric),
                             mean_type, rank_cor_dataset$estimate, rank_cor_dataset$p.value),
-         x = "Mean ISC Rank", y = "Mean F1 Rank", color = "Classifier"
+         x = "Mean ISC Rank", y = paste("Mean", tools::toTitleCase(metric), "Rank"), color = "Classifier"
       ) +
       coord_fixed() +
       ggpubr::theme_classic2() +
@@ -378,25 +394,25 @@ plot_ranking_per_dataset <- function(df, isc_col, excl = "ground_truth",
    list(plot = p, mean_rank_per_classifier = mean_rank_per_classifier, rank_cor = rank_cor_dataset)
 }
 
-# Generic scatter of mean F1 vs mean ISC, grouped/colored by either "classifier" or "cell_type"
+# Generic scatter of the selected score vs mean ISC, grouped/colored by classifier or cell type
 plot_isc_vs_f1_grouped <- function(df,
                                    isc_col,
                                    isc_label,
                                    group_by = c("classifier", "cell_type"),
-                                   palette = "f1",
+                                   metric = "f1",
                                    excl = "ground_truth",
                                    dataset_label = "") {
    
    group_cols <- c("dataset_id", group_by)
    
-   palette <- rankings_palette(df, palette)
+   palette <- rankings_palette(df, isc = isc_col, metric = metric)
    
    mean_metrics <- df %>%
-      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc_col]])) %>%
       filter(!classifier %in% excl) %>%
       group_by(across(all_of(group_cols))) %>%
       summarise(
-         mean_f1 = mean(f1, na.rm = TRUE),
+         mean_score = mean(.data[[metric]], na.rm = TRUE),
          mean_isc = mean(.data[[isc_col]], na.rm = TRUE),
          .groups = "drop"
       )
@@ -408,21 +424,21 @@ plot_isc_vs_f1_grouped <- function(df,
          isc_label = isc_label,
          group_by = paste(group_cols, collapse = ":")
       ),
-      cor_stats(mean_metrics$mean_isc, mean_metrics$mean_f1)
+      cor_stats(mean_metrics$mean_isc, mean_metrics$mean_score)
    )
    
-   p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc, color = classifier)) +
+   p <- ggplot(mean_metrics, aes(y = mean_score, x = mean_isc, color = classifier)) +
       geom_point(alpha = 0.6, size = 1.5) +
       geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) +
       scale_x_continuous(limits = c(-0.1, 1)) +
-      scale_y_continuous(limits = c(-0.1, 1)) +
+      scale_y_continuous(limits = if (metric == "mcc") c(-1, 1) else if (metric == "f1") c(-0.1, 1) else NULL) +
       scale_color_manual(values = palette) +
       labs(
          title = dataset_label,
          subtitle = sprintf("R²(Pearson) = %.3f | R²(Spearman) = %.3f (p = %.2e)%s",
                             stats$r2, stats$r2_spearman, stats$pval_spearman,
                             ifelse(stats$n_influential > 0, sprintf(" | %d influential pt(s)", stats$n_influential), "")),
-         y = "F1 Score Test",
+         y = paste(tools::toTitleCase(metric), "Test"),
          x = paste0("ISC Test (", isc_label, ")"),
          color = tools::toTitleCase(gsub("_", " ", group_by))
       ) +
@@ -433,37 +449,39 @@ plot_isc_vs_f1_grouped <- function(df,
    list(plot = p, stats = stats)
 }
 
-# Per-dataset R2 (F1 vs ISC) computed at the cell-type level (one fit per dataset_id x replicate,
+# Per-dataset R2 (selected score vs ISC) computed at the cell-type level (one fit per dataset_id x replicate,
 # using classifier x cell_type pairs as data points), so variability across replicates is preserved
 compute_r2_per_dataset_celltype <- function(df,
                                             isc_col,
                                             group_cols = c("dataset_id"),
                                             excl = "ground_truth",
+                                            metric = "f1",
                                             min_n = 3) {
    df %>%
-      filter(!is.na(f1) & !is.na(.data[[isc_col]])) %>%
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc_col]])) %>%
       filter(!classifier %in% excl) %>%
       group_by(across(all_of(group_cols))) %>%
       filter(n() >= min_n) %>%
-      group_modify(~ cor_stats(.x[[isc_col]], .x$f1, min_n = min_n)) %>%
+      group_modify(~ cor_stats(.x[[isc_col]], .x[[metric]], min_n = min_n)) %>%
       ungroup() %>%
       mutate(isc = isc_col)
 }
 
-# Join prediction F1 (non-ground_truth, non-excluded classifiers) with each ISC metric computed on
+# Join the selected prediction score (non-ground_truth, non-excluded classifiers) with each ISC metric computed on
 # the ground_truth reference row, matched by dataset_id/cell_type. Loops over every metric in
 # isc_col (defaults to the global `iscs`, skipping classifiers in excl) and returns a named list of
 # joined data frames, each keeping its own isc_col column name so it can be fed directly into
 # cor_stats()/compute_r2_per_dataset_celltype()/fit_isc_f1_lmer().
-join_reference_consistency <- function(df, isc_col = iscs, excl = "ground_truth") {
+join_reference_consistency <- function(df, isc_col = iscs, excl = "ground_truth",
+                                       metric = "f1") {
    pred_summary <- df %>%
-      filter(classifier != "ground_truth", !classifier %in% excl, !is.na(f1)) %>%
-      select(cell_type, dataset_id, f1, classifier)
+      filter(classifier != "ground_truth", !classifier %in% excl, !is.na(.data[[metric]])) %>%
+      select(cell_type, dataset_id, all_of(metric), classifier)
 
    lapply(isc_col, function(ic) {
       cons_ref <- df %>%
          filter(classifier == "ground_truth", !is.na(.data[[ic]])) %>% 
-         select(-f1, -classifier)
+         select(-all_of(metric), -classifier)
 
       pred_summary %>%
          left_join(cons_ref, by = c("dataset_id", "cell_type")) %>%
@@ -472,18 +490,19 @@ join_reference_consistency <- function(df, isc_col = iscs, excl = "ground_truth"
       setNames(isc_col)
 }
 
-# Quadrant contingency of reference ISC vs prediction F1, thresholded at ths_isc/ths_f1: computes
+# Quadrant contingency of reference ISC vs prediction score, thresholded at ths_isc/ths_metric: computes
 # per-quadrant counts/percentages and renders the bin2d density plot with quadrant labels. `joined`
 # is expected to come from join_reference_consistency()[[isc_col]].
 plot_isc_f1_contingency <- function(joined, isc_col, isc_label = NULL,
-                                    ths_isc = 0.5, ths_f1 = 0.5, dataset_label = "") {
+                                    ths_isc = 0.5, ths_metric = 0.5,
+                                    metric = "f1", dataset_label = "") {
    if (is.null(isc_label)) isc_label <- labs[match(isc_col, iscs)]
 
    quadrant_counts <- joined %>%
       mutate(quadrant = case_when(
-         .data[[isc_col]] >= ths_isc & f1 >= ths_f1 ~ "top-right",
-         .data[[isc_col]] <  ths_isc & f1 >= ths_f1 ~ "top-left",
-         .data[[isc_col]] >= ths_isc & f1 <  ths_f1 ~ "bottom-right",
+         .data[[isc_col]] >= ths_isc & .data[[metric]] >= ths_metric ~ "top-right",
+         .data[[isc_col]] <  ths_isc & .data[[metric]] >= ths_metric ~ "top-left",
+         .data[[isc_col]] >= ths_isc & .data[[metric]] <  ths_metric ~ "bottom-right",
          TRUE                                       ~ "bottom-left"
       )) %>%
       count(quadrant) %>%
@@ -494,19 +513,19 @@ plot_isc_f1_contingency <- function(joined, isc_col, isc_label = NULL,
                        quadrant == "top-left"     ~ 0.25,
                        quadrant == "bottom-right" ~ 0.75,
                        quadrant == "bottom-left"  ~ 0.25),
-         y = case_when(quadrant == "top-right"   ~ 0.85,
-                       quadrant == "top-left"     ~ 0.85,
-                       quadrant == "bottom-right" ~ 0.25,
-                       quadrant == "bottom-left"  ~ 0.25),
+         y = case_when(
+            quadrant %in% c("top-right", "top-left") ~ if (metric == "mcc") 0.5 else 0.85,
+            TRUE ~ if (metric == "mcc") -0.5 else 0.25
+         ),
          label = paste0(sprintf("%.1f", 100 * prop), "%")
       )
 
    p <- joined %>%
-      ggplot(aes(x = .data[[isc_col]], y = f1)) +
+      ggplot(aes(x = .data[[isc_col]], y = .data[[metric]])) +
       geom_bin2d(bins = 50, show.legend = TRUE) +
       scale_fill_viridis_c(option = "magma", trans = "sqrt") +
       geom_vline(xintercept = ths_isc, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
-      geom_hline(yintercept = ths_f1, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
+      geom_hline(yintercept = ths_metric, linetype = "dashed", color = "#00FFFF", linewidth = 0.8) +
       geom_label(data = quadrant_counts,
                 aes(x = x, y = y, label = label),
                 inherit.aes = FALSE, size = 6, fill = "grey90", color = "black", alpha = 0.9) +
@@ -514,9 +533,9 @@ plot_isc_f1_contingency <- function(joined, isc_col, isc_label = NULL,
       # scale_y_continuous(limits = c(0, 1)) +
       labs(
          title = paste0(gsub("_", "-", dataset_label), " - ", isc_label),
-         subtitle = "Reference ISC vs Prediction F1, per cell type",
+         subtitle = paste("Reference ISC vs Prediction", tools::toTitleCase(metric), "per cell type"),
          x = paste0("Reference ISC (", isc_label, ")"),
-         y = "F1 score Test"
+         y = paste(tools::toTitleCase(metric), "Test")
       ) +
       ggpubr::theme_classic2() +
       theme(legend.position = "right")
@@ -529,7 +548,18 @@ plot_iscTest_vs_f1 <- function(df,
                                isc_col,
                                isc_label,
                                excl = "ground_truth",
+                               metric = "f1",
                                dataset_label = "") {
+   palette <- rankings_palette(df, isc = isc_col, metric = metric)
+   mean_metrics <- df %>%
+      filter(!is.na(.data[[metric]]) & !is.na(.data[[isc_col]]),
+             !classifier %in% excl) %>%
+      group_by(classifier) %>%
+      summarise(
+         mean_score = mean(.data[[metric]], na.rm = TRUE),
+         mean_isc = mean(.data[[isc_col]], na.rm = TRUE),
+         .groups = "drop"
+      )
 
    stats <- cbind(
       data.frame(
@@ -537,23 +567,23 @@ plot_iscTest_vs_f1 <- function(df,
          isc = isc_col,
          isc_label = isc_label
       ),
-      cor_stats(df$f1, df[[isc_col]])
+      cor_stats(mean_metrics$mean_isc, mean_metrics$mean_score)
    )
    
-   p <- ggplot(mean_metrics, aes(y = mean_f1, x = mean_isc, color = classifier)) +
+   p <- ggplot(mean_metrics, aes(y = mean_score, x = mean_isc, color = classifier)) +
       geom_point(alpha = 0.6, size = 1.5) +
       geom_smooth(method = "lm", color = "black", linetype = "dashed", se = TRUE) +
       scale_x_continuous(limits = c(-0.1, 1)) +
-      scale_y_continuous(limits = c(-0.1, 1)) +
+      scale_y_continuous(limits = if (metric == "mcc") c(-1, 1) else if (metric == "f1") c(-0.1, 1) else NULL) +
       scale_color_manual(values = palette) +
       labs(
          title = dataset_label,
          subtitle = sprintf("R²(Pearson) = %.3f | R²(Spearman) = %.3f (p = %.2e)%s",
                             stats$r2, stats$r2_spearman, stats$pval_spearman,
                             ifelse(stats$n_influential > 0, sprintf(" | %d influential pt(s)", stats$n_influential), "")),
-         y = "F1 Score Test",
+         y = paste(tools::toTitleCase(metric), "Test"),
          x = paste0("ISC Test (", isc_label, ")"),
-         color = tools::toTitleCase(gsub("_", " ", group_by))
+         color = "Classifier"
       ) +
       ggpubr::theme_classic2() +
       theme(legend.position = "right")
