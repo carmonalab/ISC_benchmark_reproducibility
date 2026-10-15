@@ -659,7 +659,8 @@ pl_comp <- lapply(c("ventricular", "atrial"),
                     
                     comp_pl <- df %>% 
                       ggplot(aes(cell_state, Freq)) +
-                      geom_boxplot(show.legend = FALSE) +
+                      geom_boxplot(show.legend = FALSE,
+                                   outlier.colour = NA) +
                       geom_jitter(
                         aes(color = sample),
                         show.legend = FALSE,
@@ -680,7 +681,8 @@ pl_comp <- lapply(c("ventricular", "atrial"),
                       scale_y_log10() +
                       labs(y = "Number of cells per sample") +
                       ggpubr::theme_classic2() +
-                      theme(axis.text.x = element_text(angle = 45,
+                      theme(axis.text.x = element_text(size = 14,
+                                                       angle = 45,
                                                        hjust = 1, 
                                                        vjust = 1))
                     return(comp_pl)
@@ -754,7 +756,7 @@ for(mdiss in dm){
 ```{r}
 plot_pca(sc)
 ```
-
+####RMC
 
 ```{r}
 plot_heatmap(sc, 
@@ -992,6 +994,81 @@ phall <- do_heatmap(ps,
                     do_scale = F,
                     cluster_cols = T,
                     cluster_rows = F)
+```
+
+#### Number of cells/sample
+
+
+
+```{r}
+th <- 10
+
+df <- object$metadata %>% 
+  filter(grepl("Nuclei", cell_source)) %>% 
+  mutate(cell_states = as.character(cell_states),
+         sample = as.character(sample)) %>% 
+  {table(.[["cell_states"]], .[["sample"]])} %>% 
+  as.data.frame() %>% 
+  dplyr::rename(
+    cell_state = Var1,
+    sample = Var2
+  ) %>% 
+  filter(grepl("SMC|PC", cell_state))
+
+df <- left_join(df, object$metadata %>% 
+                  distinct(sample, region),
+                by = "sample") %>% 
+  mutate(region = factor(region,
+                         levels = c("RA", "LA",
+                                    "LV", "AX",
+                                    "SP", "RV")))
+
+zero_prop <- df %>%
+  group_by(region, cell_state) %>%
+  summarise(
+    prop_zero = mean(Freq < th),
+    .groups = "drop"
+  ) %>% 
+  mutate(label = scales::percent(prop_zero, accuracy = 1))
+
+dodge_width <- 0.8
+
+comp_pl <- df %>% 
+  ggplot(aes(x = cell_state, y = Freq, fill = region)) +
+  geom_boxplot(
+    position = position_dodge(width = dodge_width),
+    outlier.shape = NA,
+    alpha = 0.2,
+    width = 0.7
+  ) +
+  geom_point(
+    aes(color = region),
+    position = position_jitterdodge(
+      jitter.width = 0.1,
+      dodge.width = dodge_width
+    ),
+    show.legend = FALSE,
+    shape = 21,
+    size = 0.8
+  ) +
+  geom_hline(
+    yintercept = th,
+    linetype = "dashed",
+    color = "brown"
+  ) +
+  scale_y_log10() +
+  labs(y = "Number of cells per sample") +
+  ggpubr::theme_classic2() +
+  theme(
+    axis.text.x = element_text(
+      size = 14,
+      angle = 45,
+      hjust = 1,
+      vjust = 1
+    )
+  )
+
+comp_pl
 ```
 
 
