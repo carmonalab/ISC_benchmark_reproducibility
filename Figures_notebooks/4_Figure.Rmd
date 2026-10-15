@@ -629,6 +629,43 @@ reference_r2_boxplots <- lapply(unique(reference_r2_per_dataset$dataset_group), 
 reference_r2_boxplots
 ```
 
+### best classifier
+For RerenceISC - TestF1, only use the good classifiers to get the metrics. Pick up the best classifier for each metric and then we can use R2.
+
+```{r}
+classifiers_use <- c("scPred", "SVM", "SeuratTransfer")
+reference_r2_per_dataset_best <- lapply(names(res), function(r){
+  lapply(iscs_ref, function(isc_col){
+    compute_r2_per_dataset_celltype(reference_joined[[r]][[isc_col]] %>% 
+                                      filter(classifier %in% classifiers_use),
+                                    isc_col = isc_col,
+                                    group_cols = c("dataset_id"),
+                                    excl = excl,
+                                    metric = use_metric)
+  }) %>% bind_rows()
+}) %>% setNames(names(res)) %>%
+  bind_rows(.id = "dataset_group") %>%
+  mutate(isc_label = factor(labs_ref[match(isc, iscs_ref)], levels = labs_ref))
+
+reference_r2_boxplots_best <- lapply(unique(reference_r2_per_dataset$dataset_group), function(dg){
+  reference_r2_per_dataset %>%
+    filter(dataset_group == dg) %>%
+    ggplot(aes(x = r2, y = forcats::fct_reorder(isc_label, r2, .fun = median))) +
+    geom_boxplot(aes(fill = isc_label), outlier.shape = NA, alpha = 0.4, show.legend = FALSE) +
+    geom_jitter(width = 0, height = 0.1, size = 1.5, alpha = 0.4) +
+    labs(
+      title = dg,
+      subtitle = paste("R² per dataset (reference ISC vs prediction", use_metric, ")"),
+      y = "Tool", x = expression(R^2)
+    ) +
+    ggpubr::theme_classic2()
+}) %>% setNames(unique(reference_r2_per_dataset$dataset_group))
+
+reference_r2_boxplots_best
+```
+
+
+
 ## mixed-effects model
 
 Same rationale as the Test-set ISC main analysis: pool across datasets and classifiers properly by fitting the selected score ~ ISC + classifier + (1 | dataset_id) per metric, here using the reference (ground_truth) ISC value joined to each classifier's prediction score.
