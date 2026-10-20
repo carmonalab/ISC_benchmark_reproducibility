@@ -94,7 +94,13 @@ check_counts(object$counts)
 ```
 
 ```{r}
-mat <- reverseNormalize_matrix(object$counts)
+counts_raw_path <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/thymus_develop_Park/027cb841-f726-45e9-8cea-ac5484c24474_rawcounts.rds"
+if(!exists(counts_raw_path)) {
+  mat <- reverseNormalize_matrix(object$counts) 
+  saveRDS(mat, counts_raw_path)
+} else {
+  mat <- readRDS(counts_raw_path)
+} 
 object$counts <- mat
 rm(mat);gc()
 ```
@@ -102,7 +108,6 @@ rm(mat);gc()
 ```{r}
 check_counts(object$counts)
 ```
-
 
 
 
