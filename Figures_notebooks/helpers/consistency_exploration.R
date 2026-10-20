@@ -129,6 +129,7 @@ run_seurat_workflow <- function(
       npcs = 30,
       do.center = TRUE,
       do.scale = TRUE,
+      sketch = NULL,
       seed = 22
 ) {
    
@@ -143,6 +144,18 @@ run_seurat_workflow <- function(
       scale.factor = 10000,
       verbose = FALSE
    )
+   
+   if(!is.null(sketch)){
+      seu <- SketchData(
+         object = seu,
+         ncells = sketch,
+         method = 'LeverageScore',
+         sketched.assay = 'sketch', 
+         seed = seed
+         )
+      
+      DefaultAssay(seu) <- 'sketch'
+   }
    
    if(is.null(hvg)){
       seu <- FindVariableFeatures(
