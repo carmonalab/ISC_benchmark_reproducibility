@@ -50,3 +50,22 @@ check_counts <- function(x) {
    
    invisible(NULL)
 }
+
+
+downsample_df <- function(df, col1, col2, n = 200, seed = 22) {
+   set.seed(seed)
+   
+   out <- df %>%
+      tibble::rownames_to_column("cellid") %>% 
+      dplyr::group_by(.data[[col1]], .data[[col2]]) %>%
+      dplyr::group_modify(~ dplyr::slice_sample(
+         .x,
+         n = min(nrow(.x), n),
+         replace = FALSE
+      )) %>%
+      dplyr::ungroup() %>% 
+      tibble::column_to_rownames("cellid")
+   
+   
+   return(out)
+}
