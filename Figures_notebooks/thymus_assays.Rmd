@@ -1,0 +1,316 @@
+---
+title: "Heart Atlas analysis"
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    theme: united
+    code_folding: show
+---
+
+# Introduction
+
+To analyze human thymic development atlas with ISC
+
+https://cellxgene.cziscience.com/collections/de13e3e2-23b6-40ed-a413-e9e12d7d3910/private
+
+This dataset is used in https://www.biorxiv.org/content/10.64898/2026.02.28.708722v1 to explore differences between assays
+
+
+# 0. Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 6)
+```
+
+```{r libraries}
+# Load packages
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(BiocParallel)
+library(Seurat)
+library(scTypeEval)
+library(tibble)
+source("helpers/consistency_exploration.R")
+source("helpers/inter_assay.R")
+source("helpers/utils.R")
+# Custom theme
+theme_set(theme_bw(base_size = 12))
+```
+
+Define which ISC paramters
+```{r set_ISC}
+#black list from scTypeEval package
+data(black_list)
+bl <- list(black_list$TCR, black_list$Immunoglobulins, black_list$Ygenes) %>% unlist()
+# define used ISC
+mety <- c("local" = "silhouette | recip_classif:Match",
+          "global" = "2label_silhouette | Pseudobulk:Cosine")
+
+# mety <- c("local" = "silhouette | recip_classif:Match",
+#           "global" = "NeighborhoodPurity | Pseudobulk:Cosine")
+# Define dissimilarities to use
+dm <- c("Pseudobulk:Cosine",
+        "recip_classif:Match")
+# min samples to consider a cell type
+min_samples <- 3
+min_cells <- 10
+```
+
+
+# 1. Load dataset
+
+- 027cb841-f726-45e9-8cea-ac5484c24474.h5ad - Complete dataset
+- f9f498e1-11c1-4056-a896-40690435010f.h5ad - Only T cell lineage
+
+```{r}
+lpath <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/thymus_develop_Park/027cb841-f726-45e9-8cea-ac5484c24474.h5ad"
+# use complete version
+
+object <- load_single_cell_object(lpath)
+smpl_md <- 
+  object$metadata %>%
+  distinct(Sample, donor_id, sort,
+           method, file, assay, development_stage)
+
+ident <- "cell_type" # annotation column to use
+sample <- "Sample" # column identifying sample of origin
+method <- "method"
+
+n_distinct(object$metadata[[sample]])
+unique(object$metadata[[ident]])
+table(is.na(object$metadata[[ident]]))
+```
+
+## Reverse log norm
+counts seem to be log1p normalized, let's revert it
+
+```{r}
+check_counts(object$counts)
+```
+
+```{r}
+mat <- reverseNormalize_matrix(object$counts)
+object$counts <- mat
+rm(mat);gc()
+```
+
+```{r}
+check_counts(object$counts)
+```
+
+
+
+
+# 2. Run scTypeEval
+
+## 2.1 Processing
+
+```{r}
+md <- object$metadata
+counts <- object$counts[,rownames(md)]
+#create sceval object
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = ident,
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc, 
+              aggregation = "single-cell",
+              ngenes = 2000,
+              var_method = "scran",
+              ncores = 5, 
+              verbose = F)
+
+# no need to run pca on single-cell data
+single_mat <- sc@data$`single-cell`
+sc@data$`single-cell` <- NULL
+
+sc <- run_pca(sc,
+              scale. = F,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 7,
+                          verbose = F)
+}
+# return single-cell data for SCCAF and MetaNeighbor
+sc@data$`single-cell` <- single_mat
+rm(single_mat); gc()
+```
+
+
+
+## 2.2 Explore plots
+
+### RMC plot
+```{r}
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+```
+### PCA
+
+```{r}
+plot_pca(sc)
+```
+
+
+# 3. Consistency
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette",
+                                                "NeighborhoodPurity")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure)
+```
+
+## 3.1. plotting
+### barplot
+```{r}
+q_local <- 0.45
+q_global <- 0.74
+consistency_barplot(consis, x_threshold = q_local)
+consistency_barplot(consis, xval = "global",
+                    x_threshold = q_global, xlabel = "global")
+```
+
+### scatter
+
+Joint distribution of per-cell-type ISCL (silhouette on reciprocal-classification match) and ISCG (2-label silhouette on pseudobulk cosine similarity) across atlas labels (“cell_type”). Each point represents one annotated cell type. 
+
+```{r}
+consistency_scatter(consis)
+```
+
+
+## 4. SCCAF
+```{r}
+repo_root <- if (dir.exists("sample_agnostic_utils")) {
+  getwd()
+} else {
+  normalizePath("..", mustWork = TRUE)
+}
+source(file.path(repo_root, "sample_agnostic_utils", "run_python_pipelines.R"))
+
+sccaf_results <- run_sample_agnostic_python_pipelines(
+  scTypeEval = sc,
+  pipelines = list(
+    sccaf = pipeline_spec_sccaf(cluster_key = ident, n = 100)
+  ),
+  file_prefix = basename(tempfile("heart_")),
+  continue_on_error = FALSE,
+  cleanup = TRUE
+)$sccaf
+
+sccaf_results
+```
+
+### barplot
+```{r}
+consistency_barplot(sccaf_results,
+                    xval = "f1_score",
+                    xlabel = "SCCAF F1")
+```
+
+
+
+## 5. MetaNeighbor
+
+```{r}
+library(MetaNeighbor)
+
+meta_neighbor_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "MetaNeighbor_Supervised"
+)
+
+meta_neighbor_results
+```
+### barplot
+```{r}
+consistency_barplot(meta_neighbor_results,
+                    xval = "measure",
+                    x_threshold = 0.5)
+```
+
+# 7. Explore dataset
+
+
+Downsample to visualize faster using `SketchData` internally
+
+```{r}
+ds_md <- downsample_df(df = md,
+                       col1 = sample,
+                       col2 = ident,
+                       n = 200) %>% 
+  filter(method == "3GEX")
+#table(ds_md$Sample, ds_md$cell_type)
+dim(ds_md)
+```
+
+
+```{r}
+seu <- run_seurat_workflow(counts = counts[,rownames(ds_md)],
+                           metadata = ds_md)
+```
+
+```{r}
+lapply(c(ident, sample, method), function(gb){
+  DimPlot(seu,
+         group.by = gb,
+         label = T,
+         repel = T) +
+    NoLegend()
+})
+```
+
+
+
+
+
+# 8. Compare inter-assay
+
+```{r}
+method_md <-
+  object$metadata %>%
+  distinct(Sample, method)
+```
+
+
