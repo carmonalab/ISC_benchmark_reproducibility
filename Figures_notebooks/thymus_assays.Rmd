@@ -96,7 +96,7 @@ check_counts(object$counts)
 ```{r}
 counts_raw_path <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/thymus_develop_Park/027cb841-f726-45e9-8cea-ac5484c24474_rawcounts.rds"
 if(!exists(counts_raw_path)) {
-  mat <- reverseNormalize_matrix(object$counts) 
+  mat <- reverseNormalize_matrix(mat = object$counts) 
   saveRDS(mat, counts_raw_path)
 } else {
   mat <- readRDS(counts_raw_path)
@@ -107,6 +107,7 @@ rm(mat);gc()
 
 ```{r}
 check_counts(object$counts)
+apply(object$counts[,1:10], 2, sum)
 ```
 
 
@@ -284,8 +285,7 @@ Downsample to visualize faster using `SketchData` internally
 ds_md <- downsample_df(df = md,
                        col1 = sample,
                        col2 = ident,
-                       n = 200) %>% 
-  filter(method == "3GEX")
+                       n = 200)
 #table(ds_md$Sample, ds_md$cell_type)
 dim(ds_md)
 ```
@@ -313,9 +313,91 @@ lapply(c(ident, sample, method), function(gb){
 # 8. Compare inter-assay
 
 ```{r}
-method_md <-
-  object$metadata %>%
-  distinct(Sample, method)
+comb <- get_method_sample_combinations(object$metadata)
+
+# hardcode other combinations
+
+spl_grid <- expand.grid(
+  group1 = c("3GEX.A", "3GEX.B"),
+  group2 = c("5GEX.A", "5GEX.B"),
+  stringsAsFactors = FALSE
+)
+spl_comb <- lapply(seq_len(nrow(spl_grid)), function(i) {
+  g1 <- spl_grid$group1[i]
+  g2 <- spl_grid$group2[i]
+   
+  v <- c(comb[[g1]], comb[[g2]])
+  return(v)
+}) 
+names(spl_comb) <- paste(spl_grid$group1, spl_grid$group2, sep = "_")
+
+combi <- c(comb, spl_comb)
 ```
+
+```{r inter-assay, message=T, warning = F}
+#assay_isc <- list()
+
+for(i in names(combi)){
+  if(i %in% names(assay_isc)){next}
+  
+  cat(">>> Doing ", i, " <<<\n")
+    
+  assay_isc[[i]] <- run_isc(counts = object$counts,
+                            metadata = object$metadata,
+                            which_samples = combi[[i]],
+                            black_list = bl,
+                            hvg = sc@gene_lists$HVG)
+}
+```
+
+### Join allin a dataframe
+
+```{r}
+cons_df <- lapply(names(assay_isc), function(n){
+  ss <- combi[[n]]
+  ns_5 <- table(factor(grepl("5GEX", ss), levels = c(FALSE, TRUE)))
+  rat <- paste0(ns_5[[1]], "/", ns_5[[2]])
+  
+  df <- assay_isc[[n]]$consistency %>% 
+    mutate(combination = n,
+           ratio_35 = rat,
+           method_type = paste(consistency_metric, dissimilarity_method, sep = " | "))
+  return(df)
+}) %>%  
+  data.table::rbindlist() %>% 
+  filter(!method_type %in% c("2label_silhouette | recip_classif:Match",
+                             "silhouette | Pseudobulk:Cosine")) %>% 
+  mutate(combination = factor(combination,
+                              levels = names(combi)))
+```
+
+
+### plot ISC
+```{r}
+cons_pl <- cons_df %>% 
+  ggplot(aes(combination, measure)) +
+  geom_boxplot(show.legend = F,
+               outlier.colour = NA,
+               alphal = 0.6) +
+  geom_point(aes(color = celltype),
+             show.legend = F,
+             alpha = 0.4) +
+  geom_line(aes(group = celltype,
+                color = celltype),
+            show.legend = F,
+            alpha = 0.3) +
+  labs(x = "Number of 3GEX / 5GEX samples") +
+  facet_wrap(~method_type,
+             scales = "free_y") +
+  ggpubr::theme_classic2() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   hjust = 1, 
+                                   vjust = 1))
+
+cons_pl
+```
+
+
+
 
 
