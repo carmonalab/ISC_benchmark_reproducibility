@@ -95,7 +95,7 @@ check_counts(object$counts)
 
 ```{r}
 counts_raw_path <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/thymus_develop_Park/027cb841-f726-45e9-8cea-ac5484c24474_rawcounts.rds"
-if(!exists(counts_raw_path)) {
+if(!file.exists(counts_raw_path)) {
   mat <- reverseNormalize_matrix(mat = object$counts) 
   saveRDS(mat, counts_raw_path)
 } else {
