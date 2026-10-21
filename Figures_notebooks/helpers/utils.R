@@ -9,35 +9,47 @@ reverseNormalize <- function(cell) {
    names(s) <- names(cellE)
    return(s)
 }
-reverseNormalize_matrix <- function(x) {
-   x <- methods::as(x, "dgCMatrix")
+
+reverseNormalize_matrix <- function(mat, margin = 2L) {
    
-   for (j in seq_len(ncol(x))) {
-      # Identify the positions in x@x corresponding to nonzero values
-      # in column j. The x@p slot stores column boundaries.
-      idx <- seq.int(x@p[j] + 1L, x@p[j + 1L])
-      # Skip cells with no stored nonzero values.
-      if (length(idx) == 0L) next
-      # Reverse the log1p transformation: log(1 + value) -> value.
-      v <- expm1(x@x[idx])
-      # Identify positive values to calculate the cell-specific scaling factor.
-      pos <- v > 0
-      
-      if (any(pos)) {
-         # Use the smallest positive value as the scaling factor.
-         # Divide by it and round to obtain integer-like values.
-         v <- round(v / min(v[pos]))
-         # Replace the stored expression values in the sparse matrix.
-         x@x[idx] <- v
-      } else {
-         # If no positive values remain, set the stored values to zero.
-         x@x[idx] <- 0
-      }
+   # Ensure compressed sparse column format
+   mat <- methods::as(mat, "dgCMatrix")
+   
+   # For margin = 1, transpose so each target vector is a column
+   if (margin == 1L) {
+      mat <- Matrix::t(mat)
+   } else if (margin != 2L) {
+      stop("`margin` must be 1L (rows) or 2L (columns)")
    }
    
-   Matrix::drop0(x)
+   # Reverse log1p transformation on stored nonzero values only
+   x <- expm1(mat@x)
+   
+   # Identify the column index for every stored nonzero value
+   cell_idx <- rep(seq_len(ncol(mat)), diff(mat@p))
+   
+   # Calculate minimum positive value per cell
+   min_vals <- tapply(x[x > 0], cell_idx[x > 0], min)
+   
+   # Map scaling factors back to stored values
+   scale <- min_vals[cell_idx]
+   
+   # Rescale and round
+   valid <- !is.na(scale)
+   x[valid] <- round(x[valid] / scale[valid])
+   x[!valid] <- 0L
+   
+   # Update sparse matrix and remove explicit zeros
+   mat@x <- x
+   mat <- Matrix::drop0(mat)
+   
+   # Restore original orientation if needed
+   if (margin == 1L) {
+      mat <- Matrix::t(mat)
+   }
+   
+   mat
 }
-
 
 check_counts <- function(x) {
    vals <- if (inherits(x, "sparseMatrix")) x@x else as.vector(x)
