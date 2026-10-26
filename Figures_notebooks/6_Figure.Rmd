@@ -32,6 +32,7 @@ library(BiocParallel)
 library(RColorBrewer)
 library(Seurat)
 library(scTypeEval)
+source("helpers/consistency_exploration.R")
 
 # Custom theme
 theme_set(theme_bw(base_size = 12))
@@ -79,7 +80,7 @@ clean_ident_labels <- function(x) {
 Obtain raw files from Zenodo (10.5281/zenodo.18921437).
 
 ```{r}
-lpath <- "data/raw/Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
+lpath <- "../data/raw/Sikkema_2023_37291214_b351804c-293e-4aeb-9c4c-043db67f4540.rds"
 
 object <- load_single_cell_object(lpath)
 ```
@@ -96,7 +97,7 @@ sub_count_matrix = object[["counts"]][,rownames(sub_meta)]
 #create sceval object
 sc <- create_scTypeEval(matrix = sub_count_matrix,
                         metadata = sub_meta,
-                        black.list = bl)
+                        black_list = bl)
 
 sc <- run_processing_data(sc,
                           ident = ident,
@@ -280,6 +281,59 @@ pdf(fpath, width = 5.2, height = 5)
 pl_scatter
 dev.off()
 ```
+
+## 4. SCCAF
+```{r}
+repo_root <- if (dir.exists("sample_agnostic_utils")) {
+  getwd()
+} else {
+  normalizePath("..", mustWork = TRUE)
+}
+source(file.path(repo_root, "sample_agnostic_utils", "run_python_pipelines.R"))
+
+sccaf_results <- run_sample_agnostic_python_pipelines(
+  scTypeEval = sc,
+  pipelines = list(
+    sccaf = pipeline_spec_sccaf(cluster_key = ident, n = 100)
+  ),
+  file_prefix = basename(tempfile("lung_")),
+  continue_on_error = FALSE,
+  cleanup = TRUE
+)$sccaf
+
+sccaf_results
+```
+
+### barplot
+```{r}
+consistency_barplot(sccaf_results,
+                    xval = "f1_score",
+                    xlabel = "SCCAF F1")
+```
+
+
+
+## 5. MetaNeighbor
+
+```{r}
+library(MetaNeighbor)
+
+meta_neighbor_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "MetaNeighbor_Supervised"
+)
+
+meta_neighbor_results
+```
+### barplot
+```{r}
+consistency_barplot(meta_neighbor_results,
+                    xval = "measure",
+                    x_threshold = 0.5,
+                    xlabel = "Metaneighbor supervised")
+```
+
 
 ## Reannotation
 
