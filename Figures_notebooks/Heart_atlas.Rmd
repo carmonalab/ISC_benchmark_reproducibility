@@ -319,8 +319,18 @@ meta_neighbor_results
 ```{r}
 consistency_barplot(meta_neighbor_results,
                     xval = "measure",
-                    x_threshold = 0.5)
+                    x_threshold = 0.5, 
+                    xlabel = "MetaNeighbor Supervised")
 ```
+
+Correlation with #n of cells?
+
+```{r}
+md_s <- md[colnames(sc@data$`single-cell`@matrix),]
+ct_sorte <- sort(table(md_s$cell_type), decreasing = T)
+plot(sccaf_results$n_cells_input, sccaf_results$f1_score)
+```
+
 
 
 # 6. Explore dataset
