@@ -212,7 +212,8 @@ meta_neighbor_results
 ```{r}
 consistency_barplot(meta_neighbor_results,
                     xval = "measure",
-                    x_threshold = 0.5)
+                    x_threshold = 0.5,
+                    xlabel = "MetaNeighbor Supervised")
 ```
 # 6. Markers expression
 
@@ -547,12 +548,14 @@ names(scs) <- isc_idents
 ```
 #### RCM
 ```{r}
-lapply(scs, function(x){
+rcm_list <- lapply(scs, function(x){
   plot_heatmap(x, 
              dissimilarity_slot = "recip_classif:Match",
              sort_consistency = "silhouette",
              sort_similarity = "Pseudobulk:Cosine")
 })
+rcm_list
+ggpubr::ggarrange(plotlist = rcm_list)
 ```
 
 #### ISC-Scatter
