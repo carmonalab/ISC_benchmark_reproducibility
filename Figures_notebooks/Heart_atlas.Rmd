@@ -552,7 +552,7 @@ consistency_scatter(consis)
 
 ```{r}
 md <- object$metadata %>% 
-  mutate(cardio_split = ifelse(grepl("Cardio", .data[[ident]]),
+  mutate(cardio_split = ifelse(grepl("Ventricular_Cardiomyocyte", .data[[ident]]),
                                 as.character(.data[["cell_states"]]),
                                 as.character(.data[[ident]])
                                 )
@@ -760,6 +760,96 @@ consistency_barplot(meta_neighbor_results,
                     xval = "measure",
                     x_threshold = 0.5)
 ```
+
+### Markers expression
+```{r}
+vcardio <- c(
+  "FHL2", "MYH7", "MYL2", "PCDH7", "NLGN1", "CDH13",
+  "PRELID2", "GRXCR2", "LINC02187",
+  "NEXN", "ANKRD1", "FHL1", "XIRP2", "MYH9",
+  "DUSP27", "XIRP1", "CNN1", "CRYAB", "MYL12A",
+  "ACTB", "NDUFA4", "COX7C", "COX5B", "NDUFB11",
+  "DLC1", "EBF1", "SOX5", "EBF2", "KCNAB1"
+)
+```
+
+
+#### Dotplot
+
+```{r}
+md <- object$metadata %>% 
+  filter(cell_type == "Ventricular_Cardiomyocyte",
+         )
+counts <- object$counts[,rownames(md)]
+unique(md$cell_states)
+```
+
+
+```{r}
+seu_cardio <- CreateSeuratObject(counts = counts,
+                                 meta.data = md)
+seu_cardio <- NormalizeData(seu_cardio)
+unique(seu_cardio$cell_type)
+```
+
+
+```{r}
+cthem <- theme(axis.title.x = element_blank(),
+               axis.text.x = element_text(size = 15,
+                                          angle = 45,
+                                          vjust = 1,
+                                          hjust = 1),
+               axis.text.y = element_text(size = 15))
+feats <- unlist(vcardio, use.names = F)
+dotplot_seurat_style(seu_cardio,
+                     features = feats,
+                     ident_col = "cell_states",
+                     split_by = NULL,
+                     scale_expression = TRUE) +
+  cthem
+
+dotplot_seurat_style(seu_cardio,
+                     features = feats,
+                     ident_col = "cell_states",
+                     split_by = NULL,
+                     scale_expression = FALSE) +
+  cthem
+```
+
+```{r}
+dotplot_seurat_style(seu_cardio,
+                     features = feats,
+                     ident_col = "donor",
+                     split_by = "cell_states",
+                     scale_expression = FALSE) +
+  cthem
+```
+
+#### hetmap
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "cell_states",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+ps <- get_pseudobulk(sc,
+                     ident = "cell_states",
+                     sample = sample,
+                     genes = feats)
+phall <- do_heatmap(ps,
+                    do_scale = F,
+                    cluster_cols = T,
+                    cluster_rows = T)
+```
+
+
 
 ## 7.2 Smooth muscle cells
 
