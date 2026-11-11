@@ -528,6 +528,21 @@ meta <- meta %>%
   tibble::column_to_rownames("cellid")
 ```
 
+## Get distribution of reannotation
+
+```{r}
+sp <- nc <- paste0("reannot_", sp_do)
+distr_rean <- lapply(sp_do,
+                     function(c){
+                      table(reann[[c]]$pruned.labels) %>%
+                         prop.table() %>% 
+                         as.data.frame() %>% 
+                         dplyr::rename("celltype" = "Var1")
+                     })
+names(distr_rean) <- sp
+```
+
+
 ## ISC
 
 ```{r}
@@ -587,6 +602,13 @@ cons <- lapply(names(scs), function(x){
     arrange(measure) %>% 
     mutate(annot = x)
   
+  if(x %in% names(distr_rean)){
+    consis <- consis %>% 
+      left_join(., distr_rean[[x]], by = "celltype")
+  } else {
+    consis$Freq <- NA
+  }
+  
   return(consis)
 })
 names(cons) <- names(scs)
@@ -609,20 +631,62 @@ allcons <- cons %>%
 
 ```{r}
 yval <- "local"
-allcons %>% 
-  ggplot(aes(annot, .data[[yval]])) +
-  geom_boxplot(
-    outlier.color = NA,
-    width = 0.3
+conv <- allcons %>%
+  mutate(annot2 = factor(annot,
+                         levels = c("celltype",
+                                    "reannot_CD4.Th17",
+                                    "reannot_CD4.Treg",
+                                    "reannot_CD4.Tstr"),
+                         labels = c("None",
+                                    "CD4.Th17",
+                                    "CD4.Treg",
+                                    "CD4.Tstr"))
+         ) %>% 
+  ggplot(aes(annot2, .data[[yval]])) +
+  stat_summary(
+    aes(group = 1),
+    fun = mean,
+    geom = "line",
+    linewidth = 0.8,
+    alpha = 0.6
   ) +
-  geom_point(aes(color = celltype),
-                 show.legend = F
-  ) + 
-  ggrepel::geom_text_repel(aes(label = celltype,
-                               color = celltype),
-                           show.legend = F) + 
-  ggpubr::theme_classic2()
+  stat_summary(
+    fun = mean,
+    geom = "point",
+    size = 3,
+    alpha = 0.6
+  ) +
+  geom_line(aes(group = celltype,
+                color = celltype),
+            alpha = 0.2,
+            show.legend = F) +
+  geom_point(aes(size = Freq,
+                 fill = celltype),
+             color = "grey50",
+             shape = 21) +
+  ggrepel::geom_text_repel(
+    aes(label = celltype, color = celltype),
+    show.legend = FALSE
+  ) +
+  guides(color = "none",
+         fill = "none") +
+  labs(y = "ISCL",
+       x = "Cell type reannotated into the rest of labels",
+       size = "Proportion of reassignment\nin the category")
+  ggpubr::theme_classic2() +
+  theme(axis.text.x = element_text(angle = 45,
+                                   vjust = 1,
+                                   hjust = 1))
+conv
 ```
+
+```{r}
+fpath <- "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/Reassignment_TstrYost.pdf"
+pdf(fpath, width = 8, height = 6)
+conv
+dev.off()
+```
+
 
 
 # 9. Gene markers evaluation
@@ -635,7 +699,7 @@ Based on the discrepant output on consistency/quality of the different cell type
 | CD8.p.Tex | bad | bad  | good | bad |
 | CD8.Tcm | bad | good | good | bad  |
 | CD4.Str | bad | good | bad | bad |
-| CD4.Tcm | good | mid | bad |  |
+| CD4.Tcm | good | mid | bad | good |
 
 Define this in dotplot for each population with 2 different set of features:
 1) Set of features defining the population
