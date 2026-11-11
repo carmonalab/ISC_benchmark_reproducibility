@@ -625,4 +625,81 @@ allcons %>%
 ```
 
 
+# 9. Gene markers evaluation
+
+Based on the discrepant output on consistency/quality of the different cell types. Compare inter-sample markers expression for divergent output between ISC, MetaNeighbor and SCCAF.
+
+| Cell type  | local_ISC | SCCAF | MetaNeighbor | Gene marker |
+|-------|-------|-------|-------|-------|
+| CD4.Treg | good  | good | good | good |
+| CD8.p.Tex | bad | bad  | good | bad |
+| CD8.Tcm | bad | good | good | bad  |
+| CD4.Str | bad | good | bad | bad |
+| CD4.Tcm | good | mid | bad |  |
+
+Define this in dotplot for each population with 2 different set of features:
+1) Set of features defining the population
+2) Set of common core T cell  functional features (CD4, CD8, granzymes, pd1...)
+
+## 9.1 Define features
+```{r}
+features <- list(
+
+  # Population-defining markers
+  population = list(
+    CD4.Treg  = c("FOXP3", "IL2RA", "CTLA4", "TIGIT", "IKZF2"),
+    "CD8.p-Tex" = c("TCF7", "SLAMF6", "PDCD1", "TOX", "HAVCR2"),
+    CD8.Tcm   = c("TCF7", "IL7R", "CCR7", "SELL", "LEF1"),
+    CD4.Tstr   = c("HSPA1A","HSPA1B", "BAG3"),
+    CD4.Tcm = c("TCF7", "IL7R", "CCR7", "SELL", "LEF1")
+  ),
+
+  # Common core T-cell functional markers
+  core = c(
+    CD4 = "CD4",
+    CD8 = c("CD8A", "CD8B"),
+    cytotoxicity = c("GZMA", "GZMB", "GNLY", "KLRB1", "PRF1", "CCL5", "CXCL13"),
+    exhaustion = c("PDCD1", "LAG3", "TIGIT", "HAVCR2", "TOX"),
+    memory = c("TCF7", "IL7R", "CCR7", "SELL", "KLF2", "BACH2"),
+    activation = c("CD69", "IL2RA", "TNFRSF9", "ICOS", "CXCR6")
+  )
+)
+```
+
+## 9.2 Generate dotplots
+
+Generate seurat object
+```{r}
+seu <- CreateSeuratObject(counts = object$counts,
+                          meta.data = object$metadata)
+seu <- NormalizeData(seu)
+```
+
+Do plots
+
+```{r}
+cts <- names(features$population)
+dtpl <- lapply(cts, function(c){
+  feats <- unique(c(
+    features$population[[c]],
+    unlist(features$core)
+  ))
+  dotplot_seurat_style(seu,
+                       features = feats,
+                       ident_col = "sample",
+                       subset_col = "celltype",
+                       subset_values = c,
+                       split_by = NULL,
+                       scale_expression = F) +
+    ggtitle(c)
+}) 
+```
+
+
+```{r}
+fpath <- "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/Tstressed_markers.pdf"
+pdf(fpath, width = 9, height = 9)
+for(a in dtpl){print(a)}
+dev.off()
+```
 
