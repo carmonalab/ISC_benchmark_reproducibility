@@ -93,7 +93,9 @@ sample = "sample" # column identifying sample of origin
 sub_meta = object[["metadata"]] %>% 
   filter(!is.na(.data[[ident]]))
 sub_count_matrix = object[["counts"]][,rownames(sub_meta)]
+```
 
+```{r}
 #create sceval object
 sc <- create_scTypeEval(matrix = sub_count_matrix,
                         metadata = sub_meta,
@@ -386,13 +388,13 @@ md <- sub_meta %>%
 ident <- "annot2"# new proposed annotation
 sc <- create_scTypeEval(matrix = sub_count_matrix,
                         metadata = md,
-                        black.list = bl)
+                        black_list = bl)
 
 sc <- run_processing_data(sc,
                          ident = ident,
                          sample = sample,
                          # enforce more cell type by lower threshold of samples
-                         min.samples = min.samples,
+                         min_samples = min_samples,
                          verbose = F)
 
 sc <- run_hvg(sc,
@@ -400,7 +402,8 @@ sc <- run_hvg(sc,
               ncores = 4, 
               verbose = F)
 # remove single-cell slots processed
-#sc@data$`single-cell` <- NULL
+single_mat <- sc@data$`single-cell`
+sc@data$`single-cell` <- NULL
 # emtpy counts slot to make it light
 sc@counts <- Matrix::sparseMatrix(i = integer(0),
                                   j = integer(0),
@@ -417,6 +420,8 @@ for(mdiss in dm){
                           ncores = 8,
                           verbose = F)
 }
+sc@data$`single-cell` <- single_mat
+rm(single_mat); gc()
 ```
 
 save cache
@@ -473,6 +478,57 @@ pl2 <- consis2 %>%
         axis.ticks = element_blank())
 
 pl2
+```
+
+### SCCAF
+```{r}
+repo_root <- if (dir.exists("sample_agnostic_utils")) {
+  getwd()
+} else {
+  normalizePath("..", mustWork = TRUE)
+}
+source(file.path(repo_root, "sample_agnostic_utils", "run_python_pipelines.R"))
+
+sccaf_results <- run_sample_agnostic_python_pipelines(
+  scTypeEval = sc,
+  pipelines = list(
+    sccaf = pipeline_spec_sccaf(cluster_key = ident, n = 100)
+  ),
+  file_prefix = basename(tempfile("lung_")),
+  continue_on_error = FALSE,
+  cleanup = TRUE
+)$sccaf
+
+sccaf_results
+```
+barplot
+```{r}
+consistency_barplot(sccaf_results,
+                    xval = "f1_score",
+                    xlabel = "SCCAF F1")
+```
+
+
+
+### MetaNeighbor
+
+```{r}
+library(MetaNeighbor)
+
+meta_neighbor_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "MetaNeighbor_Supervised"
+)
+
+meta_neighbor_results
+```
+barplot
+```{r}
+consistency_barplot(meta_neighbor_results,
+                    xval = "measure",
+                    x_threshold = 0.5,
+                    xlabel = "Metaneighbor supervised")
 ```
 
 
