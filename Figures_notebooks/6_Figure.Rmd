@@ -39,7 +39,9 @@ theme_set(theme_bw(base_size = 12))
 ```
 
 ```{r exporting_dir}
-fig_dir <- "exported_figs/6_Figure"
+fig_dir <- file.path(
+  "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/"
+)
 dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
@@ -113,12 +115,11 @@ sc <- run_hvg(sc,
               ncores = 4, 
               verbose = F)
 # remove single-cell slots processed
-#sc@data$`single-cell` <- NULL
 # emtpy counts slot to make it light
-sc@counts <- Matrix::sparseMatrix(i = integer(0),
-                                  j = integer(0),
-                                  x = numeric(0),
-                                  dims = c(0, 0))
+# sc@counts <- Matrix::sparseMatrix(i = integer(0),
+#                                   j = integer(0),
+#                                   x = numeric(0),
+#                                   dims = c(0, 0))
 
 sc <- run_pca(sc,
               verbose = F)
@@ -130,6 +131,7 @@ for(mdiss in dm){
                           ncores = 8,
                           verbose = F)
 }
+
 ```
 
 save cache
@@ -284,7 +286,7 @@ pl_scatter
 dev.off()
 ```
 
-## 4. SCCAF
+## SCCAF
 ```{r}
 repo_root <- if (dir.exists("sample_agnostic_utils")) {
   getwd()
@@ -315,7 +317,7 @@ consistency_barplot(sccaf_results,
 
 
 
-## 5. MetaNeighbor
+## MetaNeighbor
 
 ```{r}
 library(MetaNeighbor)
@@ -336,8 +338,264 @@ consistency_barplot(meta_neighbor_results,
                     xlabel = "Metaneighbor supervised")
 ```
 
+## cLISI
+```{r}
+clisi_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "nsa_cLISI"
+)
 
-## Reannotation
+clisi_results
+```
+### barplot
+```{r}
+consistency_barplot(clisi_results,
+                    xval = "measure",
+                    x_threshold = 0.5,
+                    xlabel = "cLISI")
+```
+
+## Combine consistencies
+
+```{r}
+sccaf_res <- sccaf_results %>% 
+  select(celltype, 
+         measure = f1_score,
+         ident = cluster_key) %>% 
+  mutate(consistency_metric = "SCCAF",
+         celltype = scTypeEval:::purge_label(celltype))
+allcons <- list(cons0, sccaf_res,
+                meta_neighbor_results, clisi_results) %>% 
+  data.table::rbindlist(use.names = T, fill = T)
+# add ncells
+sc_ncells <- table(sc@data$`single-cell`@ident$cell_type) %>% 
+  as.data.frame() %>% 
+  dplyr::rename("celltype" = "Var1")
+
+allcons <- left_join(sc_ncells, allcons, by = "celltype")
+saveRDS(allcons, "cache/HCLA_consistencies.rds")
+```
+
+### N cells correlation
+```{r}
+d <- c("silhouette|recip_classif:Match" = "silhouette/RCM",
+       "SCCAF|NA" = "SCCAF",
+       "MetaNeighbor_Supervised|NA" = "MetaNeighbor",
+       "nsa_cLISI|NA" = "cLISI"
+)
+nce <- allcons %>%
+  mutate(method = paste(consistency_metric, dissimilarity_method, sep = "|")) %>% 
+  filter(method %in% names(d)) %>% 
+  mutate(method = factor(method,
+                         levels = names(d),
+                         labels = d)) %>% 
+  ggplot(aes(Freq, measure)) +
+  geom_point(color = "grey22",
+             alpha = 0.7) +
+  geom_point(
+    data = . %>% filter(celltype == "club.cell"),
+    aes(Freq, measure),
+    color = "orange"
+  ) +  
+  ggrepel::geom_label_repel(
+    data = . %>% filter(celltype == "club.cell"),
+    aes(label = celltype),
+    color = "orange",
+  ) +  
+  scale_x_log10() +
+  labs(y = "Score",
+       x = "Number of cells per cell-type") +
+  facet_wrap(~method,
+             nrow = 1,
+             scales = "free_y") +
+  ggpubr::theme_classic2()
+nce
+```
+## export plots
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LungAtlas_", "Ncells_correlation.pdf"))
+
+pdf(pdf_file, width = 9, height = 2.5)
+nce
+dev.off()
+```
+
+## Reannotation authors
+Just use author's annotation to reannotate club.cells
+
+```{r}
+md <- sub_meta %>% 
+  mutate(annot2 = ifelse(cell_type == "club cell",
+                         as.character(ann_level_5),
+                         as.character(cell_type))
+         )
+```
+
+```{r}
+#create sceval object
+sc <- create_scTypeEval(matrix = sub_count_matrix,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "annot2",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              ncores = 4, 
+              verbose = F)
+# remove single-cell slots processed
+# emtpy counts slot to make it light
+# sc@counts <- Matrix::sparseMatrix(i = integer(0),
+#                                   j = integer(0),
+#                                   x = numeric(0),
+#                                   dims = c(0, 0))
+
+sc <- run_pca(sc,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 8,
+                          verbose = F)
+}
+
+```
+
+## Consistency
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+```
+
+## SCCAF
+```{r}
+repo_root <- if (dir.exists("sample_agnostic_utils")) {
+  getwd()
+} else {
+  normalizePath("..", mustWork = TRUE)
+}
+source(file.path(repo_root, "sample_agnostic_utils", "run_python_pipelines.R"))
+
+sccaf_results <- run_sample_agnostic_python_pipelines(
+  scTypeEval = sc,
+  pipelines = list(
+    sccaf = pipeline_spec_sccaf(cluster_key = "annot2", n = 100)
+  ),
+  file_prefix = basename(tempfile("lung_")),
+  continue_on_error = FALSE,
+  cleanup = TRUE
+)$sccaf
+
+sccaf_results
+```
+
+## MetaNeighbor
+
+```{r}
+library(MetaNeighbor)
+
+meta_neighbor_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "MetaNeighbor_Supervised"
+)
+meta_neighbor_results
+```
+
+## cLISI
+```{r}
+clisi_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "nsa_cLISI"
+)
+
+clisi_results
+```
+
+## Combine consistencies
+
+```{r}
+sccaf_res <- sccaf_results %>% 
+  select(celltype, 
+         measure = f1_score,
+         ident = cluster_key) %>% 
+  mutate(consistency_metric = "SCCAF",
+         celltype = scTypeEval:::purge_label(celltype))
+allcons <- list(cons0, sccaf_res,
+                meta_neighbor_results, clisi_results) %>% 
+  data.table::rbindlist(use.names = T, fill = T)
+# add ncells
+sc_ncells <- table(sc@data$`single-cell`@ident$annot2) %>% 
+  as.data.frame() %>% 
+  dplyr::rename("celltype" = "Var1")
+
+allcons <- left_join(sc_ncells, allcons, by = "celltype")
+saveRDS(allcons, "cache/HCLA_consistencies_authorsReannot.rds")
+```
+
+### N cells correlation
+```{r}
+d <- c("silhouette|recip_classif:Match" = "silhouette/RCM",
+       "SCCAF|NA" = "SCCAF",
+       "MetaNeighbor_Supervised|NA" = "MetaNeighbor",
+       "nsa_cLISI|NA" = "cLISI"
+)
+nce <- allcons %>%
+  mutate(method = paste(consistency_metric, dissimilarity_method, sep = "|")) %>% 
+  filter(method %in% names(d)) %>% 
+  mutate(method = factor(method,
+                         levels = names(d),
+                         labels = d)) %>% 
+  ggplot(aes(Freq, measure)) +
+  geom_point(color = "grey22",
+             alpha = 0.7) +
+  geom_point(
+    data = . %>% filter(grepl("Club", celltype)),
+    aes(Freq, measure),
+    color = "orange"
+  ) +  
+  ggrepel::geom_label_repel(
+    data = . %>% filter(grepl("Club", celltype)),
+    aes(label = celltype),
+    color = "orange",
+  ) +  
+  scale_x_log10() +
+  labs(y = "Score",
+       x = "Number of cells per cell-type") +
+  facet_wrap(~method,
+             nrow = 1,
+             scales = "free_y") +
+  ggpubr::theme_classic2()
+nce
+```
+## export plots
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LungAtlas_", "Ncells_correlation_authorsReannot.pdf"))
+
+pdf(pdf_file, width = 9, height = 2.5)
+nce
+dev.off()
+```
+
+
+
+
+
+## Reannotation custom
 
 Within respiratory epithelial populations, club, multiciliated epithelial, and bronchial goblet cells exhibited particularly low ISC. Inspection of these populations revealed strong structuring by tissue of origin (nose, airway and lung parenchyma) (Fig. 6b), accompanied by differential expression of canonical markers consistent with anatomical specialization (Fig. 6c). Epithelial-associated genes such as ELF3 and FXYD3 were enriched in nose-derived cells, whereas SCGB1A1 showed higher expression in airway and lung compartments. These results suggested that transcriptionally and anatomically distinct subpopulations were aggregated under single labels, reducing within-label consistency across samples.
 Guided by these observations, we implemented targeted, hypothesis-driven refinements by introducing tissue-resolved sublabels for affected epithelial populations (e.g., separating club cells by nasal, airway, and lung origin). 
