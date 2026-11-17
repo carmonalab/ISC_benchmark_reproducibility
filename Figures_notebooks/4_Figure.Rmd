@@ -65,7 +65,7 @@ labs <- c("ISC Global",
           "scDiagnostics-Cramer")
 ```
 
-Some datasets show very high prediction scores and ISC metrics, making correlation not meaningful.
+Some datasets show very high prediction scores and consistency metrics, making correlation not meaningful.
 
 ```{r}
 excl_datasets <- c("JoaI_CRC.SG1_Normal",
@@ -91,7 +91,7 @@ paths <-
 #     "inter_dataset" = "../label_transfer_task/archive/results_between/aggregated/label_transfer_between_consistency_detailed.csv")
   
 # Choose a numeric prediction score column present in the pipeline output (for example, "f1" or "mcc").
-use_metric <- "mcc"
+use_metric <- "f1"
 
 res0 <- lapply(paths, read.csv)
 
@@ -549,7 +549,7 @@ cons_ref_all
 # filter for only references
 cons_ref <- 
   lapply(iscs_ref, function(isc){
-    lapply(names(res), function(r){
+    lapply(names(res)[1:2], function(r){
       # Summarise the selected prediction score per dataset, classifier, and cell type
       joined <- join_reference_consistency(res[[r]], isc_col = isc, excl = excl,
                                            metric = use_metric)[[isc]]
@@ -564,8 +564,16 @@ cons_ref <-
       # Plot: selected score vs reference consistency with correlation statistics
       p_ref <- joined %>% 
         ggplot(aes(x = .data[[isc]], y = .data[[use_metric]])) +
-        geom_point(aes(color = classifier), alpha = 0.7, size = 2, show.legend = FALSE) +
-        geom_smooth(method = "lm", se = FALSE, color = "black", linetype = "dashed") +
+        geom_point(aes(color = classifier),
+                   alpha = 0.7,
+                   size = 0.7,
+                   show.legend = FALSE) +
+        geom_smooth(method = "lm",
+                    se = FALSE,
+                    color = "black",
+                    linetype = "dashed",
+                    linewidth = 0.5
+                    ) +
         geom_label(data = cor_table, 
                    aes(x = Inf, y = -Inf, label = label),
                    fill = "white",
@@ -588,6 +596,16 @@ cons_ref <-
   })
 
 cons_ref
+```
+
+## export plots
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("TrainConsistency_TestF1_", "correlation.pdf"))
+
+pdf(pdf_file, width = 7, height = 5)
+for(a in cons_ref) print(a)
+dev.off()
 ```
 
 ## scatter and R² boxplot across all ISC metrics
