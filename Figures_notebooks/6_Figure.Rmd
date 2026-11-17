@@ -591,6 +591,131 @@ nce
 dev.off()
 ```
 
+## Dotplots
+
+```{r}
+source("helpers/consistency_exploration.R")
+require(STACAS)
+data("EnsemblGeneTable.Hs")
+geneRef <- EnsemblGeneTable.Hs
+```
+"EPCAM", 
+"IGFBP2", 
+
+"TCN1", "SERPINB3",  
+```{r}
+feats <- c("FXYD3", "ELF3",
+           "SERPINF1", "TSPAN1",
+           "CYP2F1", "SCGB3A1", "BPIFB1",
+          "ASRGL1"
+           )
+```
+
+```{r}
+md <- object$metadata %>% 
+  filter(cell_type == "club cell",
+         )
+counts <- object$counts[,rownames(md)]
+unique(md$cell_type)
+unique(md$ann_level_5)
+```
+
+
+```{r}
+seu <- CreateSeuratObject(counts = counts,
+                                 meta.data = md)
+seu <- STACAS::StandardizeGeneSymbols(seu,
+                                      geneRef,
+                                      assay = "RNA",
+                                      slots = "counts")
+seu <- NormalizeData(seu)
+```
+
+```{r}
+dotplot_seurat_style(seu,
+                     features = feats,
+                     ident_col = "sample",
+                     split_by = NULL,
+                     scale_expression = T)
+```
+
+## heatmap
+
+```{r}
+sc <- create_scTypeEval(seu,
+                        black_list = bl)
+.ident <- "ann_level_5"
+
+sc <- run_processing_data(sc,
+                          ident = .ident,
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = 1,
+                          min_cells = 1,
+                          verbose = F)
+ps <- get_pseudobulk(sc,
+                     ident = .ident,
+                     sample = sample,
+                     genes = feats)
+ps$metadata <- ps$metadata %>% 
+  arrange(.data[[.ident]])
+ps$matrix <- ps$matrix[,rownames(ps$metadata)]
+phall <- do_heatmap(ps,
+                    do_scale = T,
+                    cluster_cols = T,
+                    cluster_rows = F)
+```
+
+```{r}
+hvg <- NULL
+nfeatures <- 2000
+do.center = TRUE
+do.scale = TRUE
+npcs = 30
+
+if(is.null(hvg)){
+  seu <- FindVariableFeatures(
+    seu,
+    selection.method = "vst",
+    nfeatures = nfeatures,
+    verbose = FALSE
+  )
+  
+} else {
+  VariableFeatures(seu) <- hvg
+}
+
+seu <- ScaleData(
+  seu,
+  features = VariableFeatures(seu),
+  do.center = do.center,
+  do.scale = do.scale,
+  verbose = FALSE
+)
+seu <- RunPCA(
+  seu,
+  features = VariableFeatures(seu),
+  npcs = npcs,
+  seed.use = 22,
+  verbose = FALSE
+)
+seu <- RunUMAP(
+  seu,
+  dims = 1:npcs,
+  seed.use = 22,
+  verbose = FALSE
+)
+```
+
+```{r}
+DimPlot(seu, reduction = "pca")
+DimPlot(seu, group.by = .ident)
+Idents(seu) <- .ident
+FeaturePlot(seu,
+            features = feats,
+            label = T)
+```
+
 
 
 
