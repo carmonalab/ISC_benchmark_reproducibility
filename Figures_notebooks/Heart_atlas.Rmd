@@ -87,8 +87,8 @@ table(is.na(object$metadata[[ident]]))
 ## 2.1 Processing
 
 ```{r}
-md <- object$metadata %>% 
-  filter(grepl("Nuclei", cell_source))
+md <- object$metadata
+  #filter(grepl("Nuclei", cell_source))
 counts <- object$counts[,rownames(md)]
 #create sceval object
 sc <- create_scTypeEval(matrix = counts,
@@ -111,8 +111,8 @@ sc <- run_hvg(sc,
               verbose = F)
 
 # no need to run pca on single-cell data
-single_mat <- sc@data$`single-cell`
-sc@data$`single-cell` <- NULL
+# single_mat <- sc@data$`single-cell`
+# sc@data$`single-cell` <- NULL
 
 sc <- run_pca(sc,
               scale. = F,
@@ -126,8 +126,8 @@ for(mdiss in dm){
                           verbose = F)
 }
 # return single-cell data for SCCAF and MetaNeighbor
-sc@data$`single-cell` <- single_mat
-rm(single_mat); gc()
+# sc@data$`single-cell` <- single_mat
+# rm(single_mat); gc()
 ```
 
 
@@ -271,7 +271,7 @@ Joint distribution of per-cell-type ISCL (silhouette on reciprocal-classificatio
 ```{r}
 consistency_scatter(consis)
 ```
-## 4. SCCAF
+## SCCAF
 ```{r}
 repo_root <- if (dir.exists("sample_agnostic_utils")) {
   getwd()
@@ -302,7 +302,7 @@ consistency_barplot(sccaf_results,
 
 
 
-## 5. MetaNeighbor
+## MetaNeighbor
 
 ```{r}
 library(MetaNeighbor)
@@ -322,13 +322,70 @@ consistency_barplot(meta_neighbor_results,
                     x_threshold = 0.5, 
                     xlabel = "MetaNeighbor Supervised")
 ```
+## cLISI
+```{r}
+clisi_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "nsa_cLISI"
+)
 
-Correlation with #n of cells?
+clisi_results
+```
+
+## Combine consistencies
 
 ```{r}
-md_s <- md[colnames(sc@data$`single-cell`@matrix),]
-ct_sorte <- sort(table(md_s$cell_type), decreasing = T)
-plot(sccaf_results$n_cells_input, sccaf_results$f1_score)
+sccaf_res <- sccaf_results %>% 
+  select(celltype, 
+         measure = f1_score,
+         ident = cluster_key) %>% 
+  mutate(consistency_metric = "SCCAF",
+         celltype = scTypeEval:::purge_label(celltype))
+allcons <- list(cons0, sccaf_res,
+                meta_neighbor_results, clisi_results) %>% 
+  data.table::rbindlist(use.names = T, fill = T)
+# add ncells
+sc_ncells <- table(sc@data$`single-cell`@ident$cell_type) %>% 
+  as.data.frame() %>% 
+  dplyr::rename("celltype" = "Var1")
+
+allcons <- left_join(sc_ncells, allcons, by = "celltype")
+saveRDS(allcons, "cache/Heart_consistencies.rds")
+```
+
+### N cells correlation
+```{r}
+d <- c("silhouette|recip_classif:Match" = "silhouette/RCM",
+       "SCCAF|NA" = "SCCAF",
+       "MetaNeighbor_Supervised|NA" = "MetaNeighbor",
+       "nsa_cLISI|NA" = "cLISI"
+)
+nce <- allcons %>%
+  mutate(method = paste(consistency_metric, dissimilarity_method, sep = "|")) %>% 
+  filter(method %in% names(d)) %>% 
+  mutate(method = factor(method,
+                         levels = names(d),
+                         labels = d)) %>% 
+  ggplot(aes(Freq, measure)) +
+  geom_point(color = "grey22",
+             alpha = 0.7) +
+  geom_point(
+    data = . %>% filter(celltype == "club.cell"),
+    aes(Freq, measure),
+    color = "orange"
+  ) +  
+  ggrepel::geom_text_repel(
+    aes(label = celltype),
+  ) +  
+  scale_x_log10() +
+  labs(y = "Score",
+       x = "Number of cells per cell-type") +
+  facet_wrap(~method,
+             nrow = 1,
+             scales = "free_y") +
+  ggpubr::theme_classic2()
+nce
 ```
 
 
@@ -556,8 +613,8 @@ md <- object$metadata %>%
                                 as.character(.data[["cell_states"]]),
                                 as.character(.data[[ident]])
                                 )
-  ) %>% 
-  filter(grepl("Nuclei", cell_source))
+  )
+  #filter(grepl("Nuclei", cell_source))
 counts <- object$counts[,rownames(md)]
 unique(md$cardio_split)
 ```
@@ -579,8 +636,8 @@ sc <- run_hvg(sc,
               ngenes = 2000,
               ncores = 6, 
               verbose = F)
-sc_data <- sc@data$`single-cell`
-sc@data$`single-cell` <- NULL
+# sc_data <- sc@data$`single-cell`
+# sc@data$`single-cell` <- NULL
 sc <- run_pca(sc,
               verbose = F)
 
@@ -591,8 +648,8 @@ for(mdiss in dm){
                           ncores = 8,
                           verbose = F)
 }
-sc@data$`single-cell` <- sc_data
-rm(sc_data);gc()
+# sc@data$`single-cell` <- sc_data
+# rm(sc_data);gc()
 ```
 
 
@@ -757,11 +814,72 @@ meta_neighbor_results <- get_consistency(
 
 meta_neighbor_results
 ```
-### barplot
+
+
+### cLISI
 ```{r}
-consistency_barplot(meta_neighbor_results,
-                    xval = "measure",
-                    x_threshold = 0.5)
+clisi_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "nsa_cLISI"
+)
+
+clisi_results
+```
+
+```{r}
+sccaf_res <- sccaf_results %>% 
+  select(celltype, 
+         measure = f1_score,
+         ident = cluster_key) %>% 
+  mutate(consistency_metric = "SCCAF",
+         celltype = scTypeEval:::purge_label(celltype))
+allcons <- list(cons0, sccaf_res,
+                meta_neighbor_results, clisi_results) %>% 
+  data.table::rbindlist(use.names = T, fill = T)
+# add ncells
+sc_ncells <- table(sc@data$`single-cell`@ident$cardio_split) %>% 
+  as.data.frame() %>% 
+  dplyr::rename("celltype" = "Var1")
+
+allcons <- left_join(sc_ncells, allcons, by = "celltype")
+saveRDS(allcons, "cache/Heart_consistencies_authorsReannot_VCM.rds")
+```
+
+### N cells correlation
+```{r}
+d <- c("silhouette|recip_classif:Match" = "silhouette/RCM",
+       "SCCAF|NA" = "SCCAF",
+       "MetaNeighbor_Supervised|NA" = "MetaNeighbor",
+       "nsa_cLISI|NA" = "cLISI"
+)
+nce <- allcons %>%
+  mutate(method = paste(consistency_metric, dissimilarity_method, sep = "|")) %>% 
+  filter(method %in% names(d)) %>% 
+  mutate(method = factor(method,
+                         levels = names(d),
+                         labels = d)) %>% 
+  ggplot(aes(Freq, measure)) +
+  geom_point(color = "grey22",
+             alpha = 0.7) +
+  geom_point(
+    data = . %>% filter(grepl("CM", celltype)),
+    aes(Freq, measure),
+    color = "orange"
+  ) +  
+  ggrepel::geom_label_repel(
+    data = . %>% filter(grepl("CM", celltype)),
+    aes(label = celltype),
+    color = "orange",
+  ) +  
+  scale_x_log10() +
+  labs(y = "Score",
+       x = "Number of cells per cell-type") +
+  facet_wrap(~method,
+             nrow = 1,
+             scales = "free_y") +
+  ggpubr::theme_classic2()
+nce
 ```
 
 ### Markers expression
@@ -1231,8 +1349,8 @@ md <- object$metadata %>%
                            as.character(.data[["cell_states"]]),
                            as.character(.data[[ident]])
                            )
-         ) %>% 
-  filter(grepl("Nuclei", cell_source))
+         )
+  #filter(grepl("Nuclei", cell_source))
 counts <- object$counts[,rownames(md)]
 unique(md$fine_lym)
 ```
@@ -1257,7 +1375,6 @@ sc <- run_hvg(sc,
               ncores = 4, 
               verbose = F)
 
-sc@data$`single-cell` <- NULL
 sc <- run_pca(sc, 
               scale. = F,
               verbose = F)
@@ -1316,16 +1433,85 @@ consistency_scatter(consis) +
              color = "red")
 ```
 
+#### SCCAF
+```{r}
+repo_root <- if (dir.exists("sample_agnostic_utils")) {
+  getwd()
+} else {
+  normalizePath("..", mustWork = TRUE)
+}
+source(file.path(repo_root, "sample_agnostic_utils", "run_python_pipelines.R"))
+
+sccaf_results <- run_sample_agnostic_python_pipelines(
+  scTypeEval = sc,
+  pipelines = list(
+    sccaf = pipeline_spec_sccaf(cluster_key = "fine_lym", n = 100)
+  ),
+  file_prefix = basename(tempfile("heart_")),
+  continue_on_error = FALSE,
+  cleanup = TRUE
+)$sccaf
+
+sccaf_results
+```
+
+
+#### MetaNeighbor
+
+```{r}
+library(MetaNeighbor)
+
+meta_neighbor_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "MetaNeighbor_Supervised"
+)
+
+meta_neighbor_results
+```
+
+
+### cLISI
+```{r}
+clisi_results <- get_consistency(
+  scTypeEval = sc,
+  dissimilarity_slot = NA_character_,
+  consistency_metric = "nsa_cLISI"
+)
+
+clisi_results
+```
+
+```{r}
+sccaf_res <- sccaf_results %>% 
+  select(celltype, 
+         measure = f1_score,
+         ident = cluster_key) %>% 
+  mutate(consistency_metric = "SCCAF",
+         celltype = scTypeEval:::purge_label(celltype))
+allcons <- list(cons0, sccaf_res,
+                meta_neighbor_results, clisi_results) %>% 
+  data.table::rbindlist(use.names = T, fill = T)
+# add ncells
+sc_ncells <- table(sc@data$`single-cell`@ident$fine_lym) %>% 
+  as.data.frame() %>% 
+  dplyr::rename("celltype" = "Var1")
+
+allcons <- left_join(sc_ncells, allcons, by = "celltype")
+saveRDS(allcons, "cache/Heart_consistencies_authorsReannot_Lymphoid.rds")
+```
+
 ## only lymphoid
 
 ### ISC
 ```{r}
 md <- object$metadata %>% 
   filter(grepl("Lymph", cell_type),
-         grepl("Nuclei", cell_source)
+         #grepl("Nuclei", cell_source)
   )
 counts <- object$counts[,rownames(md)]
 unique(md$cell_states)
+unique(md$cell_source)
 ```
 
 ```{r}
@@ -1432,7 +1618,7 @@ ps$matrix <- ps$matrix[,rownames(ps$metadata)]
 
 phall <- do_heatmap(ps,
                     do_scale = T,
-                    cluster_cols = F,
+                    cluster_cols = T,
                     cluster_rows = F)
 ```
 
@@ -1464,7 +1650,8 @@ spl
 ```{r}
 feat <- c("CD79A", "CD79B",
           "CD74", "CD37", "MS4A1",
-          "CD3D", "LYZ", "FCER1A", "GNLY", "CLEC4C", "CD1C")
+          "CD3D", "LYZ", "FCER1A", "GNLY", "CLEC4C", "CD1C",
+          "IL3RA", "NRP1")
 spl <- dotplot_seurat_style(seu8,
                        features = feat,
                        ident_col = "sample",
@@ -1474,4 +1661,327 @@ spl <- dotplot_seurat_style(seu8,
                        scale_expression = F)
 spl
 ```
+
+```{r}
+hvg <- NULL
+nfeatures <- 2000
+do.center = TRUE
+do.scale = TRUE
+npcs = 30
+
+if(is.null(hvg)){
+  seu8 <- FindVariableFeatures(
+    seu8,
+    selection.method = "vst",
+    nfeatures = nfeatures,
+    verbose = FALSE
+  )
+  
+} else {
+  VariableFeatures(seu8) <- hvg
+}
+
+seu8 <- ScaleData(
+  seu8,
+  features = VariableFeatures(seu8),
+  do.center = do.center,
+  do.scale = do.scale,
+  verbose = FALSE
+)
+seu8 <- RunPCA(
+  seu8,
+  features = VariableFeatures(seu8),
+  npcs = npcs,
+  seed.use = 22,
+  verbose = FALSE
+)
+seu8 <- RunUMAP(
+  seu8,
+  dims = 1:npcs,
+  seed.use = 22,
+  verbose = FALSE
+)
+```
+
+```{r}
+.ident <- "cell_states"
+DimPlot(seu8, reduction = "pca")
+DimPlot(seu8, group.by = .ident)
+DimPlot(seu8, group.by = "cell_source")
+Idents(seu8) <- .ident
+FeaturePlot(seu8,
+            features = feat,
+            label = T)
+```
+
+```{r}
+library(STACAS)
+int <- SplitObject(seu8, split.by = "cell_source") %>% 
+  Run.STACAS()
+
+int <- RunUMAP(int, dims = 1:30) 
+DimPlot(int, group.by = c("cell_states","cell_source")) 
+```
+## scGate annotation
+
+```{r}
+library(scGate)
+models <- get_scGateDB(branch = "master", force_update = T)$human$HiTME
+names(models)
+data("genes.blacklist.default")
+```
+
+
+```{r}
+spli <- SplitObject(seu8, split.by = "sample")
+```
+
+```{r}
+#an.list <- list()
+# run scGate
+for(s in spli){
+  nn <- unique(s$sample) %>% as.character()
+  if(ncol(s) <= 30){next}
+  cat("-> Doing ", nn, "...\n")
+  if(nn %in% names(an.list)){next}
+  an.list[[nn]] <- scGate(s,
+                          model = models,
+                          genes.blacklist = genes.blacklist.default$Hs,
+                          ncores = 1)
+}
+```
+
+
+
+```{r}
+ann <- merge(an.list[[1]], an.list[-1])
+ann <- Run.STACAS(ann)
+
+ann <- RunUMAP(ann, dims = 1:30) 
+DimPlot(int, group.by = c("cell_states","cell_source")) 
+```
+
+### ISC-scGate annotation
+
+```{r}
+sc <- create_scTypeEval(JoinLayers(ann),
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "scGate_multi",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              aggregation = "single-cell",
+              var_method = "scran",
+              ncores = 4, 
+              verbose = F)
+
+sc <- run_pca(sc, 
+              scale. = F,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 8,
+                          verbose = F)
+}
+
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette",
+                                                "NeighborhoodPurity")
+)
+```
+
+
+
+
+
+## Myeloid
+
+### ISC
+```{r}
+md <- object$metadata %>% 
+  mutate(
+    mid_mye = case_when(
+      grepl("Mo", cell_states) ~ "MonoMac",
+      grepl("MØ_", cell_states) ~ "MonoMac",
+      grepl("MØ", cell_states) ~ "MonoMac",
+      grepl("NØ", cell_states) ~ "Neutrophils",
+      grepl("Mast", cell_states) ~ "Mast",
+      grepl("DC", cell_states) ~ "DC",
+      TRUE ~ as.character(cell_type)
+    )
+  )
+counts <- object$counts[,rownames(md)]
+unique(md$mid_mye)
+```
+
+```{r}
+sc <- create_scTypeEval(matrix = counts,
+                        metadata = md,
+                        black_list = bl)
+
+sc <- run_processing_data(sc,
+                          ident = "mid_mye",
+                          sample = sample,
+                          # enforce more cell type by lower threshold of samples
+                          min_samples = min_samples,
+                          min_cells = min_cells,
+                          verbose = F)
+
+sc <- run_hvg(sc,
+              ngenes = 2000,
+              aggregation = "single-cell",
+              var_method = "scran",
+              ncores = 4, 
+              verbose = F)
+
+sc <- run_pca(sc, 
+              scale. = F,
+              verbose = F)
+
+for(mdiss in dm){
+  cat("#### Running ", mdiss, " ####\n")
+  sc <- run_dissimilarity(sc,
+                          method = mdiss,
+                          ncores = 8,
+                          verbose = F)
+}
+```
+
+
+
+```{r}
+plot_pca(sc)
+plot_heatmap(sc, 
+             dissimilarity_slot = "recip_classif:Match",
+             sort_consistency = "silhouette",
+             sort_similarity = "Pseudobulk:Cosine")
+```
+
+# 3. Consistency
+
+```{r}
+cons0 <- get_consistency(sc,
+                         consistency_metric = c("silhouette",
+                                                "2label_silhouette")
+)
+
+cons <- 
+  cons0 %>% 
+  mutate(method.type = paste(consistency_metric,
+                             dissimilarity_method,
+                             sep = " | ")) %>% 
+  filter(method.type %in% mety) %>% 
+  mutate(method.type = factor(method.type,
+                              levels = mety,
+                              labels = names(mety))) %>% 
+  select(method.type, measure, celltype) %>% 
+  pivot_wider(names_from = "method.type",
+              values_from = "measure") %>% 
+  mutate(measure = global * local
+  ) %>% 
+  filter(!is.na(measure))
+
+consis <- cons %>%
+  arrange(measure)
+```
+
+```{r}
+consistency_scatter(consis)
+```
+
+
+
+# Batch effects
+
+```{r}
+be <- unique(object$metadata$cell_source)
+
+
+be_cons <- lapply(be, function(b){
+  md <- object$metadata %>% 
+    filter(cell_source == b)
+  counts <- object$counts[,rownames(md)]
+  #create sceval object
+  sc <- create_scTypeEval(matrix = counts,
+                          metadata = md,
+                          black_list = bl)
+  
+  sc <- run_processing_data(sc,
+                            ident = ident,
+                            sample = sample,
+                            # enforce more cell type by lower threshold of samples
+                            min_samples = min_samples,
+                            min_cells = min_cells,
+                            verbose = F)
+  
+  sc <- run_hvg(sc, 
+                aggregation = "single-cell",
+                ngenes = 2000,
+                var_method = "scran",
+                ncores = 5, 
+                verbose = F)
+  
+  # no need to run pca on single-cell data
+  # single_mat <- sc@data$`single-cell`
+  sc@data$`single-cell` <- NULL
+  
+  sc <- run_pca(sc,
+                scale. = F,
+                verbose = F)
+  
+  for(mdiss in dm){
+    cat("#### Running ", mdiss, " ####\n")
+    sc <- run_dissimilarity(sc,
+                            method = mdiss,
+                            ncores = 7,
+                            verbose = F)
+  }
+  
+  cons0 <- get_consistency(sc,
+                           consistency_metric = c("silhouette",
+                                                  "2label_silhouette")
+  )
+  cons <- 
+    cons0 %>% 
+    mutate(method.type = paste(consistency_metric,
+                               dissimilarity_method,
+                               sep = " | ")) %>% 
+    filter(method.type %in% mety) %>% 
+    mutate(method.type = factor(method.type,
+                                levels = mety,
+                                labels = names(mety))) %>% 
+    select(method.type, measure, celltype) %>% 
+    pivot_wider(names_from = "method.type",
+                values_from = "measure") %>% 
+    mutate(measure = global * local
+    ) %>% 
+    filter(!is.na(measure))
+  
+  consis <- cons %>%
+    arrange(measure) %>% 
+    mutate(cell_source = b)
+  return(consis)
+})
+```
+
+```{r}
+be_comp <- be_cons %>% 
+  data.table::rbindlist()
+```
+
 
