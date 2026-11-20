@@ -89,7 +89,7 @@ table(is.na(object$metadata[[ident]]))
 ## Reverse log norm
 counts seem to be log1p normalized, let's revert it
 
-```{r}
+```{r, eval = F}
 check_counts(object$counts)
 ```
 
@@ -105,7 +105,7 @@ object$counts <- mat
 rm(mat);gc()
 ```
 
-```{r}
+```{r, eval = F}
 check_counts(object$counts)
 apply(object$counts[,1:10], 2, sum)
 ```
@@ -335,9 +335,9 @@ combi <- c(comb, spl_comb)
 ```
 
 ```{r inter-assay, message=T, warning = F}
-#assay_isc <- list()
+assay_isc <- list()
 
-for(i in names(combi)){
+for(i in names(combi)[1:3]){
   if(i %in% names(assay_isc)){next}
   
   cat(">>> Doing ", i, " <<<\n")
@@ -346,7 +346,7 @@ for(i in names(combi)){
                             metadata = object$metadata,
                             which_samples = combi[[i]],
                             black_list = bl,
-                            hvg = sc@gene_lists$HVG)
+                            hvg = NULL)
 }
 ```
 
@@ -386,18 +386,22 @@ cons_pl <- cons_df %>%
                 color = celltype),
             show.legend = F,
             alpha = 0.3) +
-  labs(x = "Number of 3GEX / 5GEX samples") +
+  labs(x = "Assay Combination",
+       y = "Score") +
   facet_wrap(~method_type,
              scales = "free_y") +
-  ggpubr::theme_classic2() +
-  theme(axis.text.x = element_text(angle = 45,
-                                   hjust = 1, 
-                                   vjust = 1))
+  ggpubr::theme_classic2()
 
 cons_pl
 ```
 
+## export pdf
 
-
+```{r}
+fpath <- "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/Thymus_Assay_Combinations.pdf"
+pdf(fpath, width = 6, height = 4)
+cons_pl
+dev.off()
+```
 
 
