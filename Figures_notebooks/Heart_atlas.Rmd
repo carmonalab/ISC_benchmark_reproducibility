@@ -61,7 +61,7 @@ min_cells <- 10
 # 1. Load dataset
 
 ```{r}
-lpath <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/hca_subsampled_20k.h5ad"
+lpath <- "~/Documents/Projects/ISC_benchmark_reproducibility/data/hca_global_raw.h5ad"
 
 object <- load_single_cell_object(lpath)
 object$metadata %>%
@@ -2165,79 +2165,222 @@ phall <- do_heatmap(ps,
 # Batch effects
 
 ```{r}
-be <- unique(object$metadata$cell_source)
+cell_sources <- unique(as.character(object$metadata$cell_source))
+
+all_combinations <- unlist(
+  lapply(seq_along(cell_sources), function(n) {
+    combn(cell_sources, n, simplify = FALSE)
+  }),
+  recursive = FALSE
+)
+
+# Select relevant combinations
+be <- all_combinations[c(1:5, 10:12, 15)]
+
+# Generate descriptive names
+names(be) <- vapply(be, paste, collapse = " + ", FUN.VALUE = character(1))
 
 
-be_cons <- lapply(be, function(b){
-  md <- object$metadata %>% 
-    filter(cell_source == b)
-  counts <- object$counts[,rownames(md)]
-  #create sceval object
-  sc <- create_scTypeEval(matrix = counts,
-                          metadata = md,
-                          black_list = bl)
-  
-  sc <- run_processing_data(sc,
-                            ident = ident,
-                            sample = sample,
-                            # enforce more cell type by lower threshold of samples
-                            min_samples = min_samples,
-                            min_cells = min_cells,
-                            verbose = F)
-  
-  sc <- run_hvg(sc, 
-                aggregation = "single-cell",
-                ngenes = 2000,
-                var_method = "scran",
-                ncores = 5, 
-                verbose = F)
-  
-  # no need to run pca on single-cell data
-  # single_mat <- sc@data$`single-cell`
-  sc@data$`single-cell` <- NULL
-  
-  sc <- run_pca(sc,
-                scale. = F,
-                verbose = F)
-  
-  for(mdiss in dm){
-    cat("#### Running ", mdiss, " ####\n")
-    sc <- run_dissimilarity(sc,
-                            method = mdiss,
-                            ncores = 7,
-                            verbose = F)
-  }
-  
-  cons0 <- get_consistency(sc,
-                           consistency_metric = c("silhouette",
-                                                  "2label_silhouette")
+be_cons <- lapply(be, function(b) {
+
+  md <- object$metadata %>%
+    filter(cell_source %in% b)
+
+  counts <- object$counts[, rownames(md)]
+
+  sc <- create_scTypeEval(
+    matrix = counts,
+    metadata = md,
+    black_list = bl
   )
-  cons <- 
-    cons0 %>% 
-    mutate(method.type = paste(consistency_metric,
-                               dissimilarity_method,
-                               sep = " | ")) %>% 
-    filter(method.type %in% mety) %>% 
-    mutate(method.type = factor(method.type,
-                                levels = mety,
-                                labels = names(mety))) %>% 
-    select(method.type, measure, celltype) %>% 
-    pivot_wider(names_from = "method.type",
-                values_from = "measure") %>% 
-    mutate(measure = global * local
-    ) %>% 
+
+  sc <- run_processing_data(
+    sc,
+    ident = ident,
+    sample = sample,
+    min_samples = min_samples,
+    min_cells = min_cells,
+    verbose = FALSE
+  )
+
+  sc <- run_hvg(
+    sc,
+    aggregation = "single-cell",
+    ngenes = 2000,
+    var_method = "scran",
+    ncores = 6,
+    verbose = FALSE
+  )
+
+  # Remove single-cell data and counts before PCA
+  sc@data$`single-cell` <- NULL
+  sc@counts <- Matrix::sparseMatrix(
+    i = integer(0),
+    j = integer(0),
+    x = numeric(0),
+    dims = c(0, 0)
+  )
+
+  sc <- run_pca(sc, scale. = FALSE, verbose = FALSE)
+
+  for (mdiss in dm) {
+    cat("#### Running", mdiss, "####\n")
+
+    sc <- run_dissimilarity(
+      sc,
+      method = mdiss,
+      ncores = 8,
+      verbose = FALSE
+    )
+  }
+
+  cons0 <- get_consistency(
+    sc,
+    consistency_metric = c("silhouette", "2label_silhouette")
+  )
+
+  cons <- cons0 %>%
+    mutate(
+      method.type = paste(
+        consistency_metric,
+        dissimilarity_method,
+        sep = " | "
+      )
+    ) %>%
+    filter(method.type %in% mety) %>%
+    mutate(
+      method.type = factor(
+        method.type,
+        levels = mety,
+        labels = names(mety)
+      )
+    ) %>%
+    select(method.type, measure, celltype) %>%
+    pivot_wider(
+      names_from = method.type,
+      values_from = measure
+    ) %>%
+    mutate(measure = global * local) %>%
     filter(!is.na(measure))
-  
+
   consis <- cons %>%
-    arrange(measure) %>% 
-    mutate(cell_source = b)
-  return(consis)
+    arrange(measure) %>%
+    mutate(cell_source = paste(b, collapse = " + "))
+
+  list(
+    sc = sc,
+    consis = consis
+  )
 })
 ```
 
+
 ```{r}
-be_comp <- be_cons %>% 
+for(s in names(be_cons)){
+  print(plot_heatmap(be_cons[[s]]$sc,
+                     dissimilarity_slot = "recip_classif:Match",
+                     sort_consistency = "silhouette",
+                     sort_similarity = "Pseudobulk:Cosine")
+        )
+  print(consistency_scatter(be_cons[[s]]$consis) +
+          ggtitle(s)
+        )
+}
+```
+
+```{r}
+be_comp <- lapply(be_cons, function(x) x[["consis"]]) %>% 
   data.table::rbindlist()
 ```
+
+```{r}
+consistency_scatter(be_comp) +
+  geom_point(aes(color = cell_source))
+```
+
+## plot all
+
+```{r}
+clevs <- c(
+  "Adipocytes",
+  "Atrial_Cardiomyocyte",
+  "Endothelial",
+  "Fibroblast",
+  "Lymphoid",
+  "Mesothelial",
+  "Myeloid",
+  "Neuronal",
+  "Pericytes",
+  "Smooth_muscle_cells",
+  "Ventricular_Cardiomyocyte",
+  "doublets",
+  "NotAssigned"
+) %>% 
+  scTypeEval:::purge_label()
+```
+
+```{r}
+bidf <- be_comp %>% 
+  mutate(celltype = factor(celltype,
+                           levels = clevs),
+         cell_source = factor(cell_source,
+                              levels = names(be)),
+         num_batch = str_count(cell_source, fixed(" + ")) + 1,
+         global = -global) %>% 
+  select(-measure) %>% 
+  pivot_longer(-c(celltype, cell_source, num_batch),
+               names_to = "ISC",
+               values_to = "measure") %>% 
+  filter(!celltype %in% c("doublets",
+                         "NotAssigned"))
+```
+
+
+
+```{r bidirecciontal_plot}
+library(stringr)
+
+bi <- bidf %>% 
+  ggplot(aes(cell_source, measure)) +
+  geom_hline(
+    yintercept = 0,
+    color = "blue4",
+    linewidth = 0.3,
+    alpha = 1
+  ) +  
+  geom_hline(
+    yintercept = c(0.45, -0.74),
+    linetype = "dashed",
+    linewidth = 0.3,
+    alpha = 0.7
+  ) +  
+  geom_line(aes(group = ISC),
+            color = "grey20",
+            alpha = 0.3) +
+  geom_point(aes(color = cell_source,
+                 shape = ISC)) +
+  facet_wrap(~celltype,
+             nrow = 1) +
+  guides(shape = "none") +
+  labs(y = "<- ISCG  |  ISCL ->",
+       x = "Batchs combination",
+       color = "Batchs combination") +
+  ggpubr::theme_classic2() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        legend.position = "top")
+
+bi
+```
+
+### export plots
+
+```{r}
+fpath <- "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/Heart_Batch_Combinations.pdf"
+pdf(fpath, width = 16, height = 3.5)
+bi
+dev.off()
+```
+
 
 
