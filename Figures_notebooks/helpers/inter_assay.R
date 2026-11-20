@@ -26,7 +26,7 @@ get_method_sample_combinations <- function(metadata,
               unlist(spl_set, recursive = F))
    
    return(rlist)
-      
+   
 }
 
 repo_root <- if (dir.exists("sample_agnostic_utils")) {
@@ -44,10 +44,13 @@ run_isc <- function(counts,
                     sample = "Sample",
                     min_samples = 3,
                     min_cells = 10,
+                    consistency_metric = c("silhouette",
+                                           "2label_silhouette"),
                     dm = c("Pseudobulk:Cosine",
                            "recip_classif:Match"),
                     black_list = NULL,
-                    hvg = NULL
+                    hvg = NULL,
+                    run_sccaf = FALSE
 ) {
    meta <- metadata %>% 
       filter(.data[[sample]] %in% which_samples)
@@ -94,30 +97,30 @@ run_isc <- function(counts,
    
    message("> Running consistency\n")
    cons <- get_consistency(sc,
-                           consistency_metric = c("silhouette",
-                                                  "2label_silhouette",
-                                                  "MetaNeighbor_Supervised")
+                           consistency_metric = consistency_metric
    )
    
    # Run SCCAF
-   message("> Running SCCAF\n")
-   sccaf_results <- run_sample_agnostic_python_pipelines(
-      scTypeEval = sc,
-      pipelines = list(
-         sccaf = pipeline_spec_sccaf(cluster_key = ident, n = 100)
-      ),
-      file_prefix = basename(tempfile("thymus_")),
-      continue_on_error = FALSE,
-      cleanup = TRUE
-   )$sccaf
-   
-   
-   sccaf <- data.frame(celltype = sccaf_results$celltype,
-                       measure = sccaf_results$f1_score,
-                       consistency_metric = "SCCAF",
-                       dissimilarity_method = NA,
-                       ident = sccaf_results$cluster_key)
-   cons <- bind_rows(cons, sccaf)
+   if(run_sccaf){
+      message("> Running SCCAF\n")
+      sccaf_results <- run_sample_agnostic_python_pipelines(
+         scTypeEval = sc,
+         pipelines = list(
+            sccaf = pipeline_spec_sccaf(cluster_key = ident, n = 100)
+         ),
+         file_prefix = basename(tempfile("thymus_")),
+         continue_on_error = FALSE,
+         cleanup = TRUE
+      )$sccaf
+      
+      
+      sccaf <- data.frame(celltype = sccaf_results$celltype,
+                          measure = sccaf_results$f1_score,
+                          consistency_metric = "SCCAF",
+                          dissimilarity_method = NA,
+                          ident = sccaf_results$cluster_key)
+      cons <- bind_rows(cons, sccaf)
+   }
    
    # make scTypeEval object lighter
    sc@data$`single-cell` <- NULL
