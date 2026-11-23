@@ -666,6 +666,16 @@ phall <- do_heatmap(ps,
                     cluster_rows = F)
 ```
 
+## export plot
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LungAtlas_", "clubcells_pheatmap.pdf"))
+
+pdf(pdf_file, width = 7, height = 2)
+phall
+dev.off()
+```
+
+
 ```{r}
 hvg <- NULL
 nfeatures <- 2000
