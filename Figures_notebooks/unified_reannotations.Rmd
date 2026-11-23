@@ -42,41 +42,65 @@ theme_set(theme_bw(base_size = 12))
 
 # 1. Load consistencies
 ```{r}
-cons_files <- list.files("cache/",
-                         pattern = ".rds",
-                         full.names = T)
+cons_files <- file.path("cache", c(
+   "HCLA_consistencies.rds",
+   "HCLA_consistencies_authorsReannot.rds",
+   "Heart_consistencies.rds",
+   "Heart_consistencies_authorsReannot_VCM.rds",
+   "Tstr_consistencies.rds"
+))
 
 cons_keep <- c("ISC_local" = "silhouette | recip_classif:Match",
                "ISC_global" = "2label_silhouette | Pseudobulk:Cosine",
                "SCCAF" = "SCCAF | NA",
                "MetaNeighbor" = "MetaNeighbor_Supervised | NA",
                "cLISI" = "nsa_cLISI | NA")
-
-ct_keep <- c("HLCA_original" = c("club.cell"), # bad based on markers
-             "HLCA_reannotated" = c("Club.(nasal)", "Club.(non.nasal)"), # good reannotation based on markers
-             "Heart_original" = c("Ventricular.Cardiomyocyte"), # good based on markers
-             "Heart_reannotated" = paste0("vCM", 1:5), # these reannotation were all bad based on markers
-             "Tstr_consistencies" = c("CD4.Treg", "CD8.p.Tex",
-                                      "CD8.Tcm", "CD4.Str",
-                                      "CD4.Tcm") # see table below
-             )
-
 ```
 
-| Cell type  | local_ISC | SCCAF | MetaNeighbor | Gene marker |
-|-------|-------|-------|-------|-------|
-| CD4.Treg | good  | good | good | good |
-| CD8.p.Tex | bad | bad  | good | bad |
-| CD8.Tcm | bad | good | mid | bad  |
-| CD4.Str | bad | good | bad | bad |
-| CD4.Tcm | good | mid | bad | good |
+## Gene marker assessment
 
+The qualitative assessments below document the marker-based judgments from the
+individual notebooks; they are not calculated from the consistency scores.
+The stressed CD4 label is written as `CD4.Tstr` to match the cached data
+(`CD4.Str` in the original assessment table).
+
+```{r}
+marker_assessment <- tibble::tribble(
+   ~dataset_annot,       ~celltype,                    ~marker_assessment,
+   "HLCA_original",      "club.cell",                  "bad",
+   "HLCA_reannotated",   "Club.(nasal)",               "good",
+   "HLCA_reannotated",   "Club.(non.nasal)",           "good",
+   "Heart_original",     "Ventricular.Cardiomyocyte", "good",
+   "Heart_reannotated",  "vCM1",                       "bad",
+   "Heart_reannotated",  "vCM2",                       "bad",
+   "Heart_reannotated",  "vCM3",                       "bad",
+   "Heart_reannotated",  "vCM4",                       "bad",
+   "Heart_reannotated",  "vCM5",                       "bad",
+   "Tstr_original",      "CD4.Treg",                   "good",
+   "Tstr_original",      "CD8.p.Tex",                  "bad",
+   "Tstr_original",      "CD8.Tcm",                    "bad",
+   "Tstr_original",      "CD4.Tstr",                   "bad",
+   "Tstr_original",      "CD4.Tcm",                    "good"
+)
+```
+
+For the stressed T-cell analysis, the original qualitative method comparisons
+were documented as follows:
+
+| Cell type | local_ISC | SCCAF | MetaNeighbor | Gene marker |
+|-----------|-----------|-------|--------------|-------------|
+| CD4.Treg  | good | good | good | good |
+| CD8.p.Tex | bad | bad | good | bad |
+| CD8.Tcm   | bad | good | mid | bad |
+| CD4.Tstr  | bad | good | bad | bad |
+| CD4.Tcm   | good | mid | bad | good |
 
 ```{r}
 cons <- lapply(cons_files, function(f){
    df <- readRDS(f)
    nn <- basename(f)
    ds <- strsplit(nn, split = "_")[[1]][1]
+   if (ds == "HCLA") ds <- "HLCA"
    annot <- ifelse(grepl("reannot", nn, ignore.case = T),
                    "reannotated", "original")
    
@@ -97,12 +121,65 @@ cons <- lapply(cons_files, function(f){
 ```
 
 # 2. Build summarizing plot
-Build a tile plot
-Show clearly the cell type, dataset of origin and whether are reannotation or initial annotation (original)
-For each cell type and method_type show value with 2 decimals, and color based on rank within the `method_type` for each dataset-annotation (`dataset_annot`)
+The tile text shows the score rounded to two decimal places. Color shows the
+score's percentile rank among **all** cell types for the same method and
+dataset-annotation, before selecting the cell types in the assessment table.
+Higher percentiles correspond to higher scores; tied scores share the lowest
+rank in the tie. Gray tiles indicate missing scores.
 
-```{r }
+```{r, fig.width=9, fig.height=10}
+panel_labels <- c(
+   HLCA_original = "HLCA | Broad (original)",
+   HLCA_reannotated = "HLCA | Fine (reannotation)",
+   Heart_original = "Heart | Broad (original)",
+   Heart_reannotated = "Heart | Fine (reannotation)",
+   Tstr_original = "Stressed T cells | Broad (original)"
+)
 
+ranked_cons <- cons %>%
+   group_by(dataset_annot, method_type) %>%
+   mutate(rank_percentile = percent_rank(measure)) %>%
+   ungroup()
+
+plot_data <- tidyr::crossing(
+   marker_assessment %>% select(dataset_annot, celltype),
+   method_type = factor(names(cons_keep), levels = names(cons_keep))
+) %>%
+   left_join(ranked_cons, by = c("dataset_annot", "celltype", "method_type")) %>%
+   mutate(
+      dataset_annot = factor(dataset_annot, levels = names(panel_labels)),
+      celltype = factor(celltype, levels = rev(unique(marker_assessment$celltype))),
+      score_label = ifelse(is.na(measure), "NA", sprintf("%.2f", measure))
+   )
+
+allpl <- ggplot(plot_data, aes(x = method_type, y = celltype, fill = rank_percentile)) +
+   geom_tile(color = "white", linewidth = 0.6) +
+   geom_text(aes(label = score_label,
+                 color = !is.na(rank_percentile) & rank_percentile > 0.6),
+             size = 3.4, show.legend = FALSE) +
+   facet_grid(dataset_annot ~ ., scales = "free_y", space = "free_y",
+              labeller = as_labeller(panel_labels)) +
+   scale_fill_gradient(low = "#F7FBFF", high = "#08306B",
+                       limits = c(0, 1), na.value = "grey90",
+                       name = "Score\npercentile",
+                       labels = scales::label_percent()) +
+   scale_color_manual(values = c("FALSE" = "grey15", "TRUE" = "white")) +
+   scale_x_discrete(position = "top") +
+   labs(x = NULL, y = NULL,
+        caption = "Percentiles are calculated within each dataset, annotation and method.") +
+   theme_minimal(base_size = 11) +
+   theme(
+      panel.grid = element_blank(),
+      panel.spacing.y = grid::unit(0.35, "cm"),
+      strip.text.y = element_text(face = "bold", angle = 0, hjust = 0),
+      strip.background = element_rect(fill = "grey92", color = NA),
+      axis.text.x = element_text(face = "bold", angle = 45, hjust = 0, vjust = 0),
+      axis.text.y = element_text(color = "grey15"),
+      legend.position = "right",
+      plot.caption = element_text(hjust = 0, color = "grey40")
+   )
+
+allpl
 ```
 
 
