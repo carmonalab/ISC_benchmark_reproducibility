@@ -1,0 +1,108 @@
+---
+   title: "ISC-guided refinement of atlas-level cell type annotation"
+author: "J. Garnica <josep.garnicacaparros at unige.ch>"
+date: "`r format(Sys.Date(),'%e de %B, %Y')`"
+output:
+   html_document:
+   toc: true
+toc_float: true
+theme: united
+code_folding: show
+---
+   
+# Introduction
+Unify use-cases into a single-plot, run in scripts:
+- `6_Figure.Rmd` : Human lung atlas for club cells into nasal/non-nasal cell splitting, according to authors (proof of concept) :: supported by ISC
+- `Heart_atlas` : Human heart atlas for ventricular cardiomycites (vCM) splitting :: not supported by ISC
+- `Stressed_Tcells.Rmd`: Chu pan-cancer T cell atlas, focuses on Yost dataset. Show some T subtypes lack of ISC, no reannotation proposed.
+
+Annotations and reannotation (when applicable) has been cached at `cache/`
+
+# Setup
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE, 
+                      fig.width = 10, fig.height = 6)
+```
+
+```{r libraries}
+# Load packages
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(BiocParallel)
+library(RColorBrewer)
+library(Seurat)
+library(scTypeEval)
+source("helpers/consistency_exploration.R")
+
+# Custom theme
+theme_set(theme_bw(base_size = 12))
+```
+
+# 1. Load consistencies
+```{r}
+cons_files <- list.files("cache/",
+                         pattern = ".rds",
+                         full.names = T)
+
+cons_keep <- c("ISC_local" = "silhouette | recip_classif:Match",
+               "ISC_global" = "2label_silhouette | Pseudobulk:Cosine",
+               "SCCAF" = "SCCAF | NA",
+               "MetaNeighbor" = "MetaNeighbor_Supervised | NA",
+               "cLISI" = "nsa_cLISI | NA")
+
+ct_keep <- c("HLCA_original" = c("club.cell"), # bad based on markers
+             "HLCA_reannotated" = c("Club.(nasal)", "Club.(non.nasal)"), # good reannotation based on markers
+             "Heart_original" = c("Ventricular.Cardiomyocyte"), # good based on markers
+             "Heart_reannotated" = paste0("vCM", 1:5), # these reannotation were all bad based on markers
+             "Tstr_consistencies" = c("CD4.Treg", "CD8.p.Tex",
+                                      "CD8.Tcm", "CD4.Str",
+                                      "CD4.Tcm") # see table below
+             )
+
+```
+
+| Cell type  | local_ISC | SCCAF | MetaNeighbor | Gene marker |
+|-------|-------|-------|-------|-------|
+| CD4.Treg | good  | good | good | good |
+| CD8.p.Tex | bad | bad  | good | bad |
+| CD8.Tcm | bad | good | mid | bad  |
+| CD4.Str | bad | good | bad | bad |
+| CD4.Tcm | good | mid | bad | good |
+
+
+```{r}
+cons <- lapply(cons_files, function(f){
+   df <- readRDS(f)
+   nn <- basename(f)
+   ds <- strsplit(nn, split = "_")[[1]][1]
+   annot <- ifelse(grepl("reannot", nn, ignore.case = T),
+                   "reannotated", "original")
+   
+   df %>% 
+      mutate(method_type = paste(consistency_metric,
+                                 dissimilarity_method,
+                                 sep = " | ")) %>% 
+      filter(method_type %in% cons_keep) %>% 
+      mutate(method_type = factor(method_type,
+                                  levels = cons_keep,
+                                  labels = names(cons_keep)),
+             dataset = ds,
+             annot = annot,
+             dataset_annot = paste(dataset, annot, sep = "_")) %>% 
+      select(celltype, method_type, measure, ident, dataset, annot, dataset_annot)
+}) %>% 
+   data.table::rbindlist()
+```
+
+# 2. Build summarizing plot
+Build a tile plot
+Show clearly the cell type, dataset of origin and whether are reannotation or initial annotation (original)
+For each cell type and method_type show value with 2 decimals, and color based on rank within the `method_type` for each dataset-annotation (`dataset_annot`)
+
+```{r }
+
+```
+
+
