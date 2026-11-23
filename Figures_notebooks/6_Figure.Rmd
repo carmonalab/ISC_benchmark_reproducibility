@@ -719,14 +719,21 @@ seu <- RunUMAP(
 
 ```{r}
 DimPlot(seu, reduction = "pca")
-DimPlot(seu, group.by = .ident)
+(up <- DimPlot(seu, group.by = .ident))
 Idents(seu) <- .ident
 FeaturePlot(seu,
             features = feats,
             label = T)
 ```
 
+## export plot
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LungAtlas_", "clubcells_UMAP.pdf"))
 
+pdf(pdf_file, width = 5.5, height = 4)
+up + NoAxes()
+dev.off()
+```
 
 
 
