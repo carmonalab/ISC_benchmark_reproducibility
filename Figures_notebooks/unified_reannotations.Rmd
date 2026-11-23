@@ -50,11 +50,13 @@ cons_files <- file.path("cache", c(
    "Tstr_consistencies.rds"
 ))
 
-cons_keep <- c("ISC_local" = "silhouette | recip_classif:Match",
-               "ISC_global" = "2label_silhouette | Pseudobulk:Cosine",
+cons_keep <- c(
+               "ISC_local" = "silhouette | recip_classif:Match",
+               #"ISC_global" = "2label_silhouette | Pseudobulk:Cosine",
                "SCCAF" = "SCCAF | NA",
                "MetaNeighbor" = "MetaNeighbor_Supervised | NA",
-               "cLISI" = "nsa_cLISI | NA")
+               "cLISI" = "nsa_cLISI | NA"
+               )
 ```
 
 ## Gene marker assessment
@@ -125,16 +127,19 @@ The tile text shows the score rounded to two decimal places. Color shows the
 score's percentile rank among **all** cell types for the same method and
 dataset-annotation, before selecting the cell types in the assessment table.
 Higher percentiles correspond to higher scores; tied scores share the lowest
-rank in the tie. Gray tiles indicate missing scores.
+rank in the tie. Orange indicates lower percentiles and blue higher percentiles;
+gray tiles indicate missing scores. The gene marker column shows the separate
+qualitative assessment, with orange for bad and blue for good.
 
 ```{r, fig.width=9, fig.height=10}
 panel_labels <- c(
-   HLCA_original = "HLCA | Broad (original)",
-   HLCA_reannotated = "HLCA | Fine (reannotation)",
-   Heart_original = "Heart | Broad (original)",
-   Heart_reannotated = "Heart | Fine (reannotation)",
-   Tstr_original = "Stressed T cells | Broad (original)"
+   HLCA_original = "Lung Atlas | Broad (original)",
+   HLCA_reannotated = "Lung Atlas | Fine (reannotation)",
+   Heart_original = "Heart Atlas | Broad (original)",
+   Heart_reannotated = "Heart Atlas | Fine (reannotation)",
+   Tstr_original = "Intra-tumoral T cells | original"
 )
+celltype_levels <- rev(unique(marker_assessment$celltype))
 
 ranked_cons <- cons %>%
    group_by(dataset_annot, method_type) %>%
@@ -148,23 +153,39 @@ plot_data <- tidyr::crossing(
    left_join(ranked_cons, by = c("dataset_annot", "celltype", "method_type")) %>%
    mutate(
       dataset_annot = factor(dataset_annot, levels = names(panel_labels)),
-      celltype = factor(celltype, levels = rev(unique(marker_assessment$celltype))),
+      celltype = factor(celltype, levels = celltype_levels),
       score_label = ifelse(is.na(measure), "NA", sprintf("%.2f", measure))
+   )
+
+marker_plot <- marker_assessment %>%
+   mutate(
+      dataset_annot = factor(dataset_annot, levels = names(panel_labels)),
+      celltype = factor(celltype, levels = celltype_levels)
    )
 
 allpl <- ggplot(plot_data, aes(x = method_type, y = celltype, fill = rank_percentile)) +
    geom_tile(color = "white", linewidth = 0.6) +
    geom_text(aes(label = score_label,
-                 color = !is.na(rank_percentile) & rank_percentile > 0.6),
+                 color = !is.na(rank_percentile) & rank_percentile > 0.85),
              size = 3.4, show.legend = FALSE) +
+   geom_tile(data = filter(marker_plot, marker_assessment == "bad"),
+             aes(x = "Gene marker", y = celltype), inherit.aes = FALSE,
+             fill = "#fdae61", color = "white", linewidth = 0.6) +
+   geom_tile(data = filter(marker_plot, marker_assessment == "good"),
+             aes(x = "Gene marker", y = celltype), inherit.aes = FALSE,
+             fill = "#08519c", color = "white", linewidth = 0.6) +
+   geom_text(data = marker_plot,
+             aes(x = "Gene marker", y = celltype, label = marker_assessment,
+                 color = marker_assessment == "good"),
+             inherit.aes = FALSE, size = 3.4, show.legend = FALSE) +
    facet_grid(dataset_annot ~ ., scales = "free_y", space = "free_y",
               labeller = as_labeller(panel_labels)) +
-   scale_fill_gradient(low = "#F7FBFF", high = "#08306B",
-                       limits = c(0, 1), na.value = "grey90",
-                       name = "Score\npercentile",
-                       labels = scales::label_percent()) +
+   scale_fill_gradient2(low = "#fdae61", mid = "#F7F7F7", high = "#08519c",
+                        midpoint = 0.25, limits = c(0, 1), na.value = "grey90",
+                        name = "Score\npercentile",
+                        labels = scales::label_percent()) +
    scale_color_manual(values = c("FALSE" = "grey15", "TRUE" = "white")) +
-   scale_x_discrete(position = "top") +
+   scale_x_discrete(position = "top", limits = c(names(cons_keep), "Gene marker")) +
    labs(x = NULL, y = NULL,
         caption = "Percentiles are calculated within each dataset, annotation and method.") +
    theme_minimal(base_size = 11) +
