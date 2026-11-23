@@ -51,7 +51,7 @@ cons_files <- file.path("cache", c(
 ))
 
 cons_keep <- c(
-               "ISC_local" = "silhouette | recip_classif:Match",
+               "ISC local" = "silhouette | recip_classif:Match",
                #"ISC_global" = "2label_silhouette | Pseudobulk:Cosine",
                "SCCAF" = "SCCAF | NA",
                "MetaNeighbor" = "MetaNeighbor_Supervised | NA",
@@ -133,11 +133,11 @@ qualitative assessment, with orange for bad and blue for good.
 
 ```{r, fig.width=9, fig.height=10}
 panel_labels <- c(
-   HLCA_original = "Lung Atlas | Broad (original)",
-   HLCA_reannotated = "Lung Atlas | Fine (reannotation)",
-   Heart_original = "Heart Atlas | Broad (original)",
-   Heart_reannotated = "Heart Atlas | Fine (reannotation)",
-   Tstr_original = "Intra-tumoral T cells | original"
+   HLCA_original = "Lung Atlas\nBroad (original)",
+   HLCA_reannotated = "Lung Atlas\nFine (reannotation)",
+   Heart_original = "Heart Atlas\nBroad (original)",
+   Heart_reannotated = "Heart Atlas\nFine (reannotation)",
+   Tstr_original = "Tumoral T cells\noriginal"
 )
 celltype_levels <- rev(unique(marker_assessment$celltype))
 
@@ -196,11 +196,20 @@ allpl <- ggplot(plot_data, aes(x = method_type, y = celltype, fill = rank_percen
       strip.background = element_rect(fill = "grey92", color = NA),
       axis.text.x = element_text(face = "bold", angle = 45, hjust = 0, vjust = 0),
       axis.text.y = element_text(color = "grey15"),
-      legend.position = "right",
+      legend.position = "bottom",
       plot.caption = element_text(hjust = 0, color = "grey40")
    )
 
 allpl
 ```
 
+
+### export plot
+
+```{r}
+fpath <- "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/AlluseCase_plot.pdf"
+pdf(fpath, width = 5, height = 8)
+allpl
+dev.off()
+```
 
