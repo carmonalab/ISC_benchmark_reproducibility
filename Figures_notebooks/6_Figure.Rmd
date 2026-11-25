@@ -661,7 +661,7 @@ ps$metadata <- ps$metadata %>%
   arrange(.data[[.ident]])
 ps$matrix <- ps$matrix[,rownames(ps$metadata)]
 phall <- do_heatmap(ps,
-                    do_scale = T,
+                    do_scale = F,
                     cluster_cols = T,
                     cluster_rows = F)
 ```
@@ -735,6 +735,26 @@ up + NoAxes()
 dev.off()
 ```
 
+### batch integration
+Use STACAS
+
+```{r}
+library(STACAS)
+
+int <- SplitObject(seu, split.by = "dataset") %>% 
+  Run.STACAS()
+
+int <- RunUMAP(int, dims = 1:30)
+
+(up <- DimPlot(int, group.by = "ann_level_5"))
+```
+```{r}
+pdf_file <- file.path(fig_dir, paste0("LungAtlas_", "clubcells_UMAP_integrated.pdf"))
+
+pdf(pdf_file, width = 5.5, height = 4)
+up + NoAxes()
+dev.off()
+```
 
 
 ## Reannotation custom
