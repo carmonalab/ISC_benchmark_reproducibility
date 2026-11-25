@@ -36,6 +36,11 @@ library(tibble)
 source("helpers/consistency_exploration.R")
 # Custom theme
 theme_set(theme_bw(base_size = 12))
+
+fig_dir <- file.path(
+  "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/"
+)
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
 Define which ISC paramters
@@ -893,6 +898,14 @@ vcardio <- c(
   "ACTB", "NDUFA4", "COX7C", "COX5B", "NDUFB11",
   "DLC1", "EBF1", "SOX5", "EBF2", "KCNAB1"
 )
+
+vcardio <- c(
+  "FHL2", "MYH7", "MYL2", 
+  "CDH13", "PRELID2", "GRXCR2",
+  "NEXN", "ANKRD1", "FHL1",
+  "CRYAB", "MYL12A", "ACTB",
+  "DLC1", "EBF1", "SOX5"
+)
 ```
 
 
@@ -958,9 +971,10 @@ sc <- run_processing_data(sc,
                           ident = "cell_states",
                           sample = sample,
                           # enforce more cell type by lower threshold of samples
-                          min_samples = min_samples,
-                          min_cells = min_cells,
+                          min_samples = 1,
+                          min_cells = 1,
                           verbose = F)
+feats <- unlist(vcardio, use.names = F)
 ps <- get_pseudobulk(sc,
                      ident = "cell_states",
                      sample = sample,
@@ -968,10 +982,92 @@ ps <- get_pseudobulk(sc,
 phall <- do_heatmap(ps,
                     do_scale = F,
                     cluster_cols = T,
-                    cluster_rows = T)
+                    cluster_rows = F)
+```
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("Heart_", "vCM_pheatmap.pdf"))
+
+pdf(pdf_file, width = 7, height = 3)
+phall
+dev.off()
 ```
 
 
+```{r}
+hvg <- NULL
+hvg <- sc@gene_lists$HVG
+nfeatures <- 2000
+do.center = TRUE
+do.scale = TRUE
+npcs = 30
+
+if(is.null(hvg)){
+  seu_cardio <- FindVariableFeatures(
+    seu_cardio,
+    selection.method = "vst",
+    nfeatures = nfeatures,
+    verbose = FALSE
+  )
+  
+} else {
+  VariableFeatures(seu_cardio) <- hvg
+}
+
+seu_cardio <- ScaleData(
+  seu_cardio,
+  features = VariableFeatures(seu_cardio),
+  do.center = do.center,
+  do.scale = do.scale,
+  verbose = FALSE
+)
+seu_cardio <- RunPCA(
+  seu_cardio,
+  features = VariableFeatures(seu_cardio),
+  npcs = npcs,
+  seed.use = 22,
+  verbose = FALSE
+)
+seu_cardio <- RunUMAP(
+  seu_cardio,
+  dims = 1:npcs,
+  seed.use = 22,
+  verbose = FALSE
+)
+```
+
+```{r}
+.ident = "cell_states"
+DimPlot(seu_cardio, reduction = "pca", group.by = .ident)
+(up <- DimPlot(seu_cardio, group.by = .ident))
+DimPlot(seu_cardio, group.by = "donor")
+Idents(seu_cardio) <- .ident
+FeaturePlot(seu_cardio,
+            features = feats,
+            label = T)
+```
+
+### batch integration
+Use STACAS
+
+```{r}
+library(STACAS)
+
+int <- SplitObject(seu_cardio, split.by = "donor") %>% 
+  Run.STACAS()
+
+int <- RunUMAP(int, dims = 1:30)
+
+(up <- DimPlot(int, group.by = "cell_states", raster = T))
+```
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("Heart_", "vCM_UMAP_integrated.pdf"))
+
+pdf(pdf_file, width = 5.5, height = 4)
+up + NoAxes()
+dev.off()
+```
 
 ## 7.2 Smooth muscle cells
 
