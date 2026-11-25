@@ -33,6 +33,11 @@ library(scTypeEval)
 source("helpers/consistency_exploration.R")
 # Custom theme
 theme_set(theme_bw(base_size = 12))
+
+fig_dir <- file.path(
+  "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/"
+)
+dir.create(fig_dir, showWarnings = FALSE, recursive = TRUE)
 ```
 
 Define which ISC paramters
@@ -776,19 +781,28 @@ features <- list(
   # Population-defining markers
   population = list(
     CD4.Treg  = c("FOXP3", "IL2RA", "CTLA4"),
-    "CD8.p-Tex" = c("TCF7", "SLAMF6", "PDCD1", "TOX", "HAVCR2"),
+    "CD8.p-Tex" = c("SLAMF6", "PDCD1", "TOX", "HAVCR2"),
     CD8.Tcm   = c("TCF7", "CCR7", "SELL", "LEF1"),
-    CD4.Tstr   = c("HSPA1A","HSPA1B", "BAG3"),
+    CD4.Tstr   = c("HSPA1A","HSPA1B"),
     CD4.Tcm = c("TCF7", "CCR7", "SELL", "LEF1")
   ),
 
   # Common core T-cell functional markers
   core = c(
-    cytotoxicity = c("GZMA", "GNLY", "PRF1"),
+    cytotoxicity = c("GZMA", "GNLY"),
     exhaustion = c("PDCD1", "LAG3", "TOX"),
     memory = c("TCF7", "CCR7", "SELL"),
     activation = c("CD69", "IL2RA", "ICOS")
   )
+)
+
+
+colors <- c(
+    "CD8.Tcm" = "#BFC13D",
+    "CD8.p-Tex" = "#5BC7FA",
+    "CD4.Tstr" = "#64D89D",
+    "CD4.Treg" = "#EF90F9",
+    "CD4.Tcm" = "#F0978C"
 )
 ```
 
@@ -808,6 +822,11 @@ cts <- names(features$population)
 feat <- unlist(features) %>%
         as.character() %>%
         unique()
+cthem <- theme(axis.title.x = element_blank(),
+               axis.text.x = element_blank(),
+               axis.ticks.x = element_blank(),
+               axis.text.y = element_text(size = 14))
+
 dtpl <- lapply(cts, function(c){
   feats <- unique(c(
     features$population[[c]],
@@ -820,14 +839,15 @@ dtpl <- lapply(cts, function(c){
                        subset_values = c,
                        split_by = NULL,
                        scale_expression = F) +
-    ggtitle(c)
+    ggtitle(c) +
+    cthem
 }) 
 ```
 
 
 
 
-## Tradition dot plot
+## Traditional dot plot
 average across all dataset
 
 ```{r}
@@ -856,7 +876,7 @@ spl <- dotplot_seurat_style(seu,
 
 ```{r}
 fpath <- "~/OneDrive - Université de Genève/CSI/LabPapers/Intersample_Consistency/Figures/plots/Figure6/Tstressed_markers.pdf"
-pdf(fpath, width = 9, height = 9)
+pdf(fpath, width = 8, height = 4.6)
 for(a in dtpl){print(a)}
 print(all)
 dev.off()
@@ -874,7 +894,21 @@ sc <- run_processing_data(sc,
                           min_cells = 1)
 ps <- get_pseudobulk(sc,
                      genes = feat)
+
+phall <- do_heatmap(ps,
+                    do_scale = F,
+                    cluster_cols = T,
+                    cluster_rows = F)
 ```
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("Tstr_", "all_pheatmap.pdf"))
+
+pdf(pdf_file, width = 7, height = 3.5)
+phall
+dev.off()
+```
+
 
 ```{r}
 df <- ps$matrix %>%
@@ -911,40 +945,54 @@ do.center = TRUE
 do.scale = TRUE
 npcs = 30
 
-seu8 <- seu[,seu$celltype %in% "CD4.Tstr"]
-
-if(is.null(hvg)){
-  seu8 <- FindVariableFeatures(
+ups <- list()
+for(c in names(features$population)){
+  
+  seu8 <- seu[,seu$celltype %in% c]
+  
+  if(is.null(hvg)){
+    seu8 <- FindVariableFeatures(
+      seu8,
+      selection.method = "vst",
+      nfeatures = nfeatures,
+      verbose = FALSE
+    )
+    
+  } else {
+    VariableFeatures(seu8) <- hvg
+  }
+  
+  seu8 <- ScaleData(
     seu8,
-    selection.method = "vst",
-    nfeatures = nfeatures,
+    features = VariableFeatures(seu8),
+    do.center = do.center,
+    do.scale = do.scale,
     verbose = FALSE
   )
-  
-} else {
-  VariableFeatures(seu8) <- hvg
+  seu8 <- RunPCA(
+    seu8,
+    features = VariableFeatures(seu8),
+    npcs = npcs,
+    seed.use = 22,
+    verbose = FALSE
+  )
+  seu8 <- RunUMAP(
+    seu8,
+    dims = 1:npcs,
+    seed.use = 22,
+    verbose = FALSE
+  )
+  ups[[c]] <- DimPlot(seu8, group.by = "celltype", cols = colors[c])
 }
 
-seu8 <- ScaleData(
-  seu8,
-  features = VariableFeatures(seu8),
-  do.center = do.center,
-  do.scale = do.scale,
-  verbose = FALSE
-)
-seu8 <- RunPCA(
-  seu8,
-  features = VariableFeatures(seu8),
-  npcs = npcs,
-  seed.use = 22,
-  verbose = FALSE
-)
-seu8 <- RunUMAP(
-  seu8,
-  dims = 1:npcs,
-  seed.use = 22,
-  verbose = FALSE
-)
+```
+
+```{r}
+pdf_file <- file.path(fig_dir, paste0("Tstr_", "UMAP.pdf"))
+
+pdf(pdf_file, width = 5.5, height = 4)
+for(u in ups) print(u + NoAxes())
+dev.off()
 ```
 
 ```{r}
